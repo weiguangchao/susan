@@ -44,3 +44,18 @@ export type {
   SessionMessageRecord,
   SessionRecord,
 } from "./core/session.js";
+export {
+  READ_FILE_MAX_BYTES,
+  READ_FILE_MAX_LINE_CHARACTERS,
+  READ_FILE_MAX_LINES,
+  executeReadFile,
+  readFileTool,
+} from "./core/read-file.js";
+export type {
+  ReadFileError,
+  ReadFileErrorCode,
+  ReadFileSuccess,
+  ReadFileTool,
+  ReadFileToolResult,
+  ReadFileTruncationReason,
+} from "./core/read-file.js";

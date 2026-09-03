@@ -73,3 +73,23 @@ export type {
   ReadFileToolResult,
   ReadFileTruncationReason,
 } from "./core/read-file.js";
+export {
+  CANONICAL_SYSTEM_PROMPT,
+  buildSystemPrompt,
+  createHarness,
+} from "./core/harness.js";
+export type {
+  Harness,
+  HarnessCommand,
+  HarnessCommandResult,
+  HarnessClock,
+  HarnessError,
+  HarnessEvent,
+  HarnessOptions,
+  HarnessSnapshot,
+  HarnessStatus,
+  HarnessTool,
+  InterruptedResponse,
+  PendingAgentLoop,
+  ToolResult,
+} from "./core/harness.js";

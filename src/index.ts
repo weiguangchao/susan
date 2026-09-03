@@ -78,6 +78,17 @@ export {
   buildSystemPrompt,
   createHarness,
 } from "./core/harness.js";
+export { TuiApp } from "./ui/tui.js";
+export type { TuiAppProps } from "./ui/tui.js";
+export {
+  createTuiState,
+  formatProviderFailure,
+  formatToolCallDetail,
+  normalizeSubmission,
+  reduceTuiState,
+  resolveInputIntent,
+  resolveSubmission,
+} from "./ui/state.js";
 export type {
   Harness,
   HarnessCommand,
@@ -93,3 +104,15 @@ export type {
   PendingAgentLoop,
   ToolResult,
 } from "./core/harness.js";
+export type {
+  TuiAction,
+  TuiApproval,
+  TuiInputIntent,
+  TuiInputKey,
+  TuiMessage,
+  TuiRetry,
+  TuiState,
+  TuiSubmissionIntent,
+  TuiToolCard,
+  TuiToolStatus,
+} from "./ui/state.js";

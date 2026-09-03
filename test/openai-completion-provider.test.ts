@@ -200,6 +200,55 @@ describe("openai-completion provider adapter", () => {
     expect(events).toHaveLength(2);
   });
 
+  it("uses a non-streaming request for Compaction summaries", async () => {
+    let upstreamRequest: unknown;
+    const adapter = createOpenAICompletionAdapter(() => ({
+      chat: {
+        completions: {
+          create: async (body: unknown) => {
+            upstreamRequest = body;
+            return {
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: "Goal\n- Continue" },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: {
+                prompt_tokens: 20,
+                completion_tokens: 4,
+                total_tokens: 24,
+              },
+              _request_id: "summary-request",
+            };
+          },
+        },
+      },
+    }));
+    const client = adapter.createClient(resolvedConfig);
+
+    const result = await client.complete!(
+      { model: "deepseek-v4-flash", messages: request.messages.slice(0, 2) },
+      new AbortController().signal,
+    );
+
+    expect(upstreamRequest).toEqual({
+      model: "deepseek-v4-flash",
+      messages: [
+        { role: "system", content: "You are Susan." },
+        { role: "user", content: "Read the file." },
+      ],
+      stream: false,
+    });
+    expect(result).toEqual({
+      assistant: { role: "assistant", content: "Goal\n- Continue" },
+      finishReason: "stop",
+      usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24 },
+      requestId: "summary-request",
+    });
+  });
+
   it("normalizes and reassembles text, reasoning, and tool call deltas", async () => {
     const { events } = await streamEvents([
       chunk({ content: "He", unknownDeltaField: "ignored" }, null),
@@ -519,6 +568,29 @@ describe("openai-completion provider adapter", () => {
     });
     expect(failure?.message).not.toContain("sk-test");
     expect(failure?.message).not.toContain("Rate limited");
+  });
+
+  it("marks only recognized Provider context overflow failures", async () => {
+    const error = new APIError(
+      400,
+      {
+        code: "context_length_exceeded",
+        message: "Maximum context length exceeded",
+      },
+      "400 Maximum context length exceeded",
+      new Headers(),
+    );
+    const { events } = await streamEvents([], error);
+    const failure = events[0]?.type === "response-error"
+      ? events[0].failure
+      : undefined;
+
+    expect(failure).toMatchObject({
+      code: "PROVIDER_HTTP",
+      httpStatus: 400,
+      contextOverflow: true,
+      hadSemanticOutput: false,
+    });
   });
 
   it("parses HTTP-date Retry-After values", async () => {

@@ -62,6 +62,7 @@ export type ProviderFailure = {
   requestId?: string;
   retryAfterMs?: number;
   hadSemanticOutput: boolean;
+  contextOverflow?: boolean;
   cause?: unknown;
 };
 
@@ -90,6 +91,10 @@ export type ProviderClient = {
     request: ProviderRequest,
     signal: AbortSignal,
   ): AsyncIterable<ProviderStreamEvent>;
+  complete(
+    request: ProviderRequest,
+    signal: AbortSignal,
+  ): Promise<ProviderResponse | ProviderFailure>;
 };
 
 export type ProviderAdapter = {

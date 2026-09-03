@@ -57,6 +57,9 @@ function fakeSessionStore(appended: CompletionMessage[]): SessionStore {
       appended.push(message);
       return { ok: true, value: undefined };
     },
+    async appendCompaction() {
+      return { ok: true, value: undefined };
+    },
     async loadSession() {
       throw new Error("not used by Harness");
     },
@@ -76,6 +79,13 @@ function fakeProvider(
   let index = 0;
   return {
     type: "openai-completion",
+    async complete() {
+      return {
+        code: "PROVIDER_PROTOCOL",
+        message: "Unexpected summary request",
+        hadSemanticOutput: false,
+      };
+    },
     async *stream(request) {
       requests.push(request);
       const events = responses[index++];
@@ -111,6 +121,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "deepseek-v4-flash",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
     });
@@ -189,6 +201,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [tool("first"), tool("second")],
       createId: (() => {
@@ -340,6 +354,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools,
       createId: () => `approval-${++approvalNumber}`,
@@ -431,6 +447,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [
         {
@@ -506,6 +524,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "yolo",
       tools: [
         {
@@ -585,6 +605,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
       random: () => 0.5,
@@ -648,6 +670,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
       clock: {
@@ -718,6 +742,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript([{ role: "user", content: "Persisted" }]),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
     });
@@ -740,6 +766,13 @@ describe("Harness", () => {
     let providerStarted = false;
     const provider: ProviderClient = {
       type: "openai-completion",
+      async complete() {
+        return {
+          code: "PROVIDER_PROTOCOL",
+          message: "Unexpected summary request",
+          hadSemanticOutput: false,
+        };
+      },
       async *stream(_request, signal) {
         providerStarted = true;
         yield { type: "text-delta", textDelta: "Partial" };
@@ -765,6 +798,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
     });
@@ -810,6 +845,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
       clock: {
@@ -889,6 +926,8 @@ describe("Harness", () => {
         sessionStore: fakeSessionStore(appended),
         session: transcript(),
         model: "model",
+        contextWindow: 1_000_000,
+        maxOutputTokens: 1_000,
         approvalPolicy: "yolo",
         tools: [readFileTool],
       });
@@ -923,6 +962,8 @@ describe("Harness", () => {
       sessionStore: store,
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [],
     });
@@ -995,6 +1036,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(persisted),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "yolo",
       tools: [readFileTool],
     });
@@ -1049,6 +1092,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(persisted),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "ask",
       tools: [
         {
@@ -1121,6 +1166,8 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
       approvalPolicy: "yolo",
       tools: [
         {

@@ -159,6 +159,12 @@ describe("shared type contracts", () => {
       createClient(config: ResolvedProviderConfig) {
         return {
           type: config.type,
+          async complete() {
+            return {
+              assistant: { role: "assistant", content: "Summary" },
+              finishReason: "stop",
+            } as const;
+          },
           stream: async function* () {
             yield {
               type: "response-complete",

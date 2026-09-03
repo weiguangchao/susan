@@ -83,6 +83,10 @@ export type SessionStore = {
     sessionId: string,
     message: CompletionMessage,
   ): Promise<SessionStoreResult<void>>;
+  appendCompaction(
+    sessionId: string,
+    checkpoint: SessionCompactionRecord,
+  ): Promise<SessionStoreResult<void>>;
   loadSession(
     sessionId: string,
   ): Promise<SessionStoreResult<SessionTranscript>>;
@@ -491,6 +495,82 @@ export function createSessionStore(
         return failure(
           "SUSAN_SESSION_IO",
           error instanceof Error ? error.message : "Unable to append session record",
+          filePath,
+        );
+      }
+
+      return success(undefined);
+    },
+
+    async appendCompaction(sessionId, checkpoint) {
+      const prepared = await ensureSessionsDirectory(sessionsDirectory);
+      if (!prepared.ok) {
+        return prepared;
+      }
+      if (!UUID_PATTERN.test(sessionId)) {
+        return failure("SUSAN_SESSION_SCHEMA", "sessionId must be a UUID");
+      }
+      if (!isSessionRecord(checkpoint) || checkpoint.type !== "compaction") {
+        return failure(
+          "SUSAN_SESSION_SCHEMA",
+          "checkpoint must be a valid SessionCompactionRecord",
+        );
+      }
+
+      let fileName: string | undefined;
+      try {
+        fileName = await findSessionFilePath(sessionsDirectory, sessionId);
+      } catch (error) {
+        return failure(
+          "SUSAN_SESSION_DIRECTORY",
+          error instanceof Error
+            ? error.message
+            : "Unable to list sessions directory",
+          sessionsDirectory,
+        );
+      }
+      if (fileName === undefined) {
+        return failure(
+          "SUSAN_SESSION_NOT_FOUND",
+          "Session was not found",
+          sessionsDirectory,
+        );
+      }
+      const filePath = join(sessionsDirectory, fileName);
+
+      try {
+        const text = await readSessionFile(filePath);
+        if (!text.ok) {
+          return text;
+        }
+        const parsed = parseSessionText(text.value, filePath);
+        if (!parsed.ok) {
+          return parsed;
+        }
+        const existing = text.value;
+        if (!existing.endsWith("\n")) {
+          const lastNewline = existing.lastIndexOf("\n");
+          const lastLine = existing.slice(lastNewline + 1);
+          try {
+            JSON.parse(lastLine);
+            await appendNewline(filePath);
+          } catch {
+            await truncate(filePath, lastNewline + 1);
+          }
+        }
+        const handle = await open(filePath, "a");
+        try {
+          await handle.appendFile(`${JSON.stringify(checkpoint)}\n`, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        return failure(
+          "SUSAN_SESSION_IO",
+          error instanceof Error
+            ? error.message
+            : "Unable to append session record",
           filePath,
         );
       }

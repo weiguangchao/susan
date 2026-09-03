@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSessionStore } from "../src/index.js";
-import type { CompletionMessage } from "../src/index.js";
+import type { CompletionMessage, SessionCompactionRecord } from "../src/index.js";
 
 describe("session store", () => {
   let root: string;
@@ -90,6 +90,42 @@ describe("session store", () => {
     expect(lines.slice(1).map((line) => JSON.parse(line))).toEqual(
       messages.map((message) => ({ type: "message", message })),
     );
+  });
+
+  it("appends and restores a Compaction Checkpoint without rewriting the Session Transcript", async () => {
+    const store = createSessionStore({
+      sessionsDirectory: join(root, "sessions"),
+    });
+    const created = await store.createSession({ cwd: root });
+    if (!created.ok) {
+      throw new Error("session was not created");
+    }
+    const message: CompletionMessage = { role: "user", content: "Keep me." };
+    const checkpoint: SessionCompactionRecord = {
+      type: "compaction",
+      summary: "Goal\n- Continue the task",
+      firstKeptMessageIndex: 0,
+      tokensBefore: 42_000,
+      tokensAfterEstimate: 8_000,
+      createdAt: "2026-09-03T01:00:00.000Z",
+    };
+
+    await store.appendMessage(created.value.header.id, message);
+    const appended = await store.appendCompaction(
+      created.value.header.id,
+      checkpoint,
+    );
+
+    expect(appended).toEqual({ ok: true, value: undefined });
+    const loaded = await store.loadSession(created.value.header.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) {
+      expect(loaded.value.records).toEqual([
+        { type: "message", message },
+        checkpoint,
+      ]);
+      expect(loaded.value.messages).toEqual([message]);
+    }
   });
 
   it("recovers a torn final JSON line and continues appending safely", async () => {

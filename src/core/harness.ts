@@ -1,4 +1,14 @@
 import type { ApprovalPolicy } from "./config.js";
+import {
+  estimateMessageTokens,
+  estimateMessagesTokens,
+  estimateTextTokens,
+  estimateToolsTokens,
+  latestCompactionCheckpoint,
+  modelContextMessages,
+  selectRecentTailStart,
+  serializeCompactionInput,
+} from "./context.js";
 import { isJsonValue, isRecord, type JsonValue } from "./json.js";
 import type {
   CompletionMessage,
@@ -10,7 +20,11 @@ import type {
   ProviderToolDefinition,
   ProviderToolCall,
 } from "./provider.js";
-import type { SessionStore, SessionTranscript } from "./session.js";
+import type {
+  SessionCompactionRecord,
+  SessionStore,
+  SessionTranscript,
+} from "./session.js";
 
 export const CANONICAL_SYSTEM_PROMPT = `You are Susan, a minimal personal terminal coding agent.
 
@@ -99,6 +113,15 @@ export type HarnessEvent =
     }
   | { readonly type: "tool-round-limit-reached"; readonly limit: 20 }
   | {
+      readonly type: "context-compacted";
+      readonly tokensBefore: number;
+      readonly tokensAfterEstimate: number;
+    }
+  | {
+      readonly type: "compaction-failed";
+      readonly message: string;
+    }
+  | {
       readonly type: "provider-retrying";
       readonly retry: 1 | 2;
       readonly maxRetries: 2;
@@ -138,9 +161,16 @@ export type HarnessError = {
     | "HARNESS_ABORTED"
     | "HARNESS_INVALID_COMMAND"
     | "HARNESS_PROVIDER"
-    | "HARNESS_SESSION";
+    | "HARNESS_SESSION"
+    | "HARNESS_COMPACTION"
+    | "CONTEXT_TOO_LARGE";
   readonly message: string;
   readonly providerFailure?: ProviderFailure;
+  readonly estimates?: {
+    readonly systemPrompt: number;
+    readonly tools: number;
+    readonly currentUserTurn: number;
+  };
 };
 
 export type HarnessCommandResult =
@@ -152,6 +182,8 @@ export type HarnessOptions = {
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
   readonly model: string;
+  readonly contextWindow: number;
+  readonly maxOutputTokens: number;
   readonly approvalPolicy: ApprovalPolicy;
   readonly tools: readonly HarnessTool[];
   readonly createId?: () => string;
@@ -296,7 +328,16 @@ const systemClock: HarnessClock = {
 
 export function createHarness(options: HarnessOptions): Harness {
   const messages = [...options.session.messages];
+  const toolDefinitions = options.tools.map(({ name, description, parameters }) => ({
+    name,
+    description,
+    parameters,
+  }));
   const listeners = new Set<(event: HarnessEvent) => void>();
+  let checkpoint = latestCompactionCheckpoint(options.session.records);
+  let usageBaseline:
+    | { readonly inputTokens: number; readonly messageCount: number }
+    | undefined;
   let pending = restoredPending(messages);
   let status: HarnessStatus = pending === null ? "idle" : "pending";
   let activeApproval:
@@ -338,28 +379,238 @@ export function createHarness(options: HarnessOptions): Harness {
     return { ok: true };
   };
 
-  const requestProvider = async (toolsEnabled = true): Promise<
+  const contextTooLarge = (): HarnessError => {
+    const systemPrompt = estimateTextTokens(
+      buildSystemPrompt(options.session.header.cwd),
+    );
+    const tools = estimateToolsTokens(toolDefinitions);
+    const lastUserIndex = messages.findLastIndex(
+      (message) => message.role === "user",
+    );
+    const currentUserTurn = estimateMessagesTokens(
+      messages.slice(Math.max(0, lastUserIndex)),
+    );
+    return {
+      code: "CONTEXT_TOO_LARGE",
+      message: "The canonical runtime context and current user turn exceed the model context window.",
+      estimates: { systemPrompt, tools, currentUserTurn },
+    };
+  };
+
+  const failContext = (error: HarnessError): HarnessCommandResult => {
+    status = "pending";
+    pending = { reason: "provider-failure" };
+    emit({ type: "compaction-failed", message: error.message });
+    return { ok: false, error };
+  };
+
+  const estimateCurrentContext = (): number => {
+    if (usageBaseline !== undefined) {
+      return (
+        usageBaseline.inputTokens +
+        estimateMessagesTokens(messages.slice(usageBaseline.messageCount))
+      );
+    }
+    return (
+      estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) +
+      estimateToolsTokens(toolDefinitions) +
+      estimateMessagesTokens(modelContextMessages(messages, checkpoint))
+    );
+  };
+
+  const currentTurnFits = (): boolean => {
+    const estimates = contextTooLarge().estimates!;
+    const reserve = Math.max(options.maxOutputTokens, 16_384);
+    return (
+      estimates.systemPrompt +
+        estimates.tools +
+        estimates.currentUserTurn <
+      options.contextWindow - reserve
+    );
+  };
+
+  const compactContext = async (
+    force = false,
+  ): Promise<
+    | { readonly ok: true }
+    | { readonly ok: false; readonly error: HarnessError }
+  > => {
+    const reserve = Math.max(options.maxOutputTokens, 16_384);
+    const tokensBefore = estimateCurrentContext();
+    if (!force && tokensBefore < options.contextWindow - reserve) {
+      return { ok: true };
+    }
+    if (!currentTurnFits()) {
+      return { ok: false, error: contextTooLarge() };
+    }
+
+    const minimumStart = checkpoint?.firstKeptMessageIndex ?? 0;
+    const tailTarget = Math.min(
+      20_000,
+      Math.max(
+        0,
+        options.contextWindow -
+          reserve -
+          estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) -
+          estimateToolsTokens(toolDefinitions),
+      ),
+    );
+    const firstKeptMessageIndex = selectRecentTailStart(
+      messages,
+      minimumStart,
+      tailTarget,
+    );
+    if (firstKeptMessageIndex <= minimumStart) {
+      return { ok: false, error: contextTooLarge() };
+    }
+    const compactedMessages = messages.slice(
+      minimumStart,
+      firstKeptMessageIndex,
+    );
+    const complete = options.provider.complete;
+    const summaryRequest: ProviderRequest = {
+      model: options.model,
+      messages: [
+        {
+          role: "system",
+          content: buildSystemPrompt(options.session.header.cwd),
+        },
+        {
+          role: "user",
+          content: serializeCompactionInput(
+            checkpoint?.summary,
+            compactedMessages,
+          ),
+        },
+      ],
+    };
+    let summaryResult: ProviderResponse | ProviderFailure = {
+      code: "PROVIDER_PROTOCOL",
+      message: "Compaction summary retry state is invalid.",
+      hadSemanticOutput: false,
+    };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        summaryResult = await complete.call(
+          options.provider,
+          summaryRequest,
+          activeRunController?.signal ?? new AbortController().signal,
+        );
+      } catch {
+        summaryResult = {
+          code: "PROVIDER_NETWORK",
+          message: "Compaction summary request failed.",
+          hadSemanticOutput: false,
+        };
+      }
+      if (!("code" in summaryResult)) {
+        break;
+      }
+      if (attempt === 2 || !isRetryableProviderFailure(summaryResult)) {
+        break;
+      }
+      const retry = (attempt + 1) as 1 | 2;
+      const baseDelay = retry === 1 ? 1_000 : 2_000;
+      const retryAfter = summaryResult.retryAfterMs;
+      const delayMs =
+        retryAfter !== undefined &&
+        Number.isFinite(retryAfter) &&
+        retryAfter >= 0
+          ? Math.min(30_000, retryAfter)
+          : Math.round(baseDelay * (0.8 + random() * 0.4));
+      emit({
+        type: "provider-retrying",
+        retry,
+        maxRetries: 2,
+        delayMs,
+        failure: summaryResult,
+      });
+      try {
+        await clock.sleep(delayMs, activeRunController?.signal);
+      } catch {
+        summaryResult = {
+          code: "PROVIDER_ABORT",
+          message: "Compaction summary request was aborted.",
+          hadSemanticOutput: false,
+        };
+        break;
+      }
+    }
+    if (
+      "code" in summaryResult ||
+      summaryResult.finishReason !== "stop" ||
+      (summaryResult.assistant.toolCalls?.length ?? 0) > 0 ||
+      (summaryResult.assistant.content?.length ?? 0) === 0
+    ) {
+      const message =
+        "code" in summaryResult
+          ? summaryResult.message
+          : "Compaction summary returned no valid summary.";
+      return {
+        ok: false,
+        error: { code: "HARNESS_COMPACTION", message },
+      };
+    }
+
+    const candidate: SessionCompactionRecord = {
+      type: "compaction",
+      summary: summaryResult.assistant.content!,
+      firstKeptMessageIndex,
+      tokensBefore,
+      tokensAfterEstimate: 0,
+      createdAt: new Date().toISOString(),
+    };
+    const tokensAfterEstimate =
+      estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) +
+      estimateToolsTokens(toolDefinitions) +
+      estimateMessagesTokens(modelContextMessages(messages, candidate));
+    const completedCheckpoint: SessionCompactionRecord = {
+      ...candidate,
+      tokensAfterEstimate,
+    };
+    const appended = await options.sessionStore.appendCompaction(
+      options.session.header.id,
+      completedCheckpoint,
+    );
+    if (!appended.ok) {
+      return {
+        ok: false,
+        error: { code: "HARNESS_SESSION", message: appended.error.message },
+      };
+    }
+    checkpoint = completedCheckpoint;
+    usageBaseline = undefined;
+    emit({ type: "context-compacted", tokensBefore, tokensAfterEstimate });
+    return { ok: true };
+  };
+
+  const requestProvider = async (
+    toolsEnabled = true,
+    overflowRecoveryAvailable = true,
+    skipPreflight = false,
+  ): Promise<
     | { readonly ok: true; readonly response: ProviderResponse }
     | {
         readonly ok: false;
-        readonly failure: ProviderFailure;
+        readonly failure?: ProviderFailure;
         readonly interruptedResponse?: InterruptedResponse;
+        readonly contextError?: HarnessError;
       }
   > => {
+    if (!skipPreflight) {
+      const prepared = await compactContext();
+      if (!prepared.ok) {
+        return { ok: false, contextError: prepared.error };
+      }
+    }
     const request: ProviderRequest = {
       model: options.model,
       messages: [
         { role: "system", content: buildSystemPrompt(options.session.header.cwd) },
-        ...messages,
+        ...modelContextMessages(messages, checkpoint),
       ],
-      ...(toolsEnabled && options.tools.length > 0
-        ? {
-            tools: options.tools.map(({ name, description, parameters }) => ({
-              name,
-              description,
-              parameters,
-            })),
-          }
+      ...(toolsEnabled && toolDefinitions.length > 0
+        ? { tools: toolDefinitions }
         : {}),
     };
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -409,6 +660,12 @@ export function createHarness(options: HarnessOptions): Harness {
         );
       }
       if (!("code" in terminal)) {
+        if (terminal.usage !== undefined) {
+          usageBaseline = {
+            inputTokens: terminal.usage.inputTokens,
+            messageCount: messages.length,
+          };
+        }
         return { ok: true, response: terminal };
       }
 
@@ -417,6 +674,17 @@ export function createHarness(options: HarnessOptions): Harness {
           ? { ...terminal, hadSemanticOutput: true }
           : terminal,
       );
+      if (
+        failure.contextOverflow === true &&
+        !failure.hadSemanticOutput &&
+        overflowRecoveryAvailable
+      ) {
+        const compacted = await compactContext(true);
+        if (!compacted.ok) {
+          return { ok: false, contextError: compacted.error };
+        }
+        return requestProvider(toolsEnabled, false, true);
+      }
       if (attempt === 2 || !isRetryableProviderFailure(failure)) {
         const interruptedResponse = hadSemanticOutput
           ? {
@@ -696,7 +964,15 @@ export function createHarness(options: HarnessOptions): Harness {
   const runToolFreeFinalRequest = async (): Promise<HarnessCommandResult> => {
     const finalResult = await requestProvider(false);
     if (!finalResult.ok) {
-      return failProvider(finalResult);
+      if (finalResult.contextError !== undefined) {
+        return failContext(finalResult.contextError);
+      }
+      return failProvider({
+        failure: finalResult.failure!,
+        ...(finalResult.interruptedResponse === undefined
+          ? {}
+          : { interruptedResponse: finalResult.interruptedResponse }),
+      });
     }
     const finalAssistant = finalResult.response.assistant;
     if (
@@ -734,7 +1010,15 @@ export function createHarness(options: HarnessOptions): Harness {
     while (true) {
       const providerResult = await requestProvider();
       if (!providerResult.ok) {
-        return failProvider(providerResult);
+        if (providerResult.contextError !== undefined) {
+          return failContext(providerResult.contextError);
+        }
+        return failProvider({
+          failure: providerResult.failure!,
+          ...(providerResult.interruptedResponse === undefined
+            ? {}
+            : { interruptedResponse: providerResult.interruptedResponse }),
+        });
       }
 
       const assistant = providerResult.response.assistant;

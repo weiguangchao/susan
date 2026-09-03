@@ -33,7 +33,7 @@ type ChatCompletionsClient = {
       create(
         body: unknown,
         options?: { readonly signal?: AbortSignal },
-      ): Promise<AsyncIterable<unknown>>;
+      ): Promise<unknown>;
     };
   };
 };
@@ -41,14 +41,6 @@ type ChatCompletionsClient = {
 type OpenAIClientFactory = (
   options: OpenAIClientOptions,
 ) => ChatCompletionsClient;
-
-type ChatCompletionsRequest = {
-  readonly model: string;
-  readonly messages: readonly Record<string, unknown>[];
-  readonly tools?: readonly Record<string, unknown>[];
-  readonly stream: true;
-  readonly stream_options: { readonly include_usage: true };
-};
 
 type ToolCallAccumulator = {
   id?: string;
@@ -77,7 +69,8 @@ function createOpenAIClient(options: OpenAIClientOptions): ChatCompletionsClient
 
 function toChatCompletionsRequest(
   request: ProviderRequest,
-): ChatCompletionsRequest {
+  stream = true,
+): Record<string, unknown> {
   const messages = request.messages.map((message) => {
     if (message.role === "system" || message.role === "user") {
       return {
@@ -116,18 +109,15 @@ function toChatCompletionsRequest(
     return assistant;
   });
 
-  const chatCompletionsRequest: {
-    model: string;
-    messages: readonly Record<string, unknown>[];
-    tools?: readonly Record<string, unknown>[];
-    stream: true;
-    stream_options: { include_usage: true };
-  } = {
+  const chatCompletionsRequest: Record<string, unknown> = {
     model: request.model,
     messages,
-    stream: true,
-    stream_options: { include_usage: true },
+    stream,
   };
+
+  if (stream) {
+    chatCompletionsRequest.stream_options = { include_usage: true };
+  }
 
   if (request.tools !== undefined && request.tools.length > 0) {
     chatCompletionsRequest.tools = request.tools.map((tool) => ({
@@ -141,6 +131,15 @@ function toChatCompletionsRequest(
   }
 
   return chatCompletionsRequest;
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Symbol.asyncIterator in value &&
+    typeof value[Symbol.asyncIterator] === "function"
+  );
 }
 
 function optionalString(
@@ -279,6 +278,7 @@ function failureFromError(
       httpStatus,
       requestId,
       retryAfterMs,
+      ...(isContextOverflowError(error) ? { contextOverflow: true } : {}),
     };
   }
 
@@ -303,6 +303,81 @@ function failureFromError(
     code: "PROVIDER_NETWORK",
     message: "Provider network request failed.",
   };
+}
+
+function isContextOverflowError(error: APIError): boolean {
+  const candidate = error as unknown;
+  const values: unknown[] = [];
+  if (isRecord(candidate)) {
+    values.push(candidate.code, candidate.message);
+    if (isRecord(candidate.error)) {
+      values.push(candidate.error.code, candidate.error.message);
+    }
+  }
+  return values.some(
+    (value) =>
+      typeof value === "string" &&
+      /context(?:_| )?(?:length|window)|maximum context|too many tokens/i.test(
+        value,
+      ),
+  );
+}
+
+function parseNonStreamingResponse(value: unknown): ProviderResponse {
+  if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length !== 1) {
+    protocolError("Provider returned an invalid non-streaming response.");
+  }
+  const choice = value.choices[0];
+  if (!isRecord(choice) || choice.index !== 0 || !isRecord(choice.message)) {
+    protocolError("Provider returned an invalid non-streaming choice.");
+  }
+  if (choice.finish_reason !== "stop" && choice.finish_reason !== "tool_calls") {
+    protocolError("Provider returned an invalid non-streaming finish_reason.");
+  }
+  const content = optionalString(choice.message.content, "content", true);
+  const reasoning = optionalString(
+    choice.message.reasoning_content,
+    "reasoning_content",
+    true,
+  );
+  const toolCalls: ProviderToolCall[] = [];
+  if (choice.message.tool_calls !== undefined && choice.message.tool_calls !== null) {
+    if (!Array.isArray(choice.message.tool_calls)) {
+      protocolError("Provider returned invalid non-streaming tool calls.");
+    }
+    for (const raw of choice.message.tool_calls) {
+      if (!isRecord(raw) || !isRecord(raw.function)) {
+        protocolError("Provider returned an invalid non-streaming tool call.");
+      }
+      const id = optionalString(raw.id, "tool call id");
+      const name = optionalString(raw.function.name, "tool call name");
+      const argumentsText = optionalString(
+        raw.function.arguments,
+        "tool call arguments",
+        true,
+      );
+      let argumentsValue: JsonValue;
+      try {
+        argumentsValue = JSON.parse(argumentsText ?? "") as JsonValue;
+      } catch {
+        protocolError("Provider tool call has invalid arguments JSON.");
+      }
+      if (!isJsonValue(argumentsValue)) {
+        protocolError("Provider tool call has invalid arguments JSON.");
+      }
+      toolCalls.push({ id: id!, name: name!, arguments: argumentsValue });
+    }
+  }
+  return buildResponse(
+    choice.finish_reason,
+    content ?? "",
+    reasoning ?? "",
+    toolCalls,
+    value.usage === undefined || value.usage === null
+      ? undefined
+      : parseUsage(value.usage),
+    optionalString(value._request_id, "_request_id"),
+  );
 }
 
 function optionalErrorRequestId(error: APIError): string | undefined {
@@ -448,6 +523,10 @@ function createClient(
           toChatCompletionsRequest(request),
           { signal },
         );
+
+        if (!isAsyncIterable(upstream)) {
+          protocolError("Provider returned a non-streaming value for a streaming request.");
+        }
 
         for await (const value of upstream) {
           const chunk = value;
@@ -695,6 +774,27 @@ function createClient(
           type: "response-error",
           failure: failureFromError(error, hadSemanticOutput),
         };
+      }
+    },
+    async complete(
+      request: ProviderRequest,
+      signal: AbortSignal,
+    ): Promise<ProviderResponse | ProviderFailure> {
+      if (signal.aborted) {
+        return {
+          code: "PROVIDER_ABORT",
+          message: "Provider request was aborted.",
+          hadSemanticOutput: false,
+        };
+      }
+      try {
+        const response = await client.chat.completions.create(
+          toChatCompletionsRequest(request, false),
+          { signal },
+        );
+        return parseNonStreamingResponse(response);
+      } catch (error) {
+        return failureFromError(error, false);
       }
     },
   };

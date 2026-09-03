@@ -10,5 +10,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["prototype"]
+  "include": ["prototype", "src", "test"]
 }

@@ -43,6 +43,17 @@ export type {
   SessionHeader,
   SessionMessageRecord,
   SessionRecord,
+  SessionStore,
+  SessionStoreError,
+  SessionStoreErrorCode,
+  SessionStoreOptions,
+  SessionStoreResult,
+  SessionSummary,
+  SessionTranscript,
+} from "./core/session.js";
+export {
+  DEFAULT_SESSIONS_DIRECTORY,
+  createSessionStore,
 } from "./core/session.js";
 export {
   READ_FILE_MAX_BYTES,

@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>susan Config 加载与错误提示 · Throwaway Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18201d;
+      --muted: #66716d;
+      --line: #d8dfdb;
+      --paper: #f5f7f3;
+      --panel: #fff;
+      --accent: #176b4d;
+      --accent-soft: #e3f1ea;
+      --danger: #a63c2f;
+      --danger-soft: #fff0ed;
+      --shadow: 0 12px 35px rgba(29, 47, 39, .08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 15px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1160px, calc(100% - 32px)); margin: 36px auto 72px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(27px, 4vw, 42px); letter-spacing: -.035em; }
+    h2 { font-size: 18px; }
+    h3 { margin-bottom: 9px; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+    .throwaway { margin-left: 8px; border: 1px solid #c9d2ce; border-radius: 999px; padding: 2px 8px; color: var(--muted); font-size: 11px; }
+    .intro { max-width: 880px; margin-bottom: 24px; }
+    .intro > p { color: var(--muted); font-size: 16px; }
+    .question { border-left: 4px solid var(--accent); border-radius: 8px; background: var(--accent-soft); padding: 14px 16px; color: #234a3b; }
+
+    .grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(330px, .95fr); gap: 18px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 20px; box-shadow: var(--shadow); }
+    .terminal { min-height: 330px; border-radius: 10px; background: #17201c; padding: 20px; color: #eef5f0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .terminal h2 { color: #fff; font: 700 17px/1.4 ui-monospace, monospace; }
+    .terminal .dim { color: #9bb0a5; }
+    .terminal .ok { color: #8ce2b8; }
+    .terminal .bad { color: #ff9e91; }
+    .terminal .help { margin-top: 22px; color: #cad7d0; }
+    .terminal pre { margin: 12px 0; border: 1px solid #3a4a42; border-radius: 7px; background: #111814; padding: 12px; color: #dce8e1; white-space: pre-wrap; }
+
+    .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    button { border: 1px solid #bdc9c3; border-radius: 8px; background: #fff; padding: 8px 11px; color: var(--ink); font: 650 13px/1.25 inherit; cursor: pointer; }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+
+    .state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .state-item { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+    .state-item strong { display: block; color: var(--muted); font-size: 11px; letter-spacing: .07em; text-transform: uppercase; }
+    .state-item span { overflow-wrap: anywhere; }
+    .wide { grid-column: 1 / -1; }
+    .error-panel { border-color: #efc5bd; background: var(--danger-soft); }
+
+    .section { margin-top: 18px; }
+    pre.preview { margin: 0; border-radius: 8px; background: #f2f5f2; padding: 13px; overflow: auto; font-size: 12px; line-height: 1.5; }
+    .events { margin: 0; padding-left: 20px; color: var(--muted); }
+    .events li:first-child { color: var(--ink); font-weight: 650; }
+
+    .walkthroughs, .free-play { margin-top: 18px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+    .tabs button[aria-selected="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .scenario { padding-top: 16px; }
+    .scenario > p, .callout { color: var(--muted); }
+    .steps { display: grid; gap: 9px; }
+    .step { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+    .step.done { background: var(--accent-soft); }
+    .step.current { border-color: var(--accent); }
+    .step-num { display: grid; flex: 0 0 auto; place-items: center; width: 27px; height: 27px; border-radius: 50%; background: #edf1ee; font-weight: 800; }
+    .step-copy { flex: 1; }
+    .step-copy strong { display: block; }
+    .step-copy span { color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+      .state-grid { grid-template-columns: 1fr; }
+      .wide { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="intro">
+      <div class="eyebrow">susan · Config loader <span class="throwaway">THROWAWAY PROTOTYPE</span></div>
+      <h1>Config 缺失与错误提示流程</h1>
+      <p>这个原型不编辑、不创建、不修复 Config。它只模拟读取、补默认值、校验、提示，以及用户手动修改后的重新读取。</p>
+      <div class="question"><strong>要验证的决定：</strong>用户完全拥有 Config；susan 只把缺省 optional 字段解析为默认值。文件不存在、空文件、schema / permission / provider 错误均由 TUI 解释，等待用户手动修复。</div>
+    </header>
+
+    <div class="grid">
+      <section class="panel">
+        <div id="terminal" class="terminal" aria-live="polite"></div>
+        <div id="contextActions" class="button-row"></div>
+      </section>
+
+      <aside class="panel">
+        <h2>完整相关状态</h2>
+        <div id="state" class="state-grid"></div>
+        <div class="section">
+          <h3>Resolved Config（API key 已遮蔽）</h3>
+          <pre id="resolved" class="preview"></pre>
+        </div>
+        <div class="section">
+          <h3>最近事件</h3>
+          <ol id="events" class="events"></ol>
+        </div>
+      </aside>
+    </div>
+
+    <section class="panel walkthroughs">
+      <h2>Guided walkthroughs</h2>
+      <div id="tabs" class="tabs" role="tablist"></div>
+      <div id="scenario" class="scenario"></div>
+    </section>
+
+    <section class="panel free-play">
+      <h2>自由操作</h2>
+      <p class="callout">可以随时换一种磁盘状态重新加载。页面内没有编辑、保存或创建 Config 的动作。</p>
+      <div id="freeActions" class="button-row"></div>
+    </section>
+  </main>
+
+  <script>
+    // Portable state machine: pure logic only; no DOM or browser APIs.
+    const ConfigLoader = (() => {
+      const defaults = Object.freeze({
+        version: 1,
+        defaultProvider: "deepseek",
+        defaultModel: "deepseek-v4-flash",
+        approval: "ask"
+      });
+
+      const example = Object.freeze({
+        providers: {
+          deepseek: {
+            type: "openai-completion",
+            apiKey: "sk-..."
+          }
+        }
+      });
+
+      const clone = value => JSON.parse(JSON.stringify(value));
+      const mask = value => value ? `••••••••${value.slice(-4)}` : undefined;
+
+      function initialState() {
+        return {
+          phase: "idle",
+          diskCase: "尚未读取",
+          configPath: "~/.susan/config.json",
+          rawConfig: null,
+          resolvedConfig: null,
+          defaultsApplied: [],
+          error: null,
+          destination: "等待读取",
+          lastChange: "susan 尚未读取 Config",
+          events: ["启动 susan"]
+        };
+      }
+
+      function event(state, message, patch = {}) {
+        return { ...state, ...patch, lastChange: message, events: [message, ...state.events].slice(0, 6) };
+      }
+
+      function failure(state, diskCase, code, issues, hint) {
+        return event(state, `${diskCase}：TUI 提示用户手动修复`, {
+          phase: "blocked",
+          diskCase,
+          rawConfig: null,
+          resolvedConfig: null,
+          defaultsApplied: [],
+          error: { code, issues, hint },
+          destination: "r 重新读取 · Esc 退出"
+        });
+      }
+
+      function resolveConfig(raw) {
+        const config = clone(raw);
+        const applied = [];
+        for (const [key, value] of Object.entries(defaults)) {
+          if (config[key] === undefined) {
+            config[key] = value;
+            applied.push(key);
+          }
+        }
+
+        if (!config.providers || typeof config.providers !== "object" || Array.isArray(config.providers)) {
+          return { error: { code: "SUSAN_CONFIG_PROVIDER_UNKNOWN", issues: [`providers.${config.defaultProvider} · 当前 defaultProvider 没有对应 entry`] }, applied };
+        }
+        const provider = config.providers[config.defaultProvider];
+        if (!provider) {
+          return { error: { code: "SUSAN_CONFIG_PROVIDER_UNKNOWN", issues: [`providers.${config.defaultProvider} · 当前 defaultProvider 没有对应 entry`] }, applied };
+        }
+        if (!provider.type) {
+          return { error: { code: "SUSAN_CONFIG_SCHEMA", issues: [`providers.${config.defaultProvider}.type · 必须明确 wire protocol`] }, applied };
+        }
+        if (provider.type !== "openai-completion") {
+          return { error: { code: "SUSAN_CONFIG_PROVIDER_TYPE_UNSUPPORTED", issues: [`providers.${config.defaultProvider}.type · 0.0.1 未注册 ${provider.type} adapter`] }, applied };
+        }
+        if (!provider.apiKey) {
+          return { error: { code: "SUSAN_CONFIG_API_KEY_MISSING", issues: [`providers.${config.defaultProvider}.apiKey · 当前 defaultProvider 缺少 API key`] }, applied };
+        }
+        if (provider.baseURL === undefined) {
+          provider.baseURL = "https://api.deepseek.com";
+          applied.push(`providers.${config.defaultProvider}.baseURL`);
+        }
+        return { config, applied };
+      }
+
+      function load(state, diskCase) {
+        if (diskCase === "missing") {
+          return failure(state, "文件不存在", "SUSAN_CONFIG_MISSING", ["~/.susan/config.json · 文件不存在"], "按示例手动创建文件");
+        }
+        if (diskCase === "blank") {
+          return failure(state, "文件为空", "SUSAN_CONFIG_PARSE", ["~/.susan/config.json · 预期 UTF-8 JSON，实际没有内容"], "手动写入 JSON；空白不是有效 Config");
+        }
+        if (diskCase === "invalid-json") {
+          return failure(state, "JSON 无法解析", "SUSAN_CONFIG_PARSE", ["~/.susan/config.json:4:3 · 缺少逗号"], "修复 JSON 语法");
+        }
+        if (diskCase === "schema-error") {
+          return failure(state, "schema 无效", "SUSAN_CONFIG_SCHEMA", ["providers.deepseek.baseUrl · 未知字段；应为 baseURL"], "按字段路径修复；不会静默忽略未知字段");
+        }
+        if (diskCase === "permission-error") {
+          return failure(state, "权限过宽", "SUSAN_CONFIG_PERMISSION", ["~/.susan/config.json · 期望 0600，实际 0644"], "手动修复权限；susan 不自动 chmod");
+        }
+
+        let raw;
+        if (diskCase === "minimal-valid") raw = { providers: { deepseek: { type: "openai-completion", apiKey: "sk-minimal-12345678" } } };
+        if (diskCase === "missing-provider") raw = {};
+        if (diskCase === "missing-key") raw = { providers: { deepseek: { type: "openai-completion" } } };
+        if (diskCase === "valid-custom") raw = {
+          defaultProvider: "work",
+          defaultModel: "deepseek-chat",
+          approval: "yolo",
+          providers: { work: { type: "openai-completion", apiKey: "sk-custom-87654321", baseURL: "https://gateway.example/v1" } }
+        };
+
+        const result = resolveConfig(raw);
+        if (result.error) {
+          return event(state, `已应用可用默认值，但 resolved Config 仍不可启动`, {
+            phase: "blocked",
+            diskCase,
+            rawConfig: raw,
+            resolvedConfig: null,
+            defaultsApplied: result.applied,
+            error: { ...result.error, hint: "手动编辑 Config 后按 r 重新读取" },
+            destination: "r 重新读取 · Esc 退出"
+          });
+        }
+
+        const masked = clone(result.config);
+        masked.providers[masked.defaultProvider].apiKey = mask(masked.providers[masked.defaultProvider].apiKey);
+        return event(state, result.applied.length ? `Config 有效；已应用 ${result.applied.length} 个默认值` : "Config 有效；无需应用默认值", {
+          phase: "ready",
+          diskCase,
+          rawConfig: raw,
+          resolvedConfig: masked,
+          defaultsApplied: result.applied,
+          error: null,
+          destination: "继续正常启动"
+        });
+      }
+
+      function reduce(state, action) {
+        switch (action.type) {
+          case "RESET": return initialState();
+          case "LOAD": return load(initialState(), action.diskCase);
+          case "RELOAD_AS_VALID":
+            if (state.phase !== "blocked") return event(state, "当前没有待修复的 Config，无需重新读取");
+            return load(initialState(), "minimal-valid");
+          case "CONTINUE":
+            if (state.phase !== "ready") return event(state, "Config 尚未通过校验，不能继续启动");
+            return event(state, "已离开 Config 加载流程，进入正常启动", { phase: "done", destination: "Session 选择器或新 Session" });
+          case "EXIT": return event(state, "用户退出；磁盘内容保持不变", { phase: "exited", destination: "进程结束" });
+          default: return event(state, `未知动作 ${action.type}`);
+        }
+      }
+
+      return { initialState, reduce, example };
+    })();
+
+    const scenarios = [
+      {
+        name: "最小有效 Config",
+        description: "文件只写无法推导的 provider type 与 API key；version、默认 provider/model、Approval Policy 和 baseURL 都在内存中补默认值，不回写文件。",
+        steps: [
+          ["读取最小 Config", { type: "LOAD", diskCase: "minimal-valid" }],
+          ["继续正常启动", { type: "CONTINUE" }]
+        ]
+      },
+      {
+        name: "文件不存在",
+        description: "susan 不创建文件。TUI 显示路径和最小示例；用户手动创建后按 r 重新读取。",
+        steps: [
+          ["发现文件不存在", { type: "LOAD", diskCase: "missing" }],
+          ["模拟用户已手动创建，再按 r", { type: "RELOAD_AS_VALID" }],
+          ["继续正常启动", { type: "CONTINUE" }]
+        ]
+      },
+      {
+        name: "空文件 / JSON 错误",
+        description: "零字节和 JSON 语法错误都是 parse error，不被当成空对象，也不会被覆盖。",
+        steps: [
+          ["读取空文件", { type: "LOAD", diskCase: "blank" }],
+          ["用户修复后按 r", { type: "RELOAD_AS_VALID" }],
+          ["继续正常启动", { type: "CONTINUE" }]
+        ]
+      },
+      {
+        name: "缺 Provider / API key",
+        description: "先应用 version 等默认值，再检查 resolved Config 是否具有当前 provider entry、type 与 API key。API key 没有默认值。",
+        steps: [
+          ["读取空对象 {}", { type: "LOAD", diskCase: "missing-provider" }],
+          ["用户补齐后按 r", { type: "RELOAD_AS_VALID" }],
+          ["继续正常启动", { type: "CONTINUE" }]
+        ]
+      },
+      {
+        name: "schema / 权限错误",
+        description: "字段路径 + 原因直接显示。unknown field 与 POSIX 权限都 fail closed；susan 不自动修复。",
+        steps: [
+          ["读取 schema 错误", { type: "LOAD", diskCase: "schema-error" }],
+          ["用户修复后按 r", { type: "RELOAD_AS_VALID" }],
+          ["继续正常启动", { type: "CONTINUE" }]
+        ]
+      }
+    ];
+
+    let state = ConfigLoader.initialState();
+    let activeScenario = 0;
+    let scenarioStep = 0;
+    const $ = id => document.getElementById(id);
+    const escapeHtml = value => String(value).replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]);
+
+    function dispatch(action, guided = false) {
+      state = ConfigLoader.reduce(state, action);
+      if (guided) scenarioStep += 1;
+      render();
+    }
+
+    function terminalHtml() {
+      if (state.phase === "idle") return `<h2>正在启动 susan…</h2><p class="dim">等待读取 ~/.susan/config.json</p>`;
+      if (state.phase === "ready") return `<h2 class="ok">✓ Config 有效</h2><p>已在内存中生成 Resolved Config。</p><p class="dim">磁盘文件没有改变。</p>`;
+      if (state.phase === "done") return `<h2 class="ok">susan</h2><p>已进入 ${escapeHtml(state.destination)}</p>`;
+      if (state.phase === "exited") return `<h2>已退出</h2><p class="dim">没有创建、修改或删除任何 Config。</p>`;
+      if (state.phase === "blocked") {
+        const example = JSON.stringify(ConfigLoader.example, null, 2);
+        return `<h2 class="bad">无法加载 Config</h2><p class="bad">${escapeHtml(state.error.code)}</p><p>${state.error.issues.map(escapeHtml).join("<br>")}</p><p>${escapeHtml(state.error.hint)}</p>${state.error.code === "SUSAN_CONFIG_MISSING" ? `<pre>${escapeHtml(example)}</pre>` : ""}<p class="help"><strong>r</strong> 重新读取 · <strong>Esc</strong> 退出</p>`;
+      }
+      return `<h2>${escapeHtml(state.phase)}</h2>`;
+    }
+
+    function makeButton(label, action, css = "") {
+      const node = document.createElement("button");
+      node.textContent = label;
+      node.className = css;
+      node.onclick = () => dispatch(action);
+      return node;
+    }
+
+    function renderWalkthrough() {
+      $("tabs").replaceChildren(...scenarios.map((scenario, index) => {
+        const node = document.createElement("button");
+        node.textContent = scenario.name;
+        node.setAttribute("role", "tab");
+        node.setAttribute("aria-selected", String(index === activeScenario));
+        node.onclick = () => {
+          activeScenario = index;
+          scenarioStep = 0;
+          state = ConfigLoader.initialState();
+          render();
+        };
+        return node;
+      }));
+
+      const scenario = scenarios[activeScenario];
+      const steps = scenario.steps.map(([label], index) => {
+        const status = index < scenarioStep ? "done" : index === scenarioStep ? "current" : "";
+        return `<div class="step ${status}"><span class="step-num">${index < scenarioStep ? "✓" : index + 1}</span><div class="step-copy"><strong>${escapeHtml(label)}</strong><span>${index < scenarioStep ? "已完成" : index === scenarioStep ? "下一步" : "等待前一步"}</span></div><button data-step="${index}" ${index !== scenarioStep ? "disabled" : ""}>执行</button></div>`;
+      }).join("");
+      $("scenario").innerHTML = `<p>${escapeHtml(scenario.description)}</p><div class="steps">${steps}</div>`;
+      const current = $("scenario").querySelector(`button[data-step="${scenarioStep}"]`);
+      if (current) current.onclick = () => dispatch(scenario.steps[scenarioStep][1], true);
+    }
+
+    function render() {
+      $("terminal").innerHTML = terminalHtml();
+      const context = [];
+      if (state.phase === "blocked") {
+        context.push(["r · 重新读取", { type: "RELOAD_AS_VALID" }, "primary"]);
+        context.push(["Esc · 退出", { type: "EXIT" }]);
+      }
+      if (state.phase === "ready") context.push(["继续正常启动", { type: "CONTINUE" }, "primary"]);
+      $("contextActions").replaceChildren(...context.map(args => makeButton(...args)));
+
+      const items = [
+        ["阶段", state.phase],
+        ["磁盘状态", state.diskCase],
+        ["Config 路径", state.configPath],
+        ["下一步", state.destination],
+        ["已应用默认值", state.defaultsApplied.length ? state.defaultsApplied.join("、") : "无", "wide"],
+        ["刚刚发生", state.lastChange, "wide"]
+      ];
+      $("state").innerHTML = items.map(([label, value, css = ""]) => `<div class="state-item ${css} ${state.error && label === "刚刚发生" ? "error-panel" : ""}"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`).join("");
+      $("resolved").textContent = state.resolvedConfig ? JSON.stringify(state.resolvedConfig, null, 2) : "尚无可用的 Resolved Config";
+      $("events").innerHTML = state.events.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+      renderWalkthrough();
+    }
+
+    const freeActions = [
+      ["最小有效 Config", { type: "LOAD", diskCase: "minimal-valid" }],
+      ["完整自定义 Config", { type: "LOAD", diskCase: "valid-custom" }],
+      ["文件不存在", { type: "LOAD", diskCase: "missing" }],
+      ["空文件", { type: "LOAD", diskCase: "blank" }],
+      ["JSON 错误", { type: "LOAD", diskCase: "invalid-json" }],
+      ["空对象 {}", { type: "LOAD", diskCase: "missing-provider" }],
+      ["缺 API key", { type: "LOAD", diskCase: "missing-key" }],
+      ["schema 错误", { type: "LOAD", diskCase: "schema-error" }],
+      ["权限错误", { type: "LOAD", diskCase: "permission-error" }],
+      ["重置", { type: "RESET" }]
+    ];
+    $("freeActions").replaceChildren(...freeActions.map(args => makeButton(...args)));
+    render();
+  </script>
+</body>
+</html>

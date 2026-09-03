@@ -1,10 +1,21 @@
+export {
+  DEFAULT_CONFIG_PATH,
+  loadConfig,
+  parseApprovalFlags,
+  resolveConfig,
+} from "./core/config.js";
+
 export type {
   ApprovalPolicy,
+  ApprovalFlagsResult,
   Config,
+  ConfigLoadOptions,
   ConfigError,
   ConfigErrorCode,
   ConfigIssue,
+  ConfigResult,
   ProviderConfigEntry,
+  ResolvedProviderEntry,
   ResolvedConfig,
 } from "./core/config.js";
 export type {

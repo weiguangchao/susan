@@ -1,12 +1,24 @@
 {
-  "name": "susan-tui-prototype",
-  "private": true,
+  "name": "@weiguangchao/susan",
+  "version": "0.0.1",
+  "description": "Minimal personal TUI harness agent",
   "type": "module",
+  "bin": {
+    "susan": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "prototype": "tsx prototype/tui-prototype.tsx",
+    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsdown"
+    "build": "tsdown",
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "ink": "^7.1.1",

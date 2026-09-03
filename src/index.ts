@@ -7,6 +7,30 @@ export {
   resolveConfig,
 } from "./config.js";
 export { parseApprovalFlags } from "./core/config.js";
+export { parseCli, formatCliError, CLI_USAGE } from "./core/cli.js";
+export { resolveSessionLaunch } from "./core/launch.js";
+export { formatConfigError } from "./core/config-error.js";
+export {
+  createSessionPickerState,
+  reduceSessionPickerState,
+  resolveSessionPickerIntent,
+} from "./core/picker.js";
+export type {
+  CliError,
+  CliFlags,
+  CliParseResult,
+  ResumeMode,
+} from "./core/cli.js";
+export type { SessionLaunch } from "./core/launch.js";
+export type {
+  ConfigErrorIssueView,
+  ConfigErrorView,
+} from "./core/config-error.js";
+export type {
+  SessionPickerIntent,
+  SessionPickerKey,
+  SessionPickerState,
+} from "./core/picker.js";
 
 export type {
   ApprovalPolicy,

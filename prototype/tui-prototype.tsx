@@ -138,7 +138,6 @@ function App() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const streamTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const nextId = useRef(1);
-  const escAt = useRef(0);
   const runningToolRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -530,7 +529,6 @@ function App() {
       return lines;
     });
     setCursor((c) => ({ line: c.line + 1, col: 0 }));
-    escAt.current = 0;
   };
 
   const backspace = () => {
@@ -597,20 +595,18 @@ function App() {
       setLayout((l) => (l === 'A' ? 'B' : 'A'));
       return;
     }
+    if (inputKey === '\n') {
+      newline();
+      return;
+    }
     if (key.return) {
-      if (escAt.current !== 0 && Date.now() - escAt.current < 400) {
-        newline();
-      } else if (phase === 'idle' || phase === 'streaming' || phase === 'retrying') {
+      if (phase === 'idle' || phase === 'streaming' || phase === 'retrying') {
         if (phase !== 'idle') {
           setNotice('正在生成，Ctrl+C 可中断');
         } else {
           submit();
         }
       }
-      return;
-    }
-    if (key.escape) {
-      escAt.current = Date.now();
       return;
     }
     if (key.upArrow) {
@@ -840,27 +836,33 @@ function InlineComposer({
 function Footer({ layout }: { layout: 'A' | 'B' }) {
   return (
     <Text dimColor>
-      Enter 发送 · Esc+Enter 换行 · Ctrl+C 中断 · Tab 布局 {layout} · /exit /clear
+      Enter 发送 · Ctrl+J 换行 · Ctrl+C 中断 · Tab 布局 {layout} · /exit /clear
     </Text>
   );
 }
 
 function ApprovalModal({ tool }: { tool: ToolRec }) {
   return (
-    <Box flexDirection="column" borderStyle="double" borderColor="yellow" paddingX={2} paddingY={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="double"
+      borderColor="yellow"
+      paddingX={2}
+      width={64}
+      marginX={2}
+      marginY={2}
+    >
       <Text color="yellow" bold>
         批准 Tool 调用？
       </Text>
-      <Box>
-        <Text color="yellow">▸ {tool.name} </Text>
-      </Box>
+      <Text color="yellow">▸ {tool.name}</Text>
       {wrap(tool.argsText, 56).map((l, i) => (
         <Text key={i} color="blue">
           {'  '}
           {l}
         </Text>
       ))}
-      <Box marginTop={1}>
+      <Box>
         <Text color="green">Enter 允许</Text>
         <Text dimColor> · </Text>
         <Text color="red">Esc 拒绝</Text>

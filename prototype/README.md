@@ -22,7 +22,7 @@ npm run prototype
 
 ## 快捷键
 
-- `Enter` 发送 · `Esc` 后 `Enter`（部分终端可用 `Alt+Enter`）换行
+- `Enter` 发送 · `Ctrl+J` 换行
 - `Ctrl+C` 生成中 = 中断当前生成；审批弹窗中 = 拒绝；Tool 执行中 = 中断执行；空闲且有输入 = 清空输入；空闲且输入为空 = 退出
 - `Tab` 切换布局 A（底部固定输入区）/ B（输入区内联在消息流末尾）
 - `/exit` 退出 · `/clear` 开启新 Session（旧 Session 保留）

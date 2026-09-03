@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { platform } from "node:process";
 import { z } from "zod";
 import type {
+  ProviderAdapter,
   ProviderType,
   ResolvedProviderConfig,
 } from "./provider.js";
@@ -38,10 +39,6 @@ const configSchema = z.strictObject({
     .record(z.string().min(1), providerEntrySchema)
     .default({}),
 });
-
-const registeredProviderTypes: ReadonlyMap<ProviderType, string> = new Map([
-  ["openai-completion", "https://api.deepseek.com"],
-]);
 
 export const DEFAULT_CONFIG_PATH = join(
   homedir(),
@@ -278,6 +275,7 @@ async function readConfigFile(configPath: string): Promise<ConfigFileResult> {
 }
 
 export function resolveConfig(
+  providerAdapters: ReadonlyMap<ProviderType, ProviderAdapter>,
   config: Config,
   flags: { readonly approval?: ApprovalPolicy } = {},
   configPath: string = DEFAULT_CONFIG_PATH,
@@ -294,7 +292,7 @@ export function resolveConfig(
 
   const parsed = parsedResult.data;
   const unsupportedIssues = Object.entries(parsed.providers)
-    .filter(([, entry]) => !registeredProviderTypes.has(entry.type))
+    .filter(([, entry]) => !providerAdapters.has(entry.type))
     .map(([alias, entry]) => ({
       path: `providers.${alias}.type`,
       code: "provider_type_unsupported",
@@ -337,7 +335,7 @@ export function resolveConfig(
       type: entry.type,
       apiKey: entry.apiKey,
       baseURL: new URL(
-        entry.baseURL ?? registeredProviderTypes.get(entry.type)!,
+        entry.baseURL ?? providerAdapters.get(entry.type)!.defaultBaseURL,
       ),
     };
   }
@@ -362,6 +360,7 @@ export function resolveConfig(
 }
 
 export async function loadConfig(
+  providerAdapters: ReadonlyMap<ProviderType, ProviderAdapter>,
   options: ConfigLoadOptions = {},
 ): Promise<ConfigResult> {
   const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
@@ -381,6 +380,7 @@ export async function loadConfig(
   }
 
   return resolveConfig(
+    providerAdapters,
     fileResult.config,
     { approval: options.approval },
     configPath,

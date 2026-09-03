@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
+import { isJsonValue, isRecord } from "./json.js";
 import type { CompletionMessage } from "./provider.js";
 
 export type SessionHeader = {
@@ -111,27 +112,6 @@ function failure<T = void>(
     ok: false,
     error: path === undefined ? { code, message } : { code, message, path },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isJsonValue(value: unknown): boolean {
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.every(isJsonValue);
-  }
-  return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 
 function isCompletionMessage(value: unknown): value is CompletionMessage {

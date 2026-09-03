@@ -1,7 +1,7 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { resolve } from "node:path";
 import { TextDecoder } from "node:util";
-import type { JsonObject } from "./json.js";
+import { isRecord, type JsonObject } from "./json.js";
 
 export const READ_FILE_MAX_LINES = 2000;
 export const READ_FILE_MAX_BYTES = 50 * 1024;
@@ -80,10 +80,6 @@ function errorResult(
     ok: false,
     error: path === undefined ? { code, message } : { code, message, path },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validateArguments(input: unknown): ArgumentValidationResult {

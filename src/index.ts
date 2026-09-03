@@ -1,9 +1,12 @@
 export {
+  openAICompletionProvider,
+} from "./adapters/openai-completion.js";
+export {
   DEFAULT_CONFIG_PATH,
   loadConfig,
-  parseApprovalFlags,
   resolveConfig,
-} from "./core/config.js";
+} from "./config.js";
+export { parseApprovalFlags } from "./core/config.js";
 
 export type {
   ApprovalPolicy,

@@ -12,6 +12,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { render, Box, Text, useApp, useInput } from 'ink';
 import { readFileSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 import { resolve } from 'node:path';
 
 type Phase =
@@ -565,8 +566,20 @@ function App() {
   const pendingInputEmpty = () => input.length === 1 && input[0] === '';
 
   useInput((inputKey, key) => {
+    // 过滤 kitty keyboard 协商响应泄漏进输入管线的字节（如 "[?1u"）
+    if (/^\x1b\[\?\d+u$/.test(inputKey) || /^\[\?\d+u$/.test(inputKey)) {
+      return;
+    }
     if (key.ctrl && inputKey === 'c') {
       interrupt();
+      return;
+    }
+    if (key.ctrl && inputKey === 'j') {
+      newline();
+      return;
+    }
+    if (key.shift && inputKey === ' ') {
+      newline();
       return;
     }
     if (key.ctrl && inputKey !== 'c') return;
@@ -836,7 +849,7 @@ function InlineComposer({
 function Footer({ layout }: { layout: 'A' | 'B' }) {
   return (
     <Text dimColor>
-      Enter 发送 · Ctrl+J 换行 · Ctrl+C 中断 · Tab 布局 {layout} · /exit /clear
+      Enter 发送 · Ctrl+J/Shift+空格 换行 · Ctrl+C 中断 · Tab {layout} · /exit /clear
     </Text>
   );
 }
@@ -871,8 +884,67 @@ function ApprovalModal({ tool }: { tool: ToolRec }) {
   );
 }
 
+// kitty keyboard 协议下，无修饰符的控制键形态（Ctrl+C = CSI 3u、Ctrl+J = CSI 10u）
+// 会被 Ink 7 解析成空输入（不设 ctrl 标志）。这里在 stdin 入口把它们还原成 legacy 字节，
+// 再交给 Ink；带修饰符形态（CSI 3;5u 等）与 Shift+空格 仍由 useInput 分支处理。
+function createKittyShim() {
+  const shim = new PassThrough();
+  Object.defineProperties(shim, {
+    isTTY: { get: () => process.stdin.isTTY },
+    isRaw: { get: () => process.stdin.isRaw },
+    fd: { get: () => process.stdin.fd },
+  });
+  const original = process.stdin;
+  (shim as unknown as { setRawMode: (v: boolean) => NodeJS.ReadStream }).setRawMode = (v: boolean) => {
+    original.setRawMode(v);
+    return shim as unknown as NodeJS.ReadStream;
+  };
+  (shim as unknown as { ref: () => NodeJS.ReadStream }).ref = () => {
+    original.ref();
+    return shim as unknown as NodeJS.ReadStream;
+  };
+  (shim as unknown as { unref: () => NodeJS.ReadStream }).unref = () => {
+    original.unref();
+    return shim as unknown as NodeJS.ReadStream;
+  };
+
+  const seqs: Array<[string, string]> = [
+    ['\x1b[3u', '\x03'],
+    ['\x1b[10u', '\x0a'],
+  ];
+  const prefixes = ['\x1b', '\x1b[', '\x1b[1', '\x1b[10', '\x1b[3'];
+  let tail = '';
+  original.on('data', (chunk: Buffer) => {
+    const text = tail + chunk.toString('utf8');
+    tail = '';
+    let out = '';
+    let i = 0;
+    while (i < text.length) {
+      const hit = seqs.find(([seq]) => text.startsWith(seq, i));
+      if (hit) {
+        out += hit[1];
+        i += hit[0].length;
+        continue;
+      }
+      out += text[i];
+      i += 1;
+    }
+    for (const p of prefixes) {
+      if (out.endsWith(p)) {
+        tail = p;
+        out = out.slice(0, -p.length);
+        break;
+      }
+    }
+    if (out !== '') shim.write(out);
+  });
+  return shim as unknown as NodeJS.ReadStream;
+}
+
 render(<App />, {
+  stdin: createKittyShim(),
   exitOnCtrlC: false,
   patchConsole: true,
+  kittyKeyboard: { mode: 'auto' },
   debug: process.env.SUSAN_DEBUG === '1',
 });

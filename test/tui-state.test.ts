@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTuiState,
   formatToolCallDetail,
+  isEmptySession,
   reduceTuiState,
   resolveInputIntent,
   resolveSubmission,
@@ -23,6 +24,10 @@ function initialState(
     cwd: "/workspace",
     messages: [],
     pending: null,
+    model: "gpt-5-codex",
+    reasoningLevel: "high",
+    contextWindow: 418_000,
+    sessionTotalTokens: 0,
     ...overrides,
   });
 }
@@ -73,6 +78,10 @@ describe("TUI state", () => {
         cwd: "/workspace",
         messages: [],
         pending: { reason: "restored" },
+        model: "gpt-5-codex",
+        reasoningLevel: "high",
+        contextWindow: 418_000,
+        sessionTotalTokens: 18_400,
       },
     });
     current = reduceTuiState(current, {
@@ -81,6 +90,142 @@ describe("TUI state", () => {
     });
     expect(current.status).toBe("running");
     expect(current.pending).toBeNull();
+  });
+
+  it("supports cursor movement and editing in multiline input", () => {
+    let state = initialState();
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "abc" },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "j", ctrl: true },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "def" },
+    });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", leftArrow: true },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.input).toBe("abc\ndef");
+    expect(state.inputCursor).toEqual({ row: 1, column: 2 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "X" },
+    });
+    expect(state.input).toBe("abc\ndeXf");
+    expect(state.inputCursor).toEqual({ row: 1, column: 3 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "a", ctrl: true },
+    });
+    expect(state.inputCursor).toEqual({ row: 1, column: 0 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", backspace: true },
+    });
+    expect(state.input).toBe("abcdeXf");
+    expect(state.inputCursor).toEqual({ row: 0, column: 3 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "e", ctrl: true },
+    });
+    expect(state.inputCursor).toEqual({ row: 0, column: 7 });
+  });
+
+  it("browses submitted user messages from an empty input", () => {
+    let state = initialState({
+      messages: [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "first response" },
+        { role: "user", content: "second" },
+      ],
+    });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true },
+    });
+    expect(state.input).toBe("second");
+    expect(state.inputCursor).toEqual({ row: 0, column: 6 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true },
+    });
+    expect(state.input).toBe("first");
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.input).toBe("second");
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.input).toBe("");
+    expect(state.inputCursor).toEqual({ row: 0, column: 0 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "third" },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "\r", return: true },
+    });
+    expect(state.inputHistory).toEqual(["first", "second", "third"]);
+    expect(state.inputHistoryIndex).toBe(3);
+  });
+
+  it("keeps global input history across a new session", () => {
+    let state = initialState();
+    state = {
+      ...state,
+      inputHistory: ["previous session input"],
+      inputHistoryIndex: 1,
+    };
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true },
+    });
+    expect(state.input).toBe("previous session input");
+
+    state = reduceTuiState(state, {
+      type: "new-session",
+      snapshot: {
+        status: "idle",
+        sessionId: "session-2",
+        cwd: "/workspace",
+        messages: [],
+        pending: null,
+        model: "gpt-5-codex",
+        reasoningLevel: "high",
+        contextWindow: 418_000,
+        sessionTotalTokens: 0,
+      },
+    });
+    expect(state.inputHistory).toEqual(["previous session input"]);
+    expect(state.inputHistoryIndex).toBe(1);
   });
 
   it("applies layered Ctrl+C semantics", () => {
@@ -115,6 +260,76 @@ describe("TUI state", () => {
         ctrl: true,
       }),
     ).toEqual({ type: "exit" });
+  });
+
+  it("tracks runtime model, reasoning level, and Session usage", () => {
+    const state = initialState();
+
+    expect(state.model).toBe("gpt-5-codex");
+    expect(state.reasoningLevel).toBe("high");
+    expect(state.contextWindow).toBe(418_000);
+    expect(state.sessionTotalTokens).toBe(0);
+
+    const updated = reduceTuiState(state, {
+      type: "snapshot",
+      snapshot: {
+        status: "idle",
+        sessionId: "session-1",
+        cwd: "/workspace",
+        messages: [],
+        pending: null,
+        model: "deepseek-v4-flash",
+        reasoningLevel: "medium",
+        contextWindow: 128_000,
+        sessionTotalTokens: 18_400,
+      },
+    });
+
+    expect(updated.model).toBe("deepseek-v4-flash");
+    expect(updated.reasoningLevel).toBe("medium");
+    expect(updated.contextWindow).toBe(128_000);
+    expect(updated.sessionTotalTokens).toBe(18_400);
+  });
+
+  it("synchronizes Session token usage from Harness events", () => {
+    const updated = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "session-usage-updated",
+        sessionTotalTokens: 32_000,
+        contextWindow: 128_000,
+      },
+    });
+
+    expect(updated.sessionTotalTokens).toBe(32_000);
+    expect(updated.contextWindow).toBe(128_000);
+    expect(
+      (updated.sessionTotalTokens / updated.contextWindow) * 100,
+    ).toBe(25);
+  });
+
+  it("resets Session usage when a new Session starts", () => {
+    const previous = {
+      ...initialState(),
+      sessionTotalTokens: 64_000,
+      contextWindow: 128_000,
+    };
+    const next = reduceTuiState(previous, {
+      type: "new-session",
+      snapshot: {
+        status: "idle",
+        sessionId: "session-2",
+        cwd: "/workspace",
+        messages: [],
+        pending: null,
+        model: "model",
+        reasoningLevel: "high",
+        contextWindow: 128_000,
+        sessionTotalTokens: 0,
+      },
+    });
+
+    expect(next.sessionTotalTokens).toBe(0);
   });
 
   it("reduces streaming, Tool, approval, and retry events without Ink", () => {
@@ -292,6 +507,10 @@ describe("TUI state", () => {
         cwd: "/workspace",
         messages: [],
         pending: { reason: "provider-failure" },
+        model: "gpt-5-codex",
+        reasoningLevel: "high",
+        contextWindow: 418_000,
+        sessionTotalTokens: 18_400,
       },
     });
 
@@ -303,10 +522,18 @@ describe("TUI state", () => {
   it("resolves slash commands before submitting to the Harness", () => {
     expect(resolveSubmission("/exit")).toEqual({ type: "exit" });
     expect(resolveSubmission("/clear")).toEqual({ type: "clear" });
+    expect(resolveSubmission("/new")).toEqual({ type: "clear" });
     expect(resolveSubmission("/exit ")).toEqual({ type: "exit" });
     expect(resolveSubmission(" hello\nworld ")).toEqual({
       type: "submit",
       content: "hello\nworld",
     });
+  });
+
+  it("recognizes whether a Session has any persisted interaction", () => {
+    expect(isEmptySession({ messages: [] })).toBe(true);
+    expect(
+      isEmptySession({ messages: [{ role: "user", content: "hello" }] }),
+    ).toBe(false);
   });
 });

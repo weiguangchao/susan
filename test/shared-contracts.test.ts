@@ -191,11 +191,15 @@ describe("shared type contracts", () => {
         tokensAfterEstimate: 1_000,
         createdAt: "2026-09-03T00:00:00.000Z",
       },
+      {
+        type: "usage",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      },
     ] satisfies SessionRecord[];
 
-    expect(records).toHaveLength(2);
+    expect(records).toHaveLength(3);
     expectTypeOf<SessionRecord["type"]>().toEqualTypeOf<
-      "message" | "compaction"
+      "message" | "compaction" | "usage"
     >();
   });
 });

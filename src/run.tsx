@@ -19,6 +19,7 @@ import { TuiApp } from "./ui/tui.js";
 
 const CONTEXT_WINDOW = 128_000;
 const MAX_OUTPUT_TOKENS = 16_384;
+const REASONING_LEVEL = "high";
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
 
 type SessionStart =
@@ -33,6 +34,13 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   }
 
   const store = createSessionStore();
+  const inputHistory = await loadInputHistory(store);
+  if (!inputHistory.ok) {
+    process.stderr.write(
+      `susan: ${inputHistory.error.message}\n`,
+    );
+    return 1;
+  }
   const loadedConfig = await loadResolvedConfig(
     parsed.flags.approval,
     parsed.flags.configPath,
@@ -65,6 +73,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   const instance = render(
     <TuiApp
       harness={harness}
+      inputHistory={inputHistory.value}
       startNewSession={() => createNewSusanSession(config, store)}
     />,
   );
@@ -74,6 +83,19 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 
 function isInteractive(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+async function loadInputHistory(
+  store: SessionStore,
+): Promise<
+  | { readonly ok: true; readonly value: readonly string[] }
+  | { readonly ok: false; readonly error: { readonly message: string } }
+> {
+  const result = await store.loadInputHistory();
+  if (result.ok) {
+    return result;
+  }
+  return { ok: false, error: result.error };
 }
 
 type ConfigStart =
@@ -127,7 +149,7 @@ async function resolveStartupSession(
     return { ok: true, session: launch.session };
   }
   if (launch.kind === "new") {
-    return createSessionResult(store);
+    return createSessionResult(store, true);
   }
   if (!isInteractive()) {
     process.stderr.write(TTY_REQUIRED);
@@ -139,7 +161,7 @@ async function resolveStartupSession(
     return { ok: false, exitCode: 0 };
   }
   if (picked === "new") {
-    return createSessionResult(store);
+    return createSessionResult(store, true);
   }
   const loaded = await store.loadSession(picked);
   if (!loaded.ok) {
@@ -149,8 +171,14 @@ async function resolveStartupSession(
   return { ok: true, session: loaded.value };
 }
 
-async function createSessionResult(store: SessionStore): Promise<SessionStart> {
-  const created = await store.createSession({ cwd: process.cwd() });
+async function createSessionResult(
+  store: SessionStore,
+  reuseEmpty = false,
+): Promise<SessionStart> {
+  const created = await store.createSession({
+    cwd: process.cwd(),
+    reuseEmpty,
+  });
   if (!created.ok) {
     process.stderr.write(`susan: ${created.error.message}\n`);
     return { ok: false, exitCode: 1 };
@@ -224,6 +252,7 @@ function createSusanHarness(
     sessionStore: store,
     session,
     model: config.defaultModel,
+    reasoningLevel: REASONING_LEVEL,
     contextWindow: CONTEXT_WINDOW,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     approvalPolicy: config.approval,

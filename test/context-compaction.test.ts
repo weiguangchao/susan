@@ -12,6 +12,7 @@ import type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
+  ProviderUsage,
   SessionCompactionRecord,
   SessionStore,
   SessionTranscript,
@@ -35,6 +36,7 @@ function transcript(messages: readonly CompletionMessage[]): SessionTranscript {
 function store(
   messages: CompletionMessage[],
   checkpoints: SessionCompactionRecord[],
+  usages: ProviderUsage[] = [],
 ): SessionStore {
   return {
     async createSession() {
@@ -48,6 +50,10 @@ function store(
       checkpoints.push(checkpoint);
       return { ok: true, value: undefined };
     },
+    async appendUsage(_sessionId, usage) {
+      usages.push(usage);
+      return { ok: true, value: undefined };
+    },
     async loadSession() {
       throw new Error("not used");
     },
@@ -55,6 +61,9 @@ function store(
       throw new Error("not used");
     },
     async loadLastSession() {
+      throw new Error("not used");
+    },
+    async loadInputHistory() {
       throw new Error("not used");
     },
   };
@@ -111,6 +120,7 @@ describe("Model Context compaction", () => {
     const summaryRequests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const checkpoints: SessionCompactionRecord[] = [];
+    const usages: ProviderUsage[] = [];
     const client = provider({
       streams: [completed("Done")],
       completions: [
@@ -129,7 +139,7 @@ describe("Model Context compaction", () => {
     const events: HarnessEvent[] = [];
     const harness = createHarness({
       provider: client,
-      sessionStore: store(appended, checkpoints),
+      sessionStore: store(appended, checkpoints, usages),
       session: transcript(initial),
       model: "model",
       contextWindow: 25_000,
@@ -167,6 +177,11 @@ describe("Model Context compaction", () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: "context-compacted" }),
     );
+    expect(usages).toEqual([
+      { inputTokens: 24_000, outputTokens: 30, totalTokens: 24_030 },
+      { inputTokens: 100, outputTokens: 10, totalTokens: 110 },
+    ]);
+    expect(harness.getSnapshot().sessionTotalTokens).toBe(24_140);
   });
 
   it("returns ContextTooLarge without calling the Provider when the current user turn cannot fit", async () => {

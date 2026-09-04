@@ -202,6 +202,24 @@ describe("session launch", () => {
     expect(last).toEqual({ kind: "new" });
   });
 
+  it("starts a new Session by default even when an older Session exists", async () => {
+    const store = createSessionStore({
+      sessionsDirectory: join(root, "sessions"),
+    });
+    const existing = await store.createSession({ cwd: root });
+    if (!existing.ok) {
+      throw new Error("session was not created");
+    }
+    await store.appendMessage(existing.value.header.id, {
+      role: "user",
+      content: "Previous process input.",
+    });
+
+    expect(await resolveSessionLaunch(store, { kind: "none" })).toEqual({
+      kind: "new",
+    });
+  });
+
   it("resumes by picker, Session id, or last Session", async () => {
     const store = createSessionStore({
       sessionsDirectory: join(root, "sessions"),

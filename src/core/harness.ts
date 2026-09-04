@@ -19,6 +19,7 @@ import type {
   ProviderStreamEvent,
   ProviderToolDefinition,
   ProviderToolCall,
+  ProviderUsage,
 } from "./provider.js";
 import type {
   SessionCompactionRecord,
@@ -26,7 +27,7 @@ import type {
   SessionTranscript,
 } from "./session.js";
 
-export const CANONICAL_SYSTEM_PROMPT = `You are Susan, a minimal personal terminal coding agent.
+export const CANONICAL_SYSTEM_PROMPT = `You are Susan, a coding agent harness.
 
 Current working directory: {cwd}
 
@@ -85,7 +86,13 @@ export type HarnessSnapshot = {
   readonly cwd: string;
   readonly messages: readonly CompletionMessage[];
   readonly pending: PendingAgentLoop | null;
+  readonly model: string;
+  readonly reasoningLevel: ReasoningLevel;
+  readonly contextWindow: number;
+  readonly sessionTotalTokens: number;
 };
+
+export type ReasoningLevel = "minimal" | "low" | "medium" | "high";
 
 export type HarnessEvent =
   | { readonly type: "text-delta"; readonly textDelta: string }
@@ -116,6 +123,11 @@ export type HarnessEvent =
       readonly type: "context-compacted";
       readonly tokensBefore: number;
       readonly tokensAfterEstimate: number;
+    }
+  | {
+      readonly type: "session-usage-updated";
+      readonly sessionTotalTokens: number;
+      readonly contextWindow: number;
     }
   | {
       readonly type: "compaction-failed";
@@ -182,6 +194,7 @@ export type HarnessOptions = {
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
   readonly model: string;
+  readonly reasoningLevel?: ReasoningLevel;
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
   readonly approvalPolicy: ApprovalPolicy;
@@ -338,6 +351,13 @@ export function createHarness(options: HarnessOptions): Harness {
   let usageBaseline:
     | { readonly inputTokens: number; readonly messageCount: number }
     | undefined;
+  let sessionTotalTokens = options.session.records.reduce(
+    (total, record) =>
+      record.type === "usage"
+        ? total + record.usage.inputTokens + record.usage.outputTokens
+        : total,
+    0,
+  );
   let pending = restoredPending(messages);
   let status: HarnessStatus = pending === null ? "idle" : "pending";
   let activeApproval:
@@ -376,6 +396,35 @@ export function createHarness(options: HarnessOptions): Harness {
       return failed;
     }
     messages.push(message);
+    return { ok: true };
+  };
+
+  const appendProviderUsage = async (
+    usage: ProviderUsage | undefined,
+  ): Promise<HarnessCommandResult> => {
+    if (usage === undefined) {
+      return { ok: true };
+    }
+    const result = await options.sessionStore.appendUsage(
+      options.session.header.id,
+      usage,
+    );
+    if (!result.ok) {
+      status = "failed";
+      pending = null;
+      const failed: HarnessCommandResult = {
+        ok: false,
+        error: { code: "HARNESS_SESSION", message: result.error.message },
+      };
+      emit({ type: "harness-failed", error: failed.error });
+      return failed;
+    }
+    sessionTotalTokens += usage.inputTokens + usage.outputTokens;
+    emit({
+      type: "session-usage-updated",
+      sessionTotalTokens,
+      contextWindow: options.contextWindow,
+    });
     return { ok: true };
   };
 
@@ -534,6 +583,12 @@ export function createHarness(options: HarnessOptions): Harness {
           hadSemanticOutput: false,
         };
         break;
+      }
+    }
+    if (!("code" in summaryResult)) {
+      const appendedUsage = await appendProviderUsage(summaryResult.usage);
+      if (!appendedUsage.ok) {
+        return { ok: false, error: appendedUsage.error };
       }
     }
     if (
@@ -974,6 +1029,10 @@ export function createHarness(options: HarnessOptions): Harness {
           : { interruptedResponse: finalResult.interruptedResponse }),
       });
     }
+    const appendedUsage = await appendProviderUsage(finalResult.response.usage);
+    if (!appendedUsage.ok) {
+      return appendedUsage;
+    }
     const finalAssistant = finalResult.response.assistant;
     if (
       (finalAssistant.toolCalls?.length ?? 0) > 0 ||
@@ -1021,6 +1080,12 @@ export function createHarness(options: HarnessOptions): Harness {
         });
       }
 
+      const appendedUsage = await appendProviderUsage(
+        providerResult.response.usage,
+      );
+      if (!appendedUsage.ok) {
+        return appendedUsage;
+      }
       const assistant = providerResult.response.assistant;
       const appendedAssistant = await appendMessage(assistant);
       if (!appendedAssistant.ok) {
@@ -1144,6 +1209,10 @@ export function createHarness(options: HarnessOptions): Harness {
         cwd: options.session.header.cwd,
         messages: [...messages],
         pending,
+        model: options.model,
+        reasoningLevel: options.reasoningLevel ?? "high",
+        contextWindow: options.contextWindow,
+        sessionTotalTokens,
       };
     },
 

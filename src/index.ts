@@ -70,6 +70,7 @@ export type {
   SessionHeader,
   SessionMessageRecord,
   SessionRecord,
+  SessionUsageRecord,
   SessionStore,
   SessionStoreError,
   SessionStoreErrorCode,
@@ -106,6 +107,7 @@ export { TuiApp } from "./ui/tui.js";
 export type { TuiAppProps } from "./ui/tui.js";
 export {
   createTuiState,
+  isEmptySession,
   formatProviderFailure,
   formatToolCallDetail,
   normalizeSubmission,
@@ -121,6 +123,7 @@ export type {
   HarnessError,
   HarnessEvent,
   HarnessOptions,
+  ReasoningLevel,
   HarnessSnapshot,
   HarnessStatus,
   HarnessTool,

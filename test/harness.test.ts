@@ -14,6 +14,7 @@ import type {
   ProviderClient,
   ProviderRequest,
   ProviderStreamEvent,
+  ProviderUsage,
   SessionStore,
   SessionTranscript,
 } from "../src/index.js";
@@ -48,7 +49,10 @@ function transcript(
   };
 }
 
-function fakeSessionStore(appended: CompletionMessage[]): SessionStore {
+function fakeSessionStore(
+  appended: CompletionMessage[],
+  appendedUsage: ProviderUsage[] = [],
+): SessionStore {
   return {
     async createSession() {
       throw new Error("not used by Harness");
@@ -60,6 +64,10 @@ function fakeSessionStore(appended: CompletionMessage[]): SessionStore {
     async appendCompaction() {
       return { ok: true, value: undefined };
     },
+    async appendUsage(_sessionId, usage) {
+      appendedUsage.push(usage);
+      return { ok: true, value: undefined };
+    },
     async loadSession() {
       throw new Error("not used by Harness");
     },
@@ -67,6 +75,9 @@ function fakeSessionStore(appended: CompletionMessage[]): SessionStore {
       throw new Error("not used by Harness");
     },
     async loadLastSession() {
+      throw new Error("not used by Harness");
+    },
+    async loadInputHistory() {
       throw new Error("not used by Harness");
     },
   };
@@ -151,6 +162,115 @@ describe("Harness", () => {
       messages: appended,
       pending: null,
     });
+  });
+
+  it("accumulates completed Provider request totals for the Session", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    const appendedUsage: ProviderUsage[] = [];
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Hello" },
+                finishReason: "stop",
+                usage: {
+                  inputTokens: 120,
+                  outputTokens: 5,
+                  totalTokens: 125,
+                },
+              },
+            },
+          ],
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Again" },
+                finishReason: "stop",
+                usage: {
+                  inputTokens: 180,
+                  outputTokens: 30,
+                  totalTokens: 210,
+                },
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore(appended, appendedUsage),
+      session: transcript(),
+      model: "model",
+      contextWindow: 100_000,
+      maxOutputTokens: 100,
+      approvalPolicy: "ask",
+      tools: [],
+    });
+    const usageEvents: Extract<
+      HarnessEvent,
+      { type: "session-usage-updated" }
+    >[] = [];
+    harness.subscribe((event) => {
+      if (event.type === "session-usage-updated") {
+        usageEvents.push(event);
+      }
+    });
+
+    expect(await harness.dispatch({ type: "submit", content: "Hi" })).toEqual({
+      ok: true,
+    });
+    expect(await harness.dispatch({ type: "submit", content: "Again" })).toEqual({
+      ok: true,
+    });
+
+    expect(usageEvents).toHaveLength(2);
+    expect(usageEvents[0]).toEqual({
+      type: "session-usage-updated",
+      sessionTotalTokens: 125,
+      contextWindow: 100_000,
+    });
+    expect(usageEvents[1]).toEqual({
+      type: "session-usage-updated",
+      sessionTotalTokens: 335,
+      contextWindow: 100_000,
+    });
+    expect(appendedUsage).toEqual([
+      { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+      { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+    ]);
+    expect(harness.getSnapshot().sessionTotalTokens).toBe(335);
+  });
+
+  it("restores the cumulative Provider usage from the Session Transcript", () => {
+    const session = transcript();
+    const restored = createHarness({
+      provider: fakeProvider([], []),
+      sessionStore: fakeSessionStore([]),
+      session: {
+        ...session,
+        records: [
+          {
+            type: "usage",
+            usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+          },
+          {
+            type: "usage",
+            usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+          },
+        ],
+      },
+      model: "model",
+      contextWindow: 100_000,
+      maxOutputTokens: 100,
+      approvalPolicy: "ask",
+      tools: [],
+    });
+
+    expect(restored.getSnapshot().sessionTotalTokens).toBe(330);
   });
 
   it("approves and executes every Tool Call serially before continuing the Agent Loop", async () => {

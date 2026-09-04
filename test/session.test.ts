@@ -5,13 +5,18 @@ import {
   readFile,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSessionStore } from "../src/index.js";
-import type { CompletionMessage, SessionCompactionRecord } from "../src/index.js";
+import type {
+  CompletionMessage,
+  SessionCompactionRecord,
+  ProviderUsage,
+} from "../src/index.js";
 
 describe("session store", () => {
   let root: string;
@@ -128,6 +133,36 @@ describe("session store", () => {
     }
   });
 
+  it("appends and restores Provider usage for Session totals", async () => {
+    const store = createSessionStore({
+      sessionsDirectory: join(root, "sessions"),
+    });
+    const created = await store.createSession({ cwd: root });
+    if (!created.ok) {
+      throw new Error("session was not created");
+    }
+    const usages: ProviderUsage[] = [
+      { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+    ];
+
+    for (const usage of usages) {
+      expect(await store.appendUsage(created.value.header.id, usage)).toEqual({
+        ok: true,
+        value: undefined,
+      });
+    }
+
+    const loaded = await store.loadSession(created.value.header.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) {
+      expect(loaded.value.records).toEqual(
+        usages.map((usage) => ({ type: "usage", usage })),
+      );
+      expect(loaded.value.messages).toEqual([]);
+    }
+  });
+
   it("recovers a torn final JSON line and continues appending safely", async () => {
     const store = createSessionStore({
       sessionsDirectory: join(root, "sessions"),
@@ -203,6 +238,81 @@ describe("session store", () => {
         { type: "message", message: firstMessage },
       ]);
     }
+  });
+
+  it("reuses only the latest empty Session in the same working directory", async () => {
+    const store = createSessionStore({
+      sessionsDirectory: join(root, "sessions"),
+    });
+    const first = await store.createSession({ cwd: root, reuseEmpty: true });
+    const reused = await store.createSession({ cwd: root, reuseEmpty: true });
+    if (!first.ok || !reused.ok) {
+      throw new Error("sessions were not created");
+    }
+
+    expect(reused.value.header.id).toBe(first.value.header.id);
+    const afterReuse = await store.listSessions();
+    expect(afterReuse.ok && afterReuse.value).toHaveLength(1);
+
+    await store.appendMessage(first.value.header.id, {
+      role: "user",
+      content: "This Session is no longer empty.",
+    });
+    const next = await store.createSession({ cwd: root, reuseEmpty: true });
+    if (!next.ok) {
+      throw new Error("next session was not created");
+    }
+    expect(next.value.header.id).not.toBe(first.value.header.id);
+
+    const otherDirectory = await store.createSession({
+      cwd: join(root, "other"),
+      reuseEmpty: true,
+    });
+    if (!otherDirectory.ok) {
+      throw new Error("other-directory session was not created");
+    }
+    expect(otherDirectory.value.header.id).not.toBe(next.value.header.id);
+  });
+
+  it("loads global input history from all persisted sessions", async () => {
+    const sessionsDirectory = join(root, "sessions");
+    const store = createSessionStore({ sessionsDirectory });
+    const first = await store.createSession({ cwd: root });
+    const second = await store.createSession({ cwd: root });
+    if (!first.ok || !second.ok) {
+      throw new Error("sessions were not created");
+    }
+
+    await store.appendMessage(first.value.header.id, {
+      role: "user",
+      content: "First historical input",
+    });
+    await store.appendMessage(first.value.header.id, {
+      role: "assistant",
+      content: "First response",
+    });
+    await store.appendMessage(second.value.header.id, {
+      role: "user",
+      content: "Second historical input",
+    });
+    await utimes(
+      first.value.filePath,
+      new Date("2026-09-03T01:00:00.000Z"),
+      new Date("2026-09-03T01:00:00.000Z"),
+    );
+    await utimes(
+      second.value.filePath,
+      new Date("2026-09-03T02:00:00.000Z"),
+      new Date("2026-09-03T02:00:00.000Z"),
+    );
+
+    const restarted = createSessionStore({ sessionsDirectory });
+    const history = await restarted.loadInputHistory();
+
+    expect(history).toMatchObject({
+      ok: true,
+      value: ["First historical input", "Second historical input"],
+    });
   });
 
   it("provides picker summaries, ID resume, and last resume", async () => {

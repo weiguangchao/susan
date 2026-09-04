@@ -59,8 +59,21 @@ export type TuiState = {
   readonly retry: TuiRetry | null;
   readonly failure: ProviderFailure | null;
   readonly pending: PendingAgentLoop | null;
+  readonly model: string;
+  readonly reasoningLevel: string;
+  readonly contextWindow: number;
+  readonly sessionTotalTokens: number;
   readonly notice: string | null;
   readonly input: string;
+  readonly inputCursor: TuiInputCursor;
+  readonly inputHistory: readonly string[];
+  readonly inputHistoryIndex: number;
+  readonly inputHistoryActive: boolean;
+};
+
+export type TuiInputCursor = {
+  readonly row: number;
+  readonly column: number;
 };
 
 export type TuiInputKey = {
@@ -70,12 +83,24 @@ export type TuiInputKey = {
   readonly return?: boolean;
   readonly escape?: boolean;
   readonly backspace?: boolean;
+  readonly upArrow?: boolean;
+  readonly downArrow?: boolean;
+  readonly leftArrow?: boolean;
+  readonly rightArrow?: boolean;
 };
 
 export type TuiInputIntent =
   | { readonly type: "insert"; readonly text: string }
   | { readonly type: "newline" }
   | { readonly type: "backspace" }
+  | { readonly type: "move-cursor-up" }
+  | { readonly type: "move-cursor-down" }
+  | { readonly type: "move-cursor-left" }
+  | { readonly type: "move-cursor-right" }
+  | { readonly type: "move-cursor-to-line-start" }
+  | { readonly type: "move-cursor-to-line-end" }
+  | { readonly type: "history-previous" }
+  | { readonly type: "history-next" }
   | { readonly type: "submit"; readonly content: string }
   | { readonly type: "clear-input" }
   | { readonly type: "clear" }
@@ -105,7 +130,15 @@ export type TuiAction =
 
 const emptyStream = { text: "", reasoning: "" };
 
-export function createTuiState(snapshot: HarnessSnapshot): TuiState {
+export function createTuiState(
+  snapshot: HarnessSnapshot,
+  globalInputHistory?: readonly string[],
+): TuiState {
+  const inputHistory =
+    globalInputHistory ??
+    snapshot.messages.flatMap((message) =>
+      message.role === "user" ? [message.content] : [],
+    );
   return {
     status: snapshot.status,
     messages: snapshot.messages.flatMap(messageToTuiMessages),
@@ -115,8 +148,16 @@ export function createTuiState(snapshot: HarnessSnapshot): TuiState {
     retry: null,
     failure: null,
     pending: snapshot.pending,
+    model: snapshot.model,
+    reasoningLevel: snapshot.reasoningLevel,
+    contextWindow: snapshot.contextWindow,
+    sessionTotalTokens: snapshot.sessionTotalTokens,
     notice: snapshot.pending === null ? null : pendingNotice(snapshot.pending),
     input: "",
+    inputCursor: { row: 0, column: 0 },
+    inputHistory,
+    inputHistoryIndex: inputHistory.length,
+    inputHistoryActive: false,
   };
 }
 
@@ -133,10 +174,16 @@ export function resolveSubmission(value: string): TuiSubmissionIntent {
   if (content === "/exit") {
     return { type: "exit" };
   }
-  if (content === "/clear") {
+  if (content === "/clear" || content === "/new") {
     return { type: "clear" };
   }
   return { type: "submit", content };
+}
+
+export function isEmptySession(
+  snapshot: Pick<HarnessSnapshot, "messages">,
+): boolean {
+  return snapshot.messages.length === 0;
 }
 
 export function resolveInputIntent(
@@ -167,6 +214,37 @@ export function resolveInputIntent(
   }
   if (key.shift && key.input === " ") {
     return { type: "newline" };
+  }
+
+  if (key.ctrl && key.input === "a") {
+    return { type: "move-cursor-to-line-start" };
+  }
+  if (key.ctrl && key.input === "e") {
+    return { type: "move-cursor-to-line-end" };
+  }
+  if (key.upArrow) {
+    if (
+      (state.input === "" || state.inputHistoryActive) &&
+      state.inputHistoryIndex > 0
+    ) {
+      return { type: "history-previous" };
+    }
+    return { type: "move-cursor-up" };
+  }
+  if (key.downArrow) {
+    if (
+      (state.input === "" || state.inputHistoryActive) &&
+      state.inputHistoryIndex < state.inputHistory.length
+    ) {
+      return { type: "history-next" };
+    }
+    return { type: "move-cursor-down" };
+  }
+  if (key.leftArrow) {
+    return { type: "move-cursor-left" };
+  }
+  if (key.rightArrow) {
+    return { type: "move-cursor-right" };
   }
 
   if (state.approval !== null) {
@@ -257,6 +335,10 @@ export function reduceTuiState(
         ...state,
         status: action.snapshot.status,
         pending: action.snapshot.pending,
+        model: action.snapshot.model,
+        reasoningLevel: action.snapshot.reasoningLevel,
+        contextWindow: action.snapshot.contextWindow,
+        sessionTotalTokens: action.snapshot.sessionTotalTokens,
         ...(action.snapshot.pending === null
           ? {}
           : { notice: pendingNotice(action.snapshot.pending) }),
@@ -268,12 +350,142 @@ export function reduceTuiState(
     case "notice":
       return { ...state, notice: action.message };
     case "clear-input":
-      return { ...state, input: "", notice: null };
+      return {
+        ...state,
+        input: "",
+        inputCursor: { row: 0, column: 0 },
+        inputHistoryIndex: state.inputHistory.length,
+        inputHistoryActive: false,
+        notice: null,
+      };
     case "new-session":
-      return createTuiState(action.snapshot);
+      return createTuiState(action.snapshot, state.inputHistory);
     default:
       return state;
   }
+}
+
+function insertInput(state: TuiState, text: string): TuiState {
+  if (text === "") {
+    return { ...state, notice: null };
+  }
+
+  const lines = state.input.split("\n");
+  const { row, column } = state.inputCursor;
+  const line = lines[row] ?? "";
+  const updatedLine = `${line.slice(0, column)}${text}${line.slice(column)}`;
+  const updatedLines = updatedLine.split("\n");
+  const insertedLines = text.split("\n");
+  const insertedLastLineLength = insertedLines[insertedLines.length - 1]?.length ?? 0;
+  lines.splice(row, 1, ...updatedLines);
+
+  return {
+    ...state,
+    input: lines.join("\n"),
+    inputCursor: {
+      row: row + updatedLines.length - 1,
+      column:
+        insertedLines.length === 1
+          ? column + insertedLastLineLength
+        : insertedLastLineLength,
+    },
+    inputHistoryActive: false,
+    notice: null,
+  };
+}
+
+function backspaceInput(state: TuiState): TuiState {
+  const lines = state.input.split("\n");
+  const { row, column } = state.inputCursor;
+
+  if (row === 0 && column === 0) {
+    return state;
+  }
+  if (column > 0) {
+    lines[row] =
+      (lines[row] ?? "").slice(0, column - 1) +
+      (lines[row] ?? "").slice(column);
+    return {
+      ...state,
+    input: lines.join("\n"),
+    inputCursor: { row, column: column - 1 },
+    inputHistoryActive: false,
+      notice: null,
+    };
+  }
+
+  const previousLine = lines[row - 1] ?? "";
+  const currentLine = lines[row] ?? "";
+  lines.splice(row - 1, 2, `${previousLine}${currentLine}`);
+  return {
+    ...state,
+    input: lines.join("\n"),
+    inputCursor: { row: row - 1, column: previousLine.length },
+    inputHistoryActive: false,
+    notice: null,
+  };
+}
+
+function moveCursorUp(state: TuiState): TuiInputCursor {
+  if (state.inputCursor.row === 0) {
+    return { row: 0, column: 0 };
+  }
+  const row = state.inputCursor.row - 1;
+  return {
+    row,
+    column: Math.min(
+      state.inputCursor.column,
+      state.input.split("\n")[row]?.length ?? 0,
+    ),
+  };
+}
+
+function moveCursorDown(state: TuiState): TuiInputCursor {
+  const lines = state.input.split("\n");
+  if (state.inputCursor.row >= lines.length - 1) {
+    return {
+      row: lines.length - 1,
+      column: lines[lines.length - 1]?.length ?? 0,
+    };
+  }
+  const row = state.inputCursor.row + 1;
+  return {
+    row,
+    column: Math.min(state.inputCursor.column, lines[row]?.length ?? 0),
+  };
+}
+
+function moveCursorLeft(state: TuiState): TuiInputCursor {
+  const { row, column } = state.inputCursor;
+  if (column > 0) {
+    return { row, column: column - 1 };
+  }
+  if (row === 0) {
+    return { row: 0, column: 0 };
+  }
+  return {
+    row: row - 1,
+    column: state.input.split("\n")[row - 1]?.length ?? 0,
+  };
+}
+
+function moveCursorRight(state: TuiState): TuiInputCursor {
+  const lines = state.input.split("\n");
+  const { row, column } = state.inputCursor;
+  const lineLength = lines[row]?.length ?? 0;
+  if (column < lineLength) {
+    return { row, column: column + 1 };
+  }
+  if (row < lines.length - 1) {
+    return { row: row + 1, column: 0 };
+  }
+  return { row, column: lineLength };
+}
+
+function cursorAtEnd(input: string): TuiInputCursor {
+  const lines = input.split("\n");
+  const row = lines.length - 1;
+  return { row, column: lines[row]?.length ?? 0 };
 }
 
 function applyInputIntent(
@@ -282,12 +494,82 @@ function applyInputIntent(
 ): TuiState {
   switch (intent.type) {
     case "insert":
-      return { ...state, input: state.input + intent.text, notice: null };
+      return insertInput(state, intent.text);
     case "newline":
-      return { ...state, input: `${state.input}\n`, notice: null };
+      return insertInput(state, "\n");
     case "backspace":
-      return { ...state, input: state.input.slice(0, -1), notice: null };
-    case "submit":
+      return backspaceInput(state);
+    case "move-cursor-up":
+      return {
+        ...state,
+        inputCursor: moveCursorUp(state),
+        notice: null,
+      };
+    case "move-cursor-down":
+      return {
+        ...state,
+        inputCursor: moveCursorDown(state),
+        notice: null,
+      };
+    case "move-cursor-left":
+      return {
+        ...state,
+        inputCursor: moveCursorLeft(state),
+        notice: null,
+      };
+    case "move-cursor-right":
+      return {
+        ...state,
+        inputCursor: moveCursorRight(state),
+        notice: null,
+      };
+    case "move-cursor-to-line-start":
+      return {
+        ...state,
+        inputCursor: { row: state.inputCursor.row, column: 0 },
+        notice: null,
+      };
+    case "move-cursor-to-line-end":
+      return {
+        ...state,
+        inputCursor: {
+          row: state.inputCursor.row,
+          column: state.input.split("\n")[state.inputCursor.row]?.length ?? 0,
+        },
+        notice: null,
+      };
+    case "history-previous": {
+      const index = Math.max(0, state.inputHistoryIndex - 1);
+      const input = state.inputHistory[index] ?? "";
+      return {
+        ...state,
+        input,
+        inputCursor: cursorAtEnd(input),
+        inputHistoryIndex: index,
+        inputHistoryActive: true,
+        notice: null,
+      };
+    }
+    case "history-next": {
+      const index = Math.min(
+        state.inputHistory.length,
+        state.inputHistoryIndex + 1,
+      );
+      const input =
+        index === state.inputHistory.length
+          ? ""
+          : state.inputHistory[index] ?? "";
+      return {
+        ...state,
+        input,
+        inputCursor: cursorAtEnd(input),
+        inputHistoryIndex: index,
+        inputHistoryActive: index !== state.inputHistory.length,
+        notice: null,
+      };
+    }
+    case "submit": {
+      const inputHistory = [...state.inputHistory, intent.content];
       return {
         ...state,
         status: "running",
@@ -296,11 +578,23 @@ function applyInputIntent(
           { kind: "user", text: intent.content },
         ],
         input: "",
+        inputCursor: { row: 0, column: 0 },
+        inputHistory,
+        inputHistoryIndex: inputHistory.length,
+        inputHistoryActive: false,
         notice: null,
         failure: null,
       };
+    }
     case "clear-input":
-      return { ...state, input: "", notice: "已清空输入" };
+      return {
+        ...state,
+        input: "",
+        inputCursor: { row: 0, column: 0 },
+        inputHistoryIndex: state.inputHistory.length,
+        inputHistoryActive: false,
+        notice: "已清空输入",
+      };
     case "notice":
       return { ...state, notice: intent.message };
     case "approve-approval":
@@ -407,6 +701,12 @@ function reduceHarnessEvent(
       return {
         ...state,
         notice: `上下文已压缩 · ${event.tokensBefore} → ${event.tokensAfterEstimate} est.`,
+      };
+    case "session-usage-updated":
+      return {
+        ...state,
+        sessionTotalTokens: event.sessionTotalTokens,
+        contextWindow: event.contextWindow,
       };
     case "compaction-failed":
       return {

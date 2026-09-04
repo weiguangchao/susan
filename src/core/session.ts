@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
-import type { CompletionMessage } from "./provider.js";
+import type { CompletionMessage, ProviderUsage } from "./provider.js";
 
 export type SessionHeader = {
   type: "session";
@@ -35,7 +35,15 @@ export type SessionCompactionRecord = {
   createdAt: string;
 };
 
-export type SessionRecord = SessionMessageRecord | SessionCompactionRecord;
+export type SessionUsageRecord = {
+  type: "usage";
+  usage: ProviderUsage;
+};
+
+export type SessionRecord =
+  | SessionMessageRecord
+  | SessionCompactionRecord
+  | SessionUsageRecord;
 
 export const DEFAULT_SESSIONS_DIRECTORY = join(
   homedir(),
@@ -78,6 +86,7 @@ export type SessionSummary = {
 export type SessionStore = {
   createSession(input: {
     readonly cwd: string;
+    readonly reuseEmpty?: boolean;
   }): Promise<SessionStoreResult<SessionTranscript>>;
   appendMessage(
     sessionId: string,
@@ -87,6 +96,10 @@ export type SessionStore = {
     sessionId: string,
     checkpoint: SessionCompactionRecord,
   ): Promise<SessionStoreResult<void>>;
+  appendUsage(
+    sessionId: string,
+    usage: ProviderUsage,
+  ): Promise<SessionStoreResult<void>>;
   loadSession(
     sessionId: string,
   ): Promise<SessionStoreResult<SessionTranscript>>;
@@ -94,6 +107,7 @@ export type SessionStore = {
   loadLastSession(): Promise<
     SessionStoreResult<SessionTranscript | null>
   >;
+  loadInputHistory(): Promise<SessionStoreResult<readonly string[]>>;
 };
 
 export type SessionStoreOptions = {
@@ -180,6 +194,27 @@ function isSessionHeader(value: unknown): value is SessionHeader {
   return true;
 }
 
+function isProviderUsage(value: unknown): value is ProviderUsage {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["inputTokens", "outputTokens", "totalTokens"])
+  ) {
+    return false;
+  }
+  const { inputTokens, outputTokens, totalTokens } = value;
+  return (
+    typeof inputTokens === "number" &&
+    Number.isInteger(inputTokens) &&
+    inputTokens >= 0 &&
+    typeof outputTokens === "number" &&
+    Number.isInteger(outputTokens) &&
+    outputTokens >= 0 &&
+    typeof totalTokens === "number" &&
+    Number.isInteger(totalTokens) &&
+    totalTokens >= 0
+  );
+}
+
 function isSessionRecord(value: unknown): value is SessionRecord {
   if (!isRecord(value) || typeof value.type !== "string") {
     return false;
@@ -212,6 +247,12 @@ function isSessionRecord(value: unknown): value is SessionRecord {
       value.tokensAfterEstimate >= 0 &&
       typeof value.createdAt === "string" &&
       !Number.isNaN(Date.parse(value.createdAt))
+    );
+  }
+  if (value.type === "usage") {
+    return (
+      hasExactKeys(value, ["type", "usage"]) &&
+      isProviderUsage(value.usage)
     );
   }
   return false;
@@ -395,7 +436,7 @@ export function createSessionStore(
   const sessionsDirectory = resolve(options.sessionsDirectory ?? DEFAULT_SESSIONS_DIRECTORY);
 
   return {
-    async createSession({ cwd }) {
+    async createSession({ cwd, reuseEmpty = false }) {
       const prepared = await ensureSessionsDirectory(sessionsDirectory);
       if (!prepared.ok) {
         return prepared;
@@ -404,6 +445,20 @@ export function createSessionStore(
         return failure("SUSAN_SESSION_SCHEMA", "cwd must be a non-empty string");
       }
       const resolvedCwd = resolve(cwd);
+      if (reuseEmpty) {
+        const listed = await this.listSessions();
+        if (!listed.ok) {
+          return listed;
+        }
+        const latest = listed.value[0];
+        if (
+          latest !== undefined &&
+          latest.recordCount === 0 &&
+          latest.header.cwd === resolvedCwd
+        ) {
+          return this.loadSession(latest.header.id);
+        }
+      }
       const id = randomUUID();
       const createdAt = new Date().toISOString();
       const header: SessionHeader = {
@@ -578,6 +633,83 @@ export function createSessionStore(
       return success(undefined);
     },
 
+    async appendUsage(sessionId, usage) {
+      const prepared = await ensureSessionsDirectory(sessionsDirectory);
+      if (!prepared.ok) {
+        return prepared;
+      }
+      if (!UUID_PATTERN.test(sessionId)) {
+        return failure("SUSAN_SESSION_SCHEMA", "sessionId must be a UUID");
+      }
+      const record: SessionUsageRecord = { type: "usage", usage };
+      if (!isSessionRecord(record)) {
+        return failure(
+          "SUSAN_SESSION_SCHEMA",
+          "usage must contain valid Provider token totals",
+        );
+      }
+
+      let fileName: string | undefined;
+      try {
+        fileName = await findSessionFilePath(sessionsDirectory, sessionId);
+      } catch (error) {
+        return failure(
+          "SUSAN_SESSION_DIRECTORY",
+          error instanceof Error
+            ? error.message
+            : "Unable to list sessions directory",
+          sessionsDirectory,
+        );
+      }
+      if (fileName === undefined) {
+        return failure(
+          "SUSAN_SESSION_NOT_FOUND",
+          "Session was not found",
+          sessionsDirectory,
+        );
+      }
+      const filePath = join(sessionsDirectory, fileName);
+
+      try {
+        const text = await readSessionFile(filePath);
+        if (!text.ok) {
+          return text;
+        }
+        const parsed = parseSessionText(text.value, filePath);
+        if (!parsed.ok) {
+          return parsed;
+        }
+        const existing = text.value;
+        if (!existing.endsWith("\n")) {
+          const lastNewline = existing.lastIndexOf("\n");
+          const lastLine = existing.slice(lastNewline + 1);
+          try {
+            JSON.parse(lastLine);
+            await appendNewline(filePath);
+          } catch {
+            await truncate(filePath, lastNewline + 1);
+          }
+        }
+        const handle = await open(filePath, "a");
+        try {
+          await handle.appendFile(`${JSON.stringify(record)}\n`, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        return failure(
+          "SUSAN_SESSION_IO",
+          error instanceof Error
+            ? error.message
+            : "Unable to append session record",
+          filePath,
+        );
+      }
+
+      return success(undefined);
+    },
+
     async loadSession(sessionId) {
       const prepared = await ensureSessionsDirectory(sessionsDirectory);
       if (!prepared.ok) {
@@ -669,6 +801,26 @@ export function createSessionStore(
         return success(null);
       }
       return this.loadSession(list.value[0]!.header.id);
+    },
+    async loadInputHistory() {
+      const list = await this.listSessions();
+      if (!list.ok) {
+        return list;
+      }
+
+      const inputHistory: string[] = [];
+      for (const summary of [...list.value].reverse()) {
+        const loaded = await this.loadSession(summary.header.id);
+        if (!loaded.ok) {
+          return loaded;
+        }
+        for (const message of loaded.value.messages) {
+          if (message.role === "user" && message.content.length > 0) {
+            inputHistory.push(message.content);
+          }
+        }
+      }
+      return success(inputHistory);
     },
   };
 }

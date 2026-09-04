@@ -81,8 +81,12 @@ Session JSONL 首行的 metadata，包括 version、id、createdAt 与 cwd。
 _Avoid_: front matter, metadata block
 
 **Session Record**:
-Session JSONL 中 append-only 的事件行；0.0.1 包含 message 与 compaction。
+Session JSONL 中 append-only 的事件行；0.0.1 包含 message、usage 与 compaction。
 _Avoid_: row, entry
+
+**Session Token Usage**:
+一个 Session 内所有已完成 Provider 请求的 input + output token 累计值；每条 usage record 保存一次请求的上游 usage，用于恢复状态栏统计。
+_Avoid_: model context, context estimation
 
 **Session Transcript**:
 Session 中持久保留、可恢复与审计的完整事件记录。Compaction 不会删除其中的早期内容。

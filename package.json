@@ -13,7 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts --config config.dev.json",
     "prototype": "tsx prototype/tui-prototype.tsx",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

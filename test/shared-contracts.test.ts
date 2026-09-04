@@ -17,7 +17,6 @@ import type {
 describe("shared type contracts", () => {
   it("models the config schema and structured config errors", () => {
     const config = {
-      version: 1,
       defaultProvider: "deepseek",
       defaultModel: "deepseek-v4-flash",
       approval: "ask",
@@ -40,7 +39,6 @@ describe("shared type contracts", () => {
       issues: [issue],
     } satisfies ConfigError;
 
-    expect(config.version).toBe(1);
     expectTypeOf<ApprovalPolicy>().toEqualTypeOf<"ask" | "yolo">();
     expectTypeOf<ProviderType>().toEqualTypeOf<
       "anthropic" | "openai-completion" | "responses"

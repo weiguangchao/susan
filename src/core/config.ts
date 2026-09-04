@@ -31,9 +31,8 @@ const providerEntrySchema = z.strictObject({
 });
 
 const configSchema = z.strictObject({
-  version: z.literal(1).default(1),
-  defaultProvider: z.string().min(1).default("deepseek"),
-  defaultModel: z.string().min(1).default("deepseek-v4-flash"),
+  defaultProvider: z.string().default(""),
+  defaultModel: z.string().default(""),
   approval: z.enum(["ask", "yolo"]).default("ask"),
   providers: z
     .record(z.string().min(1), providerEntrySchema)
@@ -57,7 +56,6 @@ export type ResolvedProviderEntry = {
 };
 
 export type ResolvedConfig = {
-  version: 1;
   defaultProvider: string;
   defaultModel: string;
   approval: ApprovalPolicy;
@@ -349,7 +347,6 @@ export function resolveConfig(
   return {
     ok: true,
     config: {
-      version: 1,
       defaultProvider: parsed.defaultProvider,
       defaultModel: parsed.defaultModel,
       approval: flags.approval ?? parsed.approval,

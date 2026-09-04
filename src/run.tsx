@@ -33,7 +33,10 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   }
 
   const store = createSessionStore();
-  const loadedConfig = await loadResolvedConfig(parsed.flags.approval);
+  const loadedConfig = await loadResolvedConfig(
+    parsed.flags.approval,
+    parsed.flags.configPath,
+  );
   if (!loadedConfig.ok) {
     return loadedConfig.exitCode;
   }
@@ -79,9 +82,10 @@ type ConfigStart =
 
 async function loadResolvedConfig(
   approval: ApprovalPolicy | undefined,
+  configPath: string | undefined,
 ): Promise<ConfigStart> {
   while (true) {
-    const loaded = await loadConfig({ approval });
+    const loaded = await loadConfig({ approval, configPath });
     if (loaded.ok) {
       return { ok: true, config: loaded.config };
     }

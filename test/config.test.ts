@@ -40,8 +40,9 @@ describe("config loading", () => {
     return configPath;
   }
 
-  it("merges defaults in memory without writing the config file", async () => {
+  it("merges empty defaults in memory without writing the config file", async () => {
     const value = {
+      defaultProvider: "deepseek",
       providers: {
         deepseek: {
           type: "openai-completion",
@@ -61,9 +62,8 @@ describe("config loading", () => {
     expect(result).toMatchObject({
       ok: true,
       config: {
-        version: 1,
         defaultProvider: "deepseek",
-        defaultModel: "deepseek-v4-flash",
+        defaultModel: "",
         approval: "ask",
         provider: {
           type: "openai-completion",
@@ -114,8 +114,30 @@ describe("config loading", () => {
     }
   });
 
+  it("reports an omitted default provider instead of selecting a provider by default", async () => {
+    const configPath = await writeConfig({
+      providers: {
+        deepseek: {
+          type: "openai-completion",
+          apiKey: "sk-test",
+        },
+      },
+    });
+
+    const result = await loadConfig({ configPath });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "SUSAN_CONFIG_PROVIDER_UNKNOWN",
+        issues: [{ path: "providers." }],
+      },
+    });
+  });
+
   it("rejects unknown fields and invalid values with structured schema issues", async () => {
     const configPath = await writeConfig({
+      version: 1,
       unknownField: true,
       approval: "always",
       providers: {
@@ -135,6 +157,7 @@ describe("config loading", () => {
       expect(result.error.code).toBe("SUSAN_CONFIG_SCHEMA");
       const paths = result.error.issues.map((issue) => issue.path);
       expect(paths).toContain("unknownField");
+      expect(paths).toContain("version");
       expect(paths).toContain("approval");
       expect(paths).toContain("providers.work.type");
       expect(paths).toContain("providers.work.baseURL");
@@ -144,6 +167,7 @@ describe("config loading", () => {
 
   it("reports unknown and unsupported provider types separately", async () => {
     const unknownConfigPath = await writeConfig({
+      defaultProvider: "deepseek",
       providers: {
         work: {
           type: "openai-completion",
@@ -153,6 +177,7 @@ describe("config loading", () => {
     });
     const unknownResult = await loadConfig({ configPath: unknownConfigPath });
     const unsupportedConfigPath = await writeConfig({
+      defaultProvider: "deepseek",
       providers: {
         deepseek: {
           type: "openai-completion",
@@ -185,6 +210,7 @@ describe("config loading", () => {
 
   it("requires an API key only for the resolved default provider", async () => {
     const configPath = await writeConfig({
+      defaultProvider: "deepseek",
       providers: {
         deepseek: {
           type: "openai-completion",

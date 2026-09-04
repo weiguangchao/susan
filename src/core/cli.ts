@@ -8,6 +8,7 @@ export type ResumeMode =
 
 export type CliFlags = {
   readonly approval?: ApprovalPolicy;
+  readonly configPath?: string;
   readonly resume: ResumeMode;
 };
 
@@ -21,7 +22,7 @@ export type CliParseResult =
   | { readonly ok: false; readonly error: CliError };
 
 export const CLI_USAGE = `Usage:
-  susan [--approval ask|yolo | --yolo] [--resume | --resume <id> | --resume --last]`;
+  susan [--config <path>] [--approval ask|yolo | --yolo] [--resume | --resume <id> | --resume --last]`;
 
 function usageError(message: string): CliParseResult {
   return {
@@ -46,12 +47,36 @@ export function parseCli(args: readonly string[]): CliParseResult {
   let resumeSeen = false;
   let resumeId: string | undefined;
   let resumeLast = false;
+  let configPath: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
     if (arg === "--yolo") {
       approvalArgs.push(arg);
+      continue;
+    }
+    if (arg === "--config") {
+      const value = args[index + 1];
+      if (value === undefined || isFlag(value)) {
+        return usageError("--config requires a Config file path");
+      }
+      if (configPath !== undefined) {
+        return usageError("--config can only be specified once");
+      }
+      configPath = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--config=")) {
+      const value = arg.slice("--config=".length);
+      if (value === "") {
+        return usageError("--config requires a Config file path");
+      }
+      if (configPath !== undefined) {
+        return usageError("--config can only be specified once");
+      }
+      configPath = value;
       continue;
     }
     if (arg === "--approval") {
@@ -118,6 +143,7 @@ export function parseCli(args: readonly string[]): CliParseResult {
       ...(approvalResult.approval === undefined
         ? {}
         : { approval: approvalResult.approval }),
+      ...(configPath === undefined ? {} : { configPath }),
       resume,
     },
   };

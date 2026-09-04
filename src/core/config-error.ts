@@ -15,10 +15,14 @@ export type ConfigErrorView = {
 };
 
 const MINIMAL_CONFIG_EXAMPLE = `{
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-v4-flash",
+  "approval": "ask",
   "providers": {
     "deepseek": {
       "type": "openai-completion",
-      "apiKey": "sk-..."
+      "apiKey": "sk-...",
+      "baseURL": "https://api.deepseek.com"
     }
   }
 }`;

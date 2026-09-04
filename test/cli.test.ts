@@ -53,6 +53,24 @@ describe("CLI flags", () => {
     });
   });
 
+  it("accepts a custom Config file path", () => {
+    expect(parseCli(["--config", "/tmp/susan-config.json"])).toEqual({
+      ok: true,
+      flags: {
+        configPath: "/tmp/susan-config.json",
+        resume: { kind: "none" },
+      },
+    });
+    expect(parseCli(["--config=/tmp/susan-config.json", "--yolo"])).toEqual({
+      ok: true,
+      flags: {
+        approval: "yolo",
+        configPath: "/tmp/susan-config.json",
+        resume: { kind: "none" },
+      },
+    });
+  });
+
   it("opens the resume picker, a Session id, or the last Session", () => {
     expect(parseCli(["--resume"])).toEqual({
       ok: true,
@@ -126,6 +144,13 @@ describe("CLI flags", () => {
       error: {
         code: "SUSAN_CLI_USAGE",
         message: "Unknown argument: --unknown",
+      },
+    });
+    expect(parseCli(["--config"])).toEqual({
+      ok: false,
+      error: {
+        code: "SUSAN_CLI_USAGE",
+        message: "--config requires a Config file path",
       },
     });
     expect(parseCli(["--resume="])).toEqual({
@@ -254,8 +279,12 @@ describe("config error presentation", () => {
     expect(view.code).toBe("SUSAN_CONFIG_MISSING");
     expect(view.configPath).toBe("/tmp/.susan/config.json");
     expect(view.issues[0]?.message).toBe("Config file does not exist");
+    expect(view.example).toContain('"defaultProvider": "deepseek"');
+    expect(view.example).toContain('"defaultModel": "deepseek-v4-flash"');
+    expect(view.example).toContain('"approval": "ask"');
     expect(view.example).toContain('"type": "openai-completion"');
     expect(view.example).toContain('"apiKey": "sk-..."');
+    expect(view.example).toContain('"baseURL": "https://api.deepseek.com"');
     expect(view.hint).toBe("r 重新读取 · Esc 退出");
   });
 

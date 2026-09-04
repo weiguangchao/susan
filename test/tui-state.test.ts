@@ -60,6 +60,22 @@ describe("TUI state", () => {
     ).toEqual({ type: "insert", text: " " });
   });
 
+  it("clears draft input with Ctrl+D", () => {
+    let state = initialState();
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "draft" },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "d", ctrl: true },
+    });
+
+    expect(state.input).toBe("");
+    expect(state.inputCursor).toEqual({ row: 0, column: 0 });
+    expect(state.notice).toBe("已清空输入");
+  });
+
   it("preserves a multiline paste as one insertion", () => {
     const pasted = '{\n  "editor.fontSize": 14,\n  "git.autofetch": true\n}';
     const state = reduceTuiState(initialState(), {

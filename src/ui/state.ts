@@ -211,6 +211,9 @@ export function resolveInputIntent(
   if (key.ctrl && key.input === "j") {
     return { type: "newline" };
   }
+  if (key.ctrl && key.input === "d") {
+    return { type: "clear-input" };
+  }
   if (key.input === "\n" && key.return !== true) {
     return { type: "newline" };
   }

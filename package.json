@@ -25,6 +25,7 @@
     "ink": "^7.1.1",
     "openai": "^7.9.0",
     "react": "^19.2.8",
+    "string-width": "^8.2.2",
     "zod": "^4.5.4"
   },
   "devDependencies": {

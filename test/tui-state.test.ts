@@ -33,7 +33,7 @@ function initialState(
 }
 
 describe("TUI state", () => {
-  it("supports the agreed multiline input and submission keys", () => {
+  it("supports Ctrl+J multiline input and Enter submission", () => {
     let state = initialState();
     state = reduceTuiState(state, {
       type: "input-key",
@@ -45,17 +45,57 @@ describe("TUI state", () => {
     });
     state = reduceTuiState(state, {
       type: "input-key",
-      key: { input: " ", shift: true },
-    });
-    state = reduceTuiState(state, {
-      type: "input-key",
       key: { input: "b" },
     });
 
-    expect(state.input).toBe("a\n\nb");
+    expect(state.input).toBe("a\nb");
     expect(
       resolveInputIntent(state, { input: "\r", return: true }),
-    ).toEqual({ type: "submit", content: "a\n\nb" });
+    ).toEqual({ type: "submit", content: "a\nb" });
+  });
+
+  it("treats Shift+Space as an ordinary space", () => {
+    expect(
+      resolveInputIntent(initialState(), { input: " ", shift: true }),
+    ).toEqual({ type: "insert", text: " " });
+  });
+
+  it("preserves a multiline paste as one insertion", () => {
+    const pasted = '{\n  "editor.fontSize": 14,\n  "git.autofetch": true\n}';
+    const state = reduceTuiState(initialState(), {
+      type: "input-key",
+      key: { input: pasted },
+    });
+
+    expect(state.input).toBe(pasted);
+    expect(state.inputCursor).toEqual({ row: 3, column: 1 });
+  });
+
+  it("normalizes carriage returns in pasted multiline input", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "input-key",
+      key: { input: "first\r\nsecond\rthird" },
+    });
+
+    expect(state.input).toBe("first\nsecond\nthird");
+    expect(state.inputCursor).toEqual({ row: 2, column: 5 });
+  });
+
+  it("moves past a pasted carriage return to the next line with one right arrow", () => {
+    let state = reduceTuiState(initialState(), {
+      type: "input-key",
+      key: { input: "first\rsecond" },
+    });
+    state = {
+      ...state,
+      inputCursor: { row: 0, column: 5 },
+    };
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", rightArrow: true },
+    });
+
+    expect(state.inputCursor).toEqual({ row: 1, column: 0 });
   });
 
   it("marks submission and retry as running immediately", () => {
@@ -109,7 +149,7 @@ describe("TUI state", () => {
 
     state = reduceTuiState(state, {
       type: "input-key",
-      key: { input: "", upArrow: true },
+      key: { input: "", upArrow: true, inputWidth: 10 },
     });
     state = reduceTuiState(state, {
       type: "input-key",
@@ -117,7 +157,7 @@ describe("TUI state", () => {
     });
     state = reduceTuiState(state, {
       type: "input-key",
-      key: { input: "", downArrow: true },
+      key: { input: "", downArrow: true, inputWidth: 10 },
     });
     expect(state.input).toBe("abc\ndef");
     expect(state.inputCursor).toEqual({ row: 1, column: 2 });
@@ -147,6 +187,53 @@ describe("TUI state", () => {
       key: { input: "e", ctrl: true },
     });
     expect(state.inputCursor).toEqual({ row: 0, column: 7 });
+  });
+
+  it("moves vertically between wrapped visual rows", () => {
+    let state = initialState();
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "abcdefghi" },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true, inputWidth: 6 },
+    });
+
+    expect(state.inputCursor).toEqual({ row: 0, column: 3 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true, inputWidth: 6 },
+    });
+    expect(state.inputCursor).toEqual({ row: 0, column: 9 });
+  });
+
+  it("keeps a cursor at a wrapped row end when moving up", () => {
+    let state = initialState();
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "abcdefghi" },
+    });
+    for (let index = 0; index < 3; index += 1) {
+      state = reduceTuiState(state, {
+        type: "input-key",
+        key: { input: "", leftArrow: true },
+      });
+    }
+    expect(state.inputCursor).toEqual({ row: 0, column: 6 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true, inputWidth: 6 },
+    });
+    expect(state.inputCursor).toEqual({ row: 0, column: 6 });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true, inputWidth: 6 },
+    });
+    expect(state.inputCursor).toEqual({ row: 0, column: 6 });
   });
 
   it("browses submitted user messages from an empty input", () => {

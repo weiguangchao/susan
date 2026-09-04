@@ -9,6 +9,7 @@ import type {
   ProviderFailure,
   ProviderToolCall,
 } from "../core/provider.js";
+import { moveInputCursorVertically } from "./input-layout.js";
 
 export type TuiMessage =
   | { readonly kind: "user"; readonly text: string }
@@ -87,14 +88,15 @@ export type TuiInputKey = {
   readonly downArrow?: boolean;
   readonly leftArrow?: boolean;
   readonly rightArrow?: boolean;
+  readonly inputWidth?: number;
 };
 
 export type TuiInputIntent =
   | { readonly type: "insert"; readonly text: string }
   | { readonly type: "newline" }
   | { readonly type: "backspace" }
-  | { readonly type: "move-cursor-up" }
-  | { readonly type: "move-cursor-down" }
+  | { readonly type: "move-cursor-up"; readonly inputWidth?: number }
+  | { readonly type: "move-cursor-down"; readonly inputWidth?: number }
   | { readonly type: "move-cursor-left" }
   | { readonly type: "move-cursor-right" }
   | { readonly type: "move-cursor-to-line-start" }
@@ -212,10 +214,6 @@ export function resolveInputIntent(
   if (key.input === "\n" && key.return !== true) {
     return { type: "newline" };
   }
-  if (key.shift && key.input === " ") {
-    return { type: "newline" };
-  }
-
   if (key.ctrl && key.input === "a") {
     return { type: "move-cursor-to-line-start" };
   }
@@ -229,7 +227,7 @@ export function resolveInputIntent(
     ) {
       return { type: "history-previous" };
     }
-    return { type: "move-cursor-up" };
+    return { type: "move-cursor-up", inputWidth: key.inputWidth };
   }
   if (key.downArrow) {
     if (
@@ -238,7 +236,7 @@ export function resolveInputIntent(
     ) {
       return { type: "history-next" };
     }
-    return { type: "move-cursor-down" };
+    return { type: "move-cursor-down", inputWidth: key.inputWidth };
   }
   if (key.leftArrow) {
     return { type: "move-cursor-left" };
@@ -366,16 +364,17 @@ export function reduceTuiState(
 }
 
 function insertInput(state: TuiState, text: string): TuiState {
-  if (text === "") {
+  const normalizedText = normalizeInputText(text);
+  if (normalizedText === "") {
     return { ...state, notice: null };
   }
 
   const lines = state.input.split("\n");
   const { row, column } = state.inputCursor;
   const line = lines[row] ?? "";
-  const updatedLine = `${line.slice(0, column)}${text}${line.slice(column)}`;
+  const updatedLine = `${line.slice(0, column)}${normalizedText}${line.slice(column)}`;
   const updatedLines = updatedLine.split("\n");
-  const insertedLines = text.split("\n");
+  const insertedLines = normalizedText.split("\n");
   const insertedLastLineLength = insertedLines[insertedLines.length - 1]?.length ?? 0;
   lines.splice(row, 1, ...updatedLines);
 
@@ -392,6 +391,10 @@ function insertInput(state: TuiState, text: string): TuiState {
     inputHistoryActive: false,
     notice: null,
   };
+}
+
+function normalizeInputText(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 function backspaceInput(state: TuiState): TuiState {
@@ -426,7 +429,15 @@ function backspaceInput(state: TuiState): TuiState {
   };
 }
 
-function moveCursorUp(state: TuiState): TuiInputCursor {
+function moveCursorUp(state: TuiState, inputWidth?: number): TuiInputCursor {
+  if (inputWidth !== undefined) {
+    return moveInputCursorVertically(
+      state.input,
+      state.inputCursor,
+      inputWidth,
+      -1,
+    );
+  }
   if (state.inputCursor.row === 0) {
     return { row: 0, column: 0 };
   }
@@ -440,7 +451,15 @@ function moveCursorUp(state: TuiState): TuiInputCursor {
   };
 }
 
-function moveCursorDown(state: TuiState): TuiInputCursor {
+function moveCursorDown(state: TuiState, inputWidth?: number): TuiInputCursor {
+  if (inputWidth !== undefined) {
+    return moveInputCursorVertically(
+      state.input,
+      state.inputCursor,
+      inputWidth,
+      1,
+    );
+  }
   const lines = state.input.split("\n");
   if (state.inputCursor.row >= lines.length - 1) {
     return {
@@ -502,13 +521,13 @@ function applyInputIntent(
     case "move-cursor-up":
       return {
         ...state,
-        inputCursor: moveCursorUp(state),
+        inputCursor: moveCursorUp(state, intent.inputWidth),
         notice: null,
       };
     case "move-cursor-down":
       return {
         ...state,
-        inputCursor: moveCursorDown(state),
+        inputCursor: moveCursorDown(state, intent.inputWidth),
         notice: null,
       };
     case "move-cursor-left":

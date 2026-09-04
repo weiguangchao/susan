@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { Harness } from "../core/harness.js";
+import { inputBoxWidth, inputContentWidth, layoutInput } from "./input-layout.js";
 import {
   createTuiState,
   formatProviderFailure,
@@ -134,6 +135,15 @@ export function TuiApp({
     [dispatch, harness, quit, replaceSession],
   );
 
+  const rows = stdout?.rows && stdout.rows > 0 ? stdout.rows : 24;
+  const columns =
+    stdout?.columns && stdout.columns > 0 ? stdout.columns : 80;
+  const inputWidth = inputContentWidth(columns);
+  const maxInputRows = Math.max(
+    1,
+    Math.min(10, Math.floor(rows * 0.4) - 2),
+  );
+
   useInput((input, key) => {
     if (isKeyboardProtocolResponse(input)) {
       return;
@@ -153,6 +163,7 @@ export function TuiApp({
       downArrow: key.downArrow,
       leftArrow: key.leftArrow,
       rightArrow: key.rightArrow,
+      inputWidth,
     });
     dispatch({
       type: "input-intent",
@@ -161,8 +172,6 @@ export function TuiApp({
     void executeIntent(intent);
   });
 
-  const rows = stdout?.rows ?? 24;
-  const columns = Math.max(60, stdout?.columns ?? 80);
   const visibleMessages = state.messages.slice(-20);
   const visibleTools = state.tools.slice(-8);
 
@@ -185,7 +194,12 @@ export function TuiApp({
         />
       )}
       <ActivityLine state={state} now={now} />
-      <InputLine input={state.input} cursor={state.inputCursor} />
+      <InputLine
+        input={state.input}
+        cursor={state.inputCursor}
+        columns={columns}
+        maxRows={maxInputRows}
+      />
       <StatusBar state={state} />
     </Box>
   );
@@ -374,30 +388,57 @@ function ActivityLine({
   );
 }
 
-function InputLine({
+export function InputLine({
   input,
   cursor,
+  columns = 80,
+  maxRows = 10,
 }: {
   readonly input: string;
   readonly cursor: TuiState["inputCursor"];
+  readonly columns?: number;
+  readonly maxRows?: number;
 }) {
-  const lines = input.split("\n");
+  const boxWidth = inputBoxWidth(columns);
+  const contentWidth = inputContentWidth(columns);
+  const rows = layoutInput(input, cursor, contentWidth, maxRows);
   return (
     <Box
       borderStyle="round"
+      width={boxWidth}
+      height={rows.length + 2}
+      overflow="hidden"
       flexDirection="column"
-      paddingLeft={1}
-      paddingRight={1}
       flexShrink={0}
     >
-      {lines.map((line, index) => (
-        <Text key={`input-${index}`}>
-          {index === 0 ? "❯ " : "  "}
-          {cursor.row === index
-            ? `${line.slice(0, cursor.column)}▍${line.slice(cursor.column)}`
-            : line}
-        </Text>
-      ))}
+      <Box
+        flexDirection="column"
+        width={Math.max(1, boxWidth - 2)}
+        height={rows.length}
+        overflow="hidden"
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        {rows.map((row, index) => {
+          const hasCursor = row.cursorStart !== null && row.cursorEnd !== null;
+          const cursorStart = row.cursorStart ?? 0;
+          const cursorEnd = row.cursorEnd ?? 0;
+          return (
+            <Text key={`input-${index}`} wrap="truncate-end">
+              {index === 0 ? "❯ " : "  "}
+              {hasCursor ? row.text.slice(0, cursorStart) : row.text}
+              {hasCursor ? (
+                <Text inverse>
+                  {cursorStart === cursorEnd
+                    ? " "
+                    : row.text.slice(cursorStart, cursorEnd)}
+                </Text>
+              ) : null}
+              {hasCursor ? row.text.slice(cursorEnd) : null}
+            </Text>
+          );
+        })}
+      </Box>
     </Box>
   );
 }

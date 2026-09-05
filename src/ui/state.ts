@@ -125,6 +125,16 @@ export type TuiSubmissionIntent =
   | { readonly type: "model-picker" }
   | { readonly type: "submit"; readonly content: string };
 
+export const slashCommands = [
+  { name: "/exit", label: "退出", intent: "exit" },
+  { name: "/new", label: "新对话", intent: "clear" },
+  { name: "/model", label: "模型", intent: "model-picker" },
+] as const satisfies readonly {
+  readonly name: string;
+  readonly label: string;
+  readonly intent: Exclude<TuiSubmissionIntent, { readonly type: "submit" }>["type"];
+}[];
+
 export type TuiAction =
   | { readonly type: "harness-event"; readonly event: HarnessEvent }
   | { readonly type: "snapshot"; readonly snapshot: HarnessSnapshot }
@@ -184,14 +194,12 @@ export function normalizeSubmission(value: string): string {
 
 export function resolveSubmission(value: string): TuiSubmissionIntent {
   const content = normalizeSubmission(value);
-  if (content === "/exit") {
-    return { type: "exit" };
-  }
-  if (content === "/clear" || content === "/new") {
+  if (content === "/clear") {
     return { type: "clear" };
   }
-  if (content === "/model") {
-    return { type: "model-picker" };
+  const command = slashCommands.find((candidate) => candidate.name === content);
+  if (command !== undefined) {
+    return { type: command.intent };
   }
   return { type: "submit", content };
 }

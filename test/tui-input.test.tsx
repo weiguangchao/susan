@@ -2,7 +2,7 @@ import { renderToString } from "ink";
 import stringWidth from "string-width";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { InputLine } from "../src/ui/tui.js";
+import { CommandHintLine, InputLine } from "../src/ui/tui.js";
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -38,6 +38,16 @@ describe("TUI input", () => {
   "git.autofetch": true,
   "explorer.confirmDragAndDrop": false,
 }`;
+
+  it("shows the available slash commands above an idle input", () => {
+    const output = stripAnsi(
+      renderToString(<CommandHintLine input="" />, { columns: 80 }),
+    );
+
+    expect(output).toBe(
+      " 空闲  ·  命令 /exit 退出  ·  /new 新对话  ·  /model 模型",
+    );
+  });
 
   it("separates the border frame from the input viewport", () => {
     const frame = InputLine({

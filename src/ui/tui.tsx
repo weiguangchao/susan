@@ -17,6 +17,7 @@ import {
   isEmptySession,
   reduceTuiState,
   resolveInputIntent,
+  slashCommands,
   type TuiInputIntent,
   type TuiMessage,
   type TuiState,
@@ -491,9 +492,28 @@ function ActivityLine({
       </Box>
     );
   }
+  return <CommandHintLine input={state.input} />;
+}
+
+export function CommandHintLine({ input }: { readonly input: string }) {
   return (
-    <Box paddingLeft={1}>
-      <Text dimColor>空闲</Text>
+    <Box paddingLeft={1} paddingRight={1} flexShrink={0}>
+      <Text dimColor>空闲  ·  命令 </Text>
+      {slashCommands.map((command, index) => {
+        const active =
+          input.startsWith("/") && command.name.startsWith(input);
+        return (
+          <Text key={command.name}>
+            <Text color={active ? "cyanBright" : undefined} bold={active}>
+              {command.name}
+            </Text>
+            <Text dimColor> {command.label}</Text>
+            {index < slashCommands.length - 1 ? (
+              <Text dimColor>  ·  </Text>
+            ) : null}
+          </Text>
+        );
+      })}
     </Box>
   );
 }

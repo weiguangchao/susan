@@ -4,6 +4,10 @@
 
 ## Language
 
+**Coding Agent**:
+在 Harness 内与用户交互、使用 Tool 完成 coding 任务的模型角色；Susan 的 System Prompt 定义其身份与跨 Tool 行为边界。
+_Avoid_: harness agent, model runtime
+
 **Harness**:
 围绕 LLM 的运行外壳：把用户消息、Tool 调用、Tool 结果、Approval Policy、上下文管理串成一个循环。TUI 只是它的一个前端。
 _Avoid_: framework, runtime, engine
@@ -29,16 +33,56 @@ _Avoid_: iteration, step
 _Avoid_: parallel tools, tool group
 
 **Tool**:
-Harness 暴露给模型、可由模型请求调用的一项能力（v0.0.1：读文件）。
+Harness 暴露给模型、可由模型请求调用的一项能力。
 _Avoid_: function, plugin, skill
 
-**Read File Tool**:
-0.0.1 唯一的 Tool，按 `path + offset + limit` 读取 UTF-8 文本，并返回结构化分页与截断信息。
-_Avoid_: file reader, cat tool
+**Built-in Tool Set**:
+Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；以 Pi 的核心语义为基线，但契约服从 Susan 的 Approval Policy、`cwd` 边界与跨平台要求。
+_Avoid_: tool pack, Pi-compatible tools
+
+**Read Tool**:
+Built-in Tool Set 中按路径分页读取 UTF-8 regular file 的 Tool；模型侧名称为 `read`，不保留 `read_file` alias。
+_Avoid_: Read File Tool, file reader, cat tool
+
+**Write Tool**:
+Built-in Tool Set 中创建或完整覆盖一个 UTF-8 regular file 的 Tool；不提供 append 或权限修改模式。
+_Avoid_: file writer, append tool
+
+**Edit Tool**:
+Built-in Tool Set 中对一个 UTF-8 regular file 执行一批精确文本替换的 Tool；整批 replacement 先基于原内容验证，再一次提交。
+_Avoid_: patch tool, fuzzy editor, replace tool
+
+**Bash Tool**:
+Built-in Tool Set 中以真实 Bash 执行 one-shot、非交互、非 login command 的 Tool；模型侧名称为 `bash`，不会按平台替换成其他 shell。
+_Avoid_: shell tool, terminal tool, command tool
+
+**Grep Tool**:
+Built-in Tool Set 中按行搜索 UTF-8 regular file 内容的 Tool；模型侧名称为 `grep`，可查询单个文件或从 Search Root 递归查询目录。
+_Avoid_: search tool, ripgrep wrapper, content finder
+
+**Find Tool**:
+Built-in Tool Set 中按平台无关 glob 查询 Search Root 下路径名称的 Tool；模型侧名称为 `find`，可返回 file、directory 与 symlink 条目。
+_Avoid_: file search, fd wrapper, glob tool
+
+**Ls Tool**:
+Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，以结构化类型区分 file、directory 与 symlink。
+_Avoid_: list tool, directory reader, recursive ls
+
+**Search Root**:
+`grep` 或 `find` 的路径入口所确定的目录；查询结果中的相对路径、glob 匹配与遍历深度都以它为基准。`grep` 直接查询单个文件时没有 Search Root。
+_Avoid_: workspace, project root, scan root
+
+**Traversal Diagnostic**:
+`grep`、`find` 或 `ls` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
+_Avoid_: warning text, skipped error, partial failure
 
 **Tool Result**:
-Harness 回填给模型的一次 Tool Call 结果，可以成功，也可以携带可供模型处理的失败信息。
+Harness 回填给模型的一次 Tool Call 结果；使用稳定的成功/失败 envelope，并把 Tool 专属数据、结构化错误与共享执行元数据分开表达。
 _Avoid_: tool response, tool output
+
+**Canonical Tool Result**:
+一次 Tool Call 完成后由模型、Session Transcript 与 TUI 共同消费的有界 Tool Result；Susan 不另存未截断副本作为第二份完成态事实。
+_Avoid_: full tool output, raw tool result, display result
 
 **LLM Provider**:
 向 Harness 提供模型推理能力的上游服务，例如 DeepSeek、OpenAI 或 Anthropic。
@@ -69,11 +113,11 @@ _Avoid_: partial response, failed message
 _Avoid_: unfinished session, pending message, auto-resume
 
 **Approval Policy**:
-决定一次 Tool 调用是否需要用户确认的规则。v0.0.1 有两种：逐次审批（默认）与 yolo。
+决定 Tool 调用如何放行的规则。Susan 只采用 Yolo，不提供可选模式或用户确认流程。
 _Avoid_: permission mode, auto-approve flag
 
 **Yolo**:
-一种 Approval Policy：所有 Tool 调用自动放行，不弹确认。
+唯一的 Approval Policy：所有 Tool 调用直接放行，不发起确认。
 _Avoid_: auto mode, unattended mode
 
 **Session**:
@@ -87,6 +131,22 @@ _Avoid_: database, session service
 **Session Header**:
 Session JSONL 首行的 metadata，包括 version、id、createdAt 与 cwd。
 _Avoid_: front matter, metadata block
+
+**Session Format Version**:
+Session Header 中用于判定 JSONL schema 兼容性的整数版本；它独立于 npm Package Version，只有持久化格式发生不兼容变化时才升级。
+_Avoid_: app version, package version, session version
+
+**Session cwd**:
+Session 生命周期内稳定的工作目录，记录于 Session Header，并作为所有 Tool 相对路径的解析基准；它是可见的执行边界，不是 OS sandbox 或权限边界。
+_Avoid_: workspace root, project root, sandbox root
+
+**Resolved Path**:
+Tool 路径输入依据宿主平台语法相对于 Session cwd 做词法规范化后得到的绝对路径；它保留模型表达的入口位置，但不代表 symlink 的实际目标。
+_Avoid_: normalized path, requested absolute path
+
+**Real Target Path**:
+解析现有 symlink 后，Tool 实际读取、查询或执行所指向的 canonical 绝对路径；cwd 内外分类以它和 canonical Session cwd 为准。
+_Avoid_: resolved path, physical path
 
 **Session Record**:
 Session JSONL 中 append-only 的事件行；0.0.1 包含 message、usage 与 compaction。
@@ -109,7 +169,7 @@ _Avoid_: history, messages
 _Avoid_: token count, tokenizer
 
 **System Prompt**:
-Harness 为每次模型请求注入的 canonical 行为指令，用于定义 Agent 身份与基础约束；不作为用户消息或 Session Transcript 的一部分。
+Harness 为每次模型请求注入的 canonical 行为指令，用于定义 Coding Agent 身份与跨 Tool 行为边界；不作为用户消息或 Session Transcript 的一部分。
 _Avoid_: user instructions, project rules, custom prompt
 
 **Compaction**:
@@ -135,3 +195,11 @@ _Avoid_: session model, transient model, per-message model
 **Config Error**:
 Config 读取 / 解析 / strict schema / 权限 / provider 选择失败时产生的结构化错误，带 code 与字段 path。
 _Avoid_: validation exception, config warning
+
+**Package Version**:
+npm 包 `@weiguangchao/susan` 的发布版本；它与 Session Format Version 分属不同版本空间。
+_Avoid_: Session version, schema version
+
+**Release Gate**:
+发布某个 Package Version 前必须全部通过的一组自动化检查与人工验收；任一必需项失败都会阻止发布。
+_Avoid_: release checklist, best-effort validation

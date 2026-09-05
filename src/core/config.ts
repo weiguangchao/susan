@@ -21,6 +21,7 @@ import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   REASONING_EFFORTS,
+  REASONING_EFFORT_VALUES,
 } from "./provider.js";
 
 export type ApprovalPolicy = "ask" | "yolo";
@@ -31,12 +32,7 @@ const providerTypeSchema = z.enum([
   "responses",
 ] as const satisfies readonly ProviderType[]);
 
-const reasoningEffortSchema = z.enum([
-  "minimal",
-  "low",
-  "medium",
-  "high",
-] as const satisfies readonly ReasoningEffort[]);
+const reasoningEffortSchema = z.enum(REASONING_EFFORT_VALUES);
 
 const providerAliasSchema = z
   .string()

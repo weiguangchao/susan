@@ -233,7 +233,7 @@ describe("openai-completion provider adapter", () => {
     const result = await client.complete!(
       {
         model: "deepseek-v4-flash",
-        reasoningEffort: "medium",
+        reasoningEffort: "max",
         messages: request.messages.slice(0, 2),
       },
       new AbortController().signal,
@@ -241,7 +241,7 @@ describe("openai-completion provider adapter", () => {
 
     expect(upstreamRequest).toEqual({
       model: "deepseek-v4-flash",
-      reasoning_effort: "medium",
+      reasoning_effort: "max",
       messages: [
         { role: "system", content: "You are Susan." },
         { role: "user", content: "Read the file." },

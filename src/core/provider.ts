@@ -5,13 +5,27 @@ export type ProviderType =
   | "openai-completion"
   | "responses";
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export const REASONING_EFFORT_VALUES = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORT_VALUES)[number];
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return (REASONING_EFFORT_VALUES as readonly unknown[]).includes(value);
+}
 
 export const REASONING_EFFORTS: Readonly<
   Record<ProviderType, readonly ReasoningEffort[]>
 > = {
   anthropic: [],
-  "openai-completion": ["minimal", "low", "medium", "high"],
+  "openai-completion": REASONING_EFFORT_VALUES,
   responses: ["minimal", "low", "medium", "high"],
 };
 

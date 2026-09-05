@@ -200,6 +200,7 @@ export function TuiApp({
         dispatch({ type: "notice", message: configured.error.message });
         return;
       }
+      dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
       setModelPickerState((current) =>
         createModelPickerState({
           ...current.catalog,

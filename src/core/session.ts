@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
+import { isReasoningEffort } from "./provider.js";
 import type {
   CompletionMessage,
   ProviderUsage,
@@ -274,10 +275,7 @@ function isSessionRecord(value: unknown): value is SessionRecord {
       (!hasModel ||
         (typeof value.model === "string" &&
           value.model.length > 0 &&
-          (value.reasoningEffort === "minimal" ||
-            value.reasoningEffort === "low" ||
-            value.reasoningEffort === "medium" ||
-            value.reasoningEffort === "high"))) &&
+          isReasoningEffort(value.reasoningEffort))) &&
       Object.keys(value).every((key) =>
         ["type", "usage", "model", "reasoningEffort"].includes(key),
       );

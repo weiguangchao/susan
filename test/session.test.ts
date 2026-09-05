@@ -156,7 +156,7 @@ describe("session store", () => {
           await store.appendUsage(
             created.value.header.id,
             usage,
-            { model: "deepseek-v4-flash", reasoningEffort: "medium" },
+            { model: "deepseek-v4-flash", reasoningEffort: "max" },
           ),
         ).toEqual({ ok: true, value: undefined });
       }
@@ -172,7 +172,7 @@ describe("session store", () => {
           type: "usage",
           usage: usages[1],
           model: "deepseek-v4-flash",
-          reasoningEffort: "medium",
+          reasoningEffort: "max",
         },
       ]);
       expect(loaded.value.messages).toEqual([]);

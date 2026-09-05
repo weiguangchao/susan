@@ -90,7 +90,7 @@ describe("config loading", () => {
     const configPath = await writeConfig({
       defaultProvider: "deepseek",
       defaultModel: "deepseek-v4-flash",
-      defaultReasoningEffort: "medium",
+      defaultReasoningEffort: "max",
       providers: {
         deepseek: {
           type: "openai-completion",
@@ -114,7 +114,7 @@ describe("config loading", () => {
       expect(result.config.activeModel).toEqual({
         providerAlias: "deepseek",
         model: "deepseek-v4-flash",
-        reasoningEffort: "medium",
+        reasoningEffort: "max",
         contextWindow: 96_000,
         maxOutputTokens: 16_384,
         provider: {

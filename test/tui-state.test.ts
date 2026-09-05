@@ -148,7 +148,7 @@ describe("TUI state", () => {
     expect(state.modelIndex).toBe(0);
   });
 
-  it("selects Reasoning Effort only after an explicit adjustment", () => {
+  it("selects every openai-completion Reasoning Effort after an explicit adjustment", () => {
     const catalog = {
       providers: [
         {
@@ -167,6 +167,8 @@ describe("TUI state", () => {
     ).toEqual({ type: "none" });
 
     state = reduceModelPickerState(state, { type: "adjust-effort", delta: -1 });
+    expect(state.reasoningEffort).toBe("none");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
     expect(state.reasoningEffort).toBe("minimal");
     state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
     expect(state.reasoningEffort).toBe("low");
@@ -175,7 +177,11 @@ describe("TUI state", () => {
     state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
     expect(state.reasoningEffort).toBe("high");
     state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
-    expect(state.reasoningEffort).toBe("high");
+    expect(state.reasoningEffort).toBe("xhigh");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("max");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("max");
 
     state = reduceModelPickerState(state, { type: "move-model", delta: -1 });
     expect(
@@ -185,7 +191,7 @@ describe("TUI state", () => {
       selection: {
         providerAlias: "deepseek",
         model: "deepseek-v4-flash",
-        reasoningEffort: "high",
+        reasoningEffort: "max",
       },
     });
   });

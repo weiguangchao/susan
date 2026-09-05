@@ -1,11 +1,22 @@
 import { render } from "ink";
-import { openAICompletionProvider } from "./adapters/openai-completion.js";
-import { loadConfig } from "./config.js";
+import {
+  createProviderClient,
+  DEFAULT_CONFIG_PATH,
+  loadConfig,
+  updateConfigActiveModel,
+} from "./config.js";
 import type { ApprovalPolicy, ConfigError, ResolvedConfig } from "./core/config.js";
 import { formatCliError, parseCli, type ResumeMode } from "./core/cli.js";
 import { formatConfigError } from "./core/config-error.js";
 import { createHarness, type Harness } from "./core/harness.js";
 import { resolveSessionLaunch } from "./core/launch.js";
+import type {
+  ModelPickerCatalog,
+} from "./core/model-picker.js";
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from "./core/provider.js";
 import { readFileTool } from "./core/read-file.js";
 import {
   createSessionStore,
@@ -17,9 +28,6 @@ import { ConfigErrorApp } from "./ui/config-error.js";
 import { SessionPickerApp } from "./ui/session-picker.js";
 import { TuiApp } from "./ui/tui.js";
 
-const CONTEXT_WINDOW = 128_000;
-const MAX_OUTPUT_TOKENS = 16_384;
-const REASONING_LEVEL = "high";
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
 
 type SessionStart =
@@ -48,7 +56,8 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   if (!loadedConfig.ok) {
     return loadedConfig.exitCode;
   }
-  const config = loadedConfig.config;
+  let config = loadedConfig.config;
+  const configPath = parsed.flags.configPath ?? DEFAULT_CONFIG_PATH;
 
   const started = await resolveStartupSession(store, parsed.flags.resume);
   if (!started.ok) {
@@ -75,6 +84,35 @@ export async function runCli(argv: readonly string[]): Promise<number> {
       harness={harness}
       inputHistory={inputHistory.value}
       startNewSession={() => createNewSusanSession(config, store)}
+      modelCatalog={modelPickerCatalog(config)}
+      applyModelSelection={async (selection) => {
+        const updated = await updateConfigActiveModel(configPath, selection);
+        if (!updated.ok) {
+          return {
+            ok: false,
+            message: formatConfigError(updated.error).heading,
+          };
+        }
+        const activeModel = updated.config.activeModel;
+        if (activeModel === undefined) {
+          return { ok: false, message: "模型配置未完整" };
+        }
+        config = {
+          ...updated.config,
+          approval: config.approval,
+        };
+        return {
+          ok: true,
+          command: {
+            type: "configure-model",
+            provider: createProviderClient(activeModel.provider),
+            model: activeModel.model,
+            reasoningLevel: activeModel.reasoningEffort,
+            contextWindow: activeModel.contextWindow,
+            maxOutputTokens: activeModel.maxOutputTokens,
+          },
+        };
+      }}
     />,
   );
   await instance.waitUntilExit();
@@ -247,17 +285,36 @@ function createSusanHarness(
     }
   }
 
+  const activeModel = config.activeModel;
   return createHarness({
-    provider: openAICompletionProvider.createClient(config.provider),
+    ...(activeModel === undefined
+      ? {}
+      : { provider: createProviderClient(activeModel.provider) }),
     sessionStore: store,
     session,
-    model: config.defaultModel,
-    reasoningLevel: REASONING_LEVEL,
-    contextWindow: CONTEXT_WINDOW,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    model: activeModel?.model,
+    reasoningLevel: activeModel?.reasoningEffort,
+    contextWindow:
+      activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
+    maxOutputTokens:
+      activeModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
     approvalPolicy: config.approval,
     tools: [readFileTool],
   });
+}
+
+function modelPickerCatalog(config: ResolvedConfig): ModelPickerCatalog {
+  return {
+    defaultProviderAlias: config.defaultProvider,
+    preferredProviderAlias: config.preferredProviderAlias,
+    preferredModel: config.defaultModel,
+    preferredReasoningEffort: config.defaultReasoningEffort,
+    providers: Object.entries(config.providers).map(([alias, provider]) => ({
+      alias,
+      type: provider.type,
+      models: provider.models ?? [],
+    })),
+  };
 }
 
 async function createNewSusanSession(

@@ -5,6 +5,19 @@ export type ProviderType =
   | "openai-completion"
   | "responses";
 
+export type ReasoningLevel = "minimal" | "low" | "medium" | "high";
+
+export const REASONING_EFFORTS: Readonly<
+  Record<ProviderType, readonly ReasoningLevel[]>
+> = {
+  anthropic: [],
+  "openai-completion": ["minimal", "low", "medium", "high"],
+  responses: ["minimal", "low", "medium", "high"],
+};
+
+export const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000;
+export const DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 16_384;
+
 export type ProviderUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -38,6 +51,7 @@ export type ProviderToolDefinition = {
 
 export type ProviderRequest = {
   model: string;
+  reasoningEffort?: ReasoningLevel;
   messages: readonly CompletionMessage[];
   tools?: readonly ProviderToolDefinition[];
 };

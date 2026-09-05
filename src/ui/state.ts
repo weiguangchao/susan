@@ -60,8 +60,8 @@ export type TuiState = {
   readonly retry: TuiRetry | null;
   readonly failure: ProviderFailure | null;
   readonly pending: PendingAgentLoop | null;
-  readonly model: string;
-  readonly reasoningLevel: string;
+  readonly model?: string;
+  readonly reasoningLevel?: string;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
   readonly notice: string | null;
@@ -70,6 +70,7 @@ export type TuiState = {
   readonly inputHistory: readonly string[];
   readonly inputHistoryIndex: number;
   readonly inputHistoryActive: boolean;
+  readonly modelPickerActive: boolean;
 };
 
 export type TuiInputCursor = {
@@ -106,6 +107,7 @@ export type TuiInputIntent =
   | { readonly type: "submit"; readonly content: string }
   | { readonly type: "clear-input" }
   | { readonly type: "clear" }
+  | { readonly type: "model-picker" }
   | { readonly type: "exit" }
   | { readonly type: "interrupt" }
   | { readonly type: "approve-approval"; readonly approvalId: string }
@@ -119,6 +121,7 @@ export type TuiInputIntent =
 export type TuiSubmissionIntent =
   | { readonly type: "exit" }
   | { readonly type: "clear" }
+  | { readonly type: "model-picker" }
   | { readonly type: "submit"; readonly content: string };
 
 export type TuiAction =
@@ -128,6 +131,7 @@ export type TuiAction =
   | { readonly type: "input-intent"; readonly intent: TuiInputIntent }
   | { readonly type: "notice"; readonly message: string }
   | { readonly type: "clear-input" }
+  | { readonly type: "close-model-picker" }
   | { readonly type: "new-session"; readonly snapshot: HarnessSnapshot };
 
 const emptyStream = { text: "", reasoning: "" };
@@ -154,12 +158,18 @@ export function createTuiState(
     reasoningLevel: snapshot.reasoningLevel,
     contextWindow: snapshot.contextWindow,
     sessionTotalTokens: snapshot.sessionTotalTokens,
-    notice: snapshot.pending === null ? null : pendingNotice(snapshot.pending),
+    notice:
+      snapshot.pending !== null
+        ? pendingNotice(snapshot.pending)
+        : snapshot.model === undefined || snapshot.reasoningLevel === undefined
+          ? "模型配置未完整 · /model 选择"
+          : null,
     input: "",
     inputCursor: { row: 0, column: 0 },
     inputHistory,
     inputHistoryIndex: inputHistory.length,
     inputHistoryActive: false,
+    modelPickerActive: false,
   };
 }
 
@@ -178,6 +188,9 @@ export function resolveSubmission(value: string): TuiSubmissionIntent {
   }
   if (content === "/clear" || content === "/new") {
     return { type: "clear" };
+  }
+  if (content === "/model") {
+    return { type: "model-picker" };
   }
   return { type: "submit", content };
 }
@@ -281,7 +294,9 @@ export function resolveInputIntent(
   if (state.status === "pending") {
     if (state.input === "") {
       if (key.input === "r") {
-        return { type: "retry" };
+        return state.model === undefined || state.reasoningLevel === undefined
+          ? { type: "model-picker" }
+          : { type: "retry" };
       }
       if (key.input === "n") {
         return { type: "new-session" };
@@ -300,6 +315,9 @@ export function resolveInputIntent(
       return { type: "backspace" };
     }
     if (key.return) {
+      if (resolveSubmission(state.input).type === "model-picker") {
+        return { type: "model-picker" };
+      }
       return {
         type: "notice",
         message: "Pending Agent Loop · 清空输入后 r 重试 / n 新对话",
@@ -315,6 +333,12 @@ export function resolveInputIntent(
     const submission = resolveSubmission(state.input);
     if (submission.type === "submit" && submission.content.length === 0) {
       return { type: "none" };
+    }
+    if (
+      submission.type === "submit" &&
+      (state.model === undefined || state.reasoningLevel === undefined)
+    ) {
+      return { type: "model-picker" };
     }
     return submission;
   }
@@ -359,6 +383,8 @@ export function reduceTuiState(
         inputHistoryActive: false,
         notice: null,
       };
+    case "close-model-picker":
+      return { ...state, modelPickerActive: false };
     case "new-session":
       return createTuiState(action.snapshot, state.inputHistory);
     default:
@@ -619,6 +645,17 @@ function applyInputIntent(
       };
     case "notice":
       return { ...state, notice: intent.message };
+    case "model-picker":
+      return {
+        ...state,
+        modelPickerActive: true,
+        input: normalizeSubmission(state.input) === "/model" ? "" : state.input,
+        inputCursor:
+          normalizeSubmission(state.input) === "/model"
+            ? { row: 0, column: 0 }
+            : state.inputCursor,
+        notice: null,
+      };
     case "approve-approval":
     case "deny-approval":
       const deniedToolId = state.approval?.toolCall.id;

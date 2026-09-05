@@ -23,6 +23,7 @@ const resolvedConfig = {
 
 const request = {
   model: "deepseek-v4-flash",
+  reasoningEffort: "medium",
   messages: [
     { role: "system", content: "You are Susan." },
     { role: "user", content: "Read the file." },
@@ -157,6 +158,7 @@ describe("openai-completion provider adapter", () => {
     expect(createOptions?.signal).toBeInstanceOf(AbortSignal);
     expect(upstreamRequest).toEqual({
       model: "deepseek-v4-flash",
+      reasoning_effort: "medium",
       messages: [
         { role: "system", content: "You are Susan." },
         { role: "user", content: "Read the file." },
@@ -229,12 +231,17 @@ describe("openai-completion provider adapter", () => {
     const client = adapter.createClient(resolvedConfig);
 
     const result = await client.complete!(
-      { model: "deepseek-v4-flash", messages: request.messages.slice(0, 2) },
+      {
+        model: "deepseek-v4-flash",
+        reasoningEffort: "medium",
+        messages: request.messages.slice(0, 2),
+      },
       new AbortController().signal,
     );
 
     expect(upstreamRequest).toEqual({
       model: "deepseek-v4-flash",
+      reasoning_effort: "medium",
       messages: [
         { role: "system", content: "You are Susan." },
         { role: "user", content: "Read the file." },

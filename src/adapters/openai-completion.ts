@@ -111,6 +111,7 @@ function toChatCompletionsRequest(
 
   const chatCompletionsRequest: Record<string, unknown> = {
     model: request.model,
+    reasoning_effort: request.reasoningEffort,
     messages,
     stream,
   };

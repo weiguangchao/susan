@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import type { Harness } from "../core/harness.js";
+import type { Harness, HarnessCommand, HarnessError } from "../core/harness.js";
+import {
+  createModelPickerState,
+  reduceModelPickerState,
+  resolveModelPickerIntent,
+  type ModelPickerCatalog,
+  type ModelPickerSelection,
+} from "../core/model-picker.js";
 import { inputBoxWidth, inputContentWidth, layoutInput } from "./input-layout.js";
+import { ModelPickerView } from "./model-picker.js";
 import {
   createTuiState,
   formatProviderFailure,
@@ -19,16 +27,34 @@ export type TuiAppProps = {
   readonly harness: Harness;
   readonly inputHistory: readonly string[];
   readonly startNewSession: () => Harness | Promise<Harness>;
+  readonly modelCatalog: ModelPickerCatalog;
+  readonly applyModelSelection: (
+    selection: ModelPickerSelection,
+  ) => Promise<ModelSelectionApplyResult>;
   readonly onExit?: () => void;
 };
+
+export type ConfigureModelCommand = Extract<
+  HarnessCommand,
+  { type: "configure-model" }
+>;
+
+export type ModelSelectionApplyResult =
+  | { readonly ok: true; readonly command: ConfigureModelCommand }
+  | { readonly ok: false; readonly message: string };
 
 export function TuiApp({
   harness: initialHarness,
   inputHistory,
   startNewSession,
+  modelCatalog,
+  applyModelSelection,
   onExit,
 }: TuiAppProps) {
   const [harness, setHarness] = useState(initialHarness);
+  const [modelPickerState, setModelPickerState] = useState(() =>
+    createModelPickerState(modelCatalog),
+  );
   const [state, dispatch] = useReducer(
     reduceTuiState,
     harness,
@@ -37,9 +63,11 @@ export function TuiApp({
   const { exit } = useApp();
   const { stdout } = useStdout();
   const stateRef = useRef(state);
+  const modelPickerStateRef = useRef(modelPickerState);
   const now = useNow(state.retry !== null);
 
   stateRef.current = state;
+  modelPickerStateRef.current = modelPickerState;
 
   useEffect(() => {
     const unsubscribe = harness.subscribe((event) => {
@@ -69,6 +97,24 @@ export function TuiApp({
     dispatch({ type: "new-session", snapshot: nextHarness.getSnapshot() });
   }, [harness, startNewSession]);
 
+  const handleModelError = useCallback(
+    (error: HarnessError) => {
+      if (error.code === "HARNESS_MODEL_CONFIG_INCOMPLETE") {
+        setModelPickerState((current) =>
+          createModelPickerState(current.catalog),
+        );
+        dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
+        dispatch({
+          type: "input-intent",
+          intent: { type: "model-picker" },
+        });
+        return;
+      }
+      dispatch({ type: "notice", message: error.message });
+    },
+    [dispatch, harness],
+  );
+
   const executeIntent = useCallback(
     async (intent: TuiInputIntent) => {
       if (
@@ -97,13 +143,19 @@ export function TuiApp({
         await replaceSession();
         return;
       }
+      if (intent.type === "model-picker") {
+        setModelPickerState((current) =>
+          createModelPickerState(current.catalog),
+        );
+        return;
+      }
       if (intent.type === "submit") {
         const result = await harness.dispatch({
           type: "submit",
           content: intent.content,
         });
         if (!result.ok) {
-          dispatch({ type: "notice", message: result.error.message });
+          handleModelError(result.error);
         }
         return;
       }
@@ -121,18 +173,45 @@ export function TuiApp({
           approved: intent.type === "approve-approval",
         });
         if (!result.ok) {
-          dispatch({ type: "notice", message: result.error.message });
+          handleModelError(result.error);
         }
         return;
       }
       if (intent.type === "retry") {
         const result = await harness.dispatch({ type: "retry" });
         if (!result.ok) {
-          dispatch({ type: "notice", message: result.error.message });
+          handleModelError(result.error);
         }
       }
     },
-    [dispatch, harness, quit, replaceSession],
+    [dispatch, handleModelError, harness, quit, replaceSession],
+  );
+
+  const applyPickerSelection = useCallback(
+    async (selection: ModelPickerSelection) => {
+      const result = await applyModelSelection(selection);
+      if (!result.ok) {
+        dispatch({ type: "notice", message: result.message });
+        return;
+      }
+      const configured = await harness.dispatch(result.command);
+      if (!configured.ok) {
+        dispatch({ type: "notice", message: configured.error.message });
+        return;
+      }
+      setModelPickerState((current) =>
+        createModelPickerState({
+          ...current.catalog,
+          defaultProviderAlias: selection.providerAlias,
+          preferredProviderAlias: selection.providerAlias,
+          preferredModel: selection.model,
+          preferredReasoningEffort: selection.reasoningEffort,
+        }),
+      );
+      dispatch({ type: "close-model-picker" });
+      dispatch({ type: "notice", message: "模型配置已更新" });
+    },
+    [applyModelSelection, dispatch, harness],
   );
 
   const rows = stdout?.rows && stdout.rows > 0 ? stdout.rows : 24;
@@ -152,6 +231,34 @@ export function TuiApp({
       ...stateRef.current,
       status: harness.getSnapshot().status,
     };
+    if (currentState.modelPickerActive) {
+      const pickerIntent = resolveModelPickerIntent(
+        modelPickerStateRef.current,
+        {
+          input,
+          upArrow: key.upArrow,
+          downArrow: key.downArrow,
+          leftArrow: key.leftArrow,
+          rightArrow: key.rightArrow,
+          tab: key.tab,
+          return: key.return,
+          escape: key.escape,
+        },
+      );
+      if (pickerIntent.type === "cancel") {
+        dispatch({ type: "close-model-picker" });
+        return;
+      }
+      if (pickerIntent.type === "apply") {
+        void applyPickerSelection(pickerIntent.selection);
+        return;
+      }
+      setModelPickerState((current) =>
+        reduceModelPickerState(current, pickerIntent),
+      );
+      return;
+    }
+
     const intent = resolveInputIntent(currentState, {
       input,
       ctrl: key.ctrl,
@@ -194,12 +301,16 @@ export function TuiApp({
         />
       )}
       <ActivityLine state={state} now={now} />
-      <InputLine
-        input={state.input}
-        cursor={state.inputCursor}
-        columns={columns}
-        maxRows={maxInputRows}
-      />
+      {state.modelPickerActive ? (
+        <ModelPickerView state={modelPickerState} />
+      ) : (
+        <InputLine
+          input={state.input}
+          cursor={state.inputCursor}
+          columns={columns}
+          maxRows={maxInputRows}
+        />
+      )}
       <StatusBar state={state} />
     </Box>
   );
@@ -458,7 +569,7 @@ function StatusBar({ state }: { readonly state: TuiState }) {
         {percentage.toFixed(1)}%
       </Text>
       <Text dimColor>
-        {state.model} · {state.reasoningLevel}
+        {state.model ?? "未设置"} · {state.reasoningLevel ?? "未设置"}
       </Text>
     </Box>
   );

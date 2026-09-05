@@ -17,6 +17,7 @@ import type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
+  ReasoningLevel,
   ProviderToolDefinition,
   ProviderToolCall,
   ProviderUsage,
@@ -86,13 +87,13 @@ export type HarnessSnapshot = {
   readonly cwd: string;
   readonly messages: readonly CompletionMessage[];
   readonly pending: PendingAgentLoop | null;
-  readonly model: string;
-  readonly reasoningLevel: ReasoningLevel;
+  readonly model?: string;
+  readonly reasoningLevel?: ReasoningLevel;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
 };
 
-export type ReasoningLevel = "minimal" | "low" | "medium" | "high";
+export type { ReasoningLevel };
 
 export type HarnessEvent =
   | { readonly type: "text-delta"; readonly textDelta: string }
@@ -164,7 +165,15 @@ export type HarnessCommand =
       readonly approved: boolean;
     }
   | { readonly type: "retry" }
-  | { readonly type: "interrupt" };
+  | { readonly type: "interrupt" }
+  | {
+      readonly type: "configure-model";
+      readonly provider: ProviderClient;
+      readonly model: string;
+      readonly reasoningLevel: ReasoningLevel;
+      readonly contextWindow: number;
+      readonly maxOutputTokens: number;
+    };
 
 export type HarnessError = {
   readonly code:
@@ -175,6 +184,7 @@ export type HarnessError = {
     | "HARNESS_PROVIDER"
     | "HARNESS_SESSION"
     | "HARNESS_COMPACTION"
+    | "HARNESS_MODEL_CONFIG_INCOMPLETE"
     | "CONTEXT_TOO_LARGE";
   readonly message: string;
   readonly providerFailure?: ProviderFailure;
@@ -190,10 +200,10 @@ export type HarnessCommandResult =
   | { readonly ok: false; readonly error: HarnessError };
 
 export type HarnessOptions = {
-  readonly provider: ProviderClient;
+  readonly provider?: ProviderClient;
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
-  readonly model: string;
+  readonly model?: string;
   readonly reasoningLevel?: ReasoningLevel;
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
@@ -371,6 +381,26 @@ export function createHarness(options: HarnessOptions): Harness {
   let pendingToolBatch = restoredToolBatch(messages);
   const clock = options.clock ?? systemClock;
   const random = options.random ?? Math.random;
+  let provider = options.provider;
+  let model = options.model;
+  let reasoningLevel = options.reasoningLevel;
+  let contextWindow = options.contextWindow;
+  let maxOutputTokens = options.maxOutputTokens;
+
+  const activeModelConfigurationError = (): HarnessError | null => {
+    if (provider !== undefined && model !== undefined && reasoningLevel !== undefined) {
+      return null;
+    }
+    return {
+      code: "HARNESS_MODEL_CONFIG_INCOMPLETE",
+      message: "Active Model Configuration is incomplete.",
+    };
+  };
+
+  const currentUsageAudit = (): {
+    readonly model: string;
+    readonly reasoningEffort: ReasoningLevel;
+  } => ({ model: model!, reasoningEffort: reasoningLevel! });
 
   const emit = (event: HarnessEvent) => {
     for (const listener of listeners) {
@@ -401,6 +431,9 @@ export function createHarness(options: HarnessOptions): Harness {
 
   const appendProviderUsage = async (
     usage: ProviderUsage | undefined,
+    modelConfiguration:
+      | { readonly model: string; readonly reasoningEffort: ReasoningLevel }
+      | undefined,
   ): Promise<HarnessCommandResult> => {
     if (usage === undefined) {
       return { ok: true };
@@ -408,6 +441,7 @@ export function createHarness(options: HarnessOptions): Harness {
     const result = await options.sessionStore.appendUsage(
       options.session.header.id,
       usage,
+      modelConfiguration,
     );
     if (!result.ok) {
       status = "failed";
@@ -423,7 +457,7 @@ export function createHarness(options: HarnessOptions): Harness {
     emit({
       type: "session-usage-updated",
       sessionTotalTokens,
-      contextWindow: options.contextWindow,
+      contextWindow,
     });
     return { ok: true };
   };
@@ -469,12 +503,12 @@ export function createHarness(options: HarnessOptions): Harness {
 
   const currentTurnFits = (): boolean => {
     const estimates = contextTooLarge().estimates!;
-    const reserve = Math.max(options.maxOutputTokens, 16_384);
+    const reserve = Math.max(maxOutputTokens, 16_384);
     return (
       estimates.systemPrompt +
         estimates.tools +
         estimates.currentUserTurn <
-      options.contextWindow - reserve
+      contextWindow - reserve
     );
   };
 
@@ -484,9 +518,9 @@ export function createHarness(options: HarnessOptions): Harness {
     | { readonly ok: true }
     | { readonly ok: false; readonly error: HarnessError }
   > => {
-    const reserve = Math.max(options.maxOutputTokens, 16_384);
+    const reserve = Math.max(maxOutputTokens, 16_384);
     const tokensBefore = estimateCurrentContext();
-    if (!force && tokensBefore < options.contextWindow - reserve) {
+    if (!force && tokensBefore < contextWindow - reserve) {
       return { ok: true };
     }
     if (!currentTurnFits()) {
@@ -498,7 +532,7 @@ export function createHarness(options: HarnessOptions): Harness {
       20_000,
       Math.max(
         0,
-        options.contextWindow -
+        contextWindow -
           reserve -
           estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) -
           estimateToolsTokens(toolDefinitions),
@@ -516,9 +550,10 @@ export function createHarness(options: HarnessOptions): Harness {
       minimumStart,
       firstKeptMessageIndex,
     );
-    const complete = options.provider.complete;
+    const complete = provider!.complete;
     const summaryRequest: ProviderRequest = {
-      model: options.model,
+      model: model!,
+      reasoningEffort: reasoningLevel,
       messages: [
         {
           role: "system",
@@ -541,7 +576,7 @@ export function createHarness(options: HarnessOptions): Harness {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         summaryResult = await complete.call(
-          options.provider,
+          provider!,
           summaryRequest,
           activeRunController?.signal ?? new AbortController().signal,
         );
@@ -586,7 +621,10 @@ export function createHarness(options: HarnessOptions): Harness {
       }
     }
     if (!("code" in summaryResult)) {
-      const appendedUsage = await appendProviderUsage(summaryResult.usage);
+      const appendedUsage = await appendProviderUsage(
+        summaryResult.usage,
+        currentUsageAudit(),
+      );
       if (!appendedUsage.ok) {
         return { ok: false, error: appendedUsage.error };
       }
@@ -659,7 +697,8 @@ export function createHarness(options: HarnessOptions): Harness {
       }
     }
     const request: ProviderRequest = {
-      model: options.model,
+      model: model!,
+      reasoningEffort: reasoningLevel,
       messages: [
         { role: "system", content: buildSystemPrompt(options.session.header.cwd) },
         ...modelContextMessages(messages, checkpoint),
@@ -675,7 +714,7 @@ export function createHarness(options: HarnessOptions): Harness {
       const reasoningParts: string[] = [];
       try {
         const signal = activeRunController?.signal ?? new AbortController().signal;
-        for await (const event of options.provider.stream(request, signal)) {
+        for await (const event of provider!.stream(request, signal)) {
           if (event.type === "response-complete") {
             terminal = event.response;
           } else if (event.type === "response-error") {
@@ -1029,7 +1068,10 @@ export function createHarness(options: HarnessOptions): Harness {
           : { interruptedResponse: finalResult.interruptedResponse }),
       });
     }
-    const appendedUsage = await appendProviderUsage(finalResult.response.usage);
+    const appendedUsage = await appendProviderUsage(
+      finalResult.response.usage,
+      currentUsageAudit(),
+    );
     if (!appendedUsage.ok) {
       return appendedUsage;
     }
@@ -1082,6 +1124,7 @@ export function createHarness(options: HarnessOptions): Harness {
 
       const appendedUsage = await appendProviderUsage(
         providerResult.response.usage,
+        currentUsageAudit(),
       );
       if (!appendedUsage.ok) {
         return appendedUsage;
@@ -1162,12 +1205,33 @@ export function createHarness(options: HarnessOptions): Harness {
             },
           };
         }
+        const modelConfigurationError = activeModelConfigurationError();
+        if (modelConfigurationError !== null) {
+          return { ok: false, error: modelConfigurationError };
+        }
         status = "running";
         pending = null;
         activeRunController = new AbortController();
         const result = await runAgentLoop();
         activeRunController = undefined;
         return result;
+      }
+      if (command.type === "configure-model") {
+        if (status !== "idle" && status !== "pending") {
+          return {
+            ok: false,
+            error: {
+              code: "HARNESS_BUSY",
+              message: "Harness must be idle or Pending to configure a model.",
+            },
+          };
+        }
+        provider = command.provider;
+        model = command.model;
+        reasoningLevel = command.reasoningLevel;
+        contextWindow = command.contextWindow;
+        maxOutputTokens = command.maxOutputTokens;
+        return { ok: true };
       }
       if (status !== "idle") {
         return {
@@ -1183,6 +1247,11 @@ export function createHarness(options: HarnessOptions): Harness {
             message: "submit requires non-empty content.",
           },
         };
+      }
+
+      const modelConfigurationError = activeModelConfigurationError();
+      if (modelConfigurationError !== null) {
+        return { ok: false, error: modelConfigurationError };
       }
 
       status = "running";
@@ -1209,9 +1278,9 @@ export function createHarness(options: HarnessOptions): Harness {
         cwd: options.session.header.cwd,
         messages: [...messages],
         pending,
-        model: options.model,
-        reasoningLevel: options.reasoningLevel ?? "high",
-        contextWindow: options.contextWindow,
+        model,
+        reasoningLevel,
+        contextWindow,
         sessionTotalTokens,
       };
     },

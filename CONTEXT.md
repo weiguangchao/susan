@@ -12,6 +12,10 @@ _Avoid_: framework, runtime, engine
 Config entry 中的 wire protocol 标识。0.0.1 只注册 `openai-completion`，其他合法但未注册的值 fail-fast。
 _Avoid_: provider alias, backend name
 
+**Model Catalog**:
+单个 provider entry 中可选静态声明的模型集合；省略时 `/model` 对该 provider 显示空目录，该 provider 不可被应用，根节点 `defaultModel` 也不能激活它。模型默认参数在代码中定义，需要定制时由具体模型条目覆盖 context window 与最大输出 tokens，Reasoning Effort 由代码中的 Provider Type 常量提供。
+_Avoid_: model registry, model discovery result
+
 **Agent Loop**:
 Harness 的核心循环：一次用户输入触发的「模型输出 → Tool 调用 → Tool 结果回填 → 再次模型输出」直到模型不再请求 Tool。
 _Avoid_: turn loop, chat loop
@@ -43,6 +47,10 @@ _Avoid_: search provider, backend
 **Provider Adapter**:
 把 Harness 的 provider-neutral Completion 请求翻译为某个 LLM Provider wire protocol 的边界组件；0.0.1 只注册 `openai-completion`。
 _Avoid_: SDK, API client, provider plugin
+
+**Reasoning Effort**:
+Provider-neutral 的离散模型推理投入档位；集合与顺序由 Provider Type 的代码常量定义，Config 可省略默认档位，但缺失时没有隐式 fallback，需要用户重新选择 model 并显式设置；TUI 启动时提示配置未完成，不强制打开选择器。
+_Avoid_: thinking level, reasoning budget, extended thinking
 
 **Provider Stream Event**:
 Provider Adapter 归一化后的 streaming 进度事件；它以完成或失败作为唯一 terminal event，Agent Loop 不直接消费上游 chunk。
@@ -117,8 +125,12 @@ _Avoid_: snapshot, truncated history
 _Avoid_: settings, preferences
 
 **Resolved Config**:
-用户 Config 加上内存默认值与 CLI flag 覆盖后形成的运行时配置，不回写磁盘。
+用户 Config 加上内存默认值与 CLI flag 覆盖后形成的运行时配置。`defaultProvider`、`defaultModel` 与 `defaultReasoningEffort` 均可省略；三者省略时均没有隐式 fallback，需要用户手动选择后由 `/model` 回写。`defaultProvider` 省略时，`defaultModel` 与 `defaultReasoningEffort` 可以成对出现或同时省略；成对出现时它们只是 `/model` 的偏好值，不是 Active Model Configuration，`/model` 仅以 Config JSON 中的第一个 provider 作为浏览起点。
 _Avoid_: effective config, merged config
+
+**Active Model Configuration**:
+当前 Harness 请求使用的 provider、model 与 Reasoning Effort；三者完整时才可发起请求，提交或重试时若任一项缺失则打开 `/model` 选择器。`/model` 只在 Agent Loop 空闲或 Pending 时切换。
+_Avoid_: session model, transient model, per-message model
 
 **Config Error**:
 Config 读取 / 解析 / strict schema / 权限 / provider 选择失败时产生的结构化错误，带 code 与字段 path。

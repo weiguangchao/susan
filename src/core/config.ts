@@ -1,4 +1,12 @@
-import { readFile, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  chmod,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { platform } from "node:process";
@@ -7,6 +15,12 @@ import type {
   ProviderAdapter,
   ProviderType,
   ResolvedProviderConfig,
+  ReasoningLevel,
+} from "./provider.js";
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+  REASONING_EFFORTS,
 } from "./provider.js";
 
 export type ApprovalPolicy = "ask" | "yolo";
@@ -16,6 +30,44 @@ const providerTypeSchema = z.enum([
   "openai-completion",
   "responses",
 ] as const satisfies readonly ProviderType[]);
+
+const reasoningLevelSchema = z.enum([
+  "minimal",
+  "low",
+  "medium",
+  "high",
+] as const satisfies readonly ReasoningLevel[]);
+
+const providerAliasSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => !/^\d+$/.test(value),
+    "Provider alias must not be an integer-like string",
+  );
+
+const modelEntrySchema = z.strictObject({
+  id: z.string().min(1),
+  contextWindow: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+});
+
+const modelCatalogSchema = z
+  .array(modelEntrySchema)
+  .min(1)
+  .superRefine((models, context) => {
+    const seen = new Set<string>();
+    for (const [index, model] of models.entries()) {
+      if (seen.has(model.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: `Duplicate model id: ${model.id}`,
+        });
+      }
+      seen.add(model.id);
+    }
+  });
 
 const providerEntrySchema = z.strictObject({
   type: providerTypeSchema,
@@ -28,14 +80,16 @@ const providerEntrySchema = z.strictObject({
       "baseURL must be an absolute http(s) URL",
     )
     .optional(),
+  models: modelCatalogSchema.optional(),
 });
 
 const configSchema = z.strictObject({
-  defaultProvider: z.string().default(""),
-  defaultModel: z.string().default(""),
+  defaultProvider: providerAliasSchema.optional(),
+  defaultModel: z.string().min(1).optional(),
+  defaultReasoningEffort: reasoningLevelSchema.optional(),
   approval: z.enum(["ask", "yolo"]).default("ask"),
   providers: z
-    .record(z.string().min(1), providerEntrySchema)
+    .record(providerAliasSchema, providerEntrySchema)
     .default({}),
 });
 
@@ -49,18 +103,43 @@ export type ProviderConfigEntry = z.input<typeof providerEntrySchema>;
 
 export type Config = z.input<typeof configSchema>;
 
+export type ResolvedModelEntry = {
+  id: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+};
+
 export type ResolvedProviderEntry = {
   type: ProviderType;
   apiKey?: string;
   baseURL: URL;
+  models?: readonly ResolvedModelEntry[];
+};
+
+export type ActiveModelConfiguration = {
+  providerAlias: string;
+  provider: ResolvedProviderConfig;
+  model: string;
+  reasoningEffort: ReasoningLevel;
+  contextWindow: number;
+  maxOutputTokens: number;
+};
+
+export type ActiveModelSelection = {
+  providerAlias: string;
+  model: string;
+  reasoningEffort: ReasoningLevel;
 };
 
 export type ResolvedConfig = {
-  defaultProvider: string;
-  defaultModel: string;
+  defaultProvider?: string;
+  defaultModel?: string;
+  defaultReasoningEffort?: ReasoningLevel;
   approval: ApprovalPolicy;
   providers: Readonly<Record<string, ResolvedProviderEntry>>;
-  provider: ResolvedProviderConfig;
+  provider?: ResolvedProviderConfig;
+  activeModel?: ActiveModelConfiguration;
+  preferredProviderAlias?: string;
 };
 
 export type ConfigIssue = {
@@ -76,7 +155,8 @@ export type ConfigErrorCode =
   | "SUSAN_CONFIG_PERMISSION"
   | "SUSAN_CONFIG_PROVIDER_UNKNOWN"
   | "SUSAN_CONFIG_API_KEY_MISSING"
-  | "SUSAN_CONFIG_PROVIDER_TYPE_UNSUPPORTED";
+  | "SUSAN_CONFIG_PROVIDER_TYPE_UNSUPPORTED"
+  | "SUSAN_CONFIG_IO";
 
 export type ConfigError = {
   code: ConfigErrorCode;
@@ -289,6 +369,21 @@ export function resolveConfig(
   }
 
   const parsed = parsedResult.data;
+  if (
+    parsed.defaultProvider === undefined &&
+    (parsed.defaultModel === undefined) !==
+      (parsed.defaultReasoningEffort === undefined)
+  ) {
+    return configError(configPath, "SUSAN_CONFIG_SCHEMA", [
+      {
+        path: "defaultModel/defaultReasoningEffort",
+        code: "model_preference_pair",
+        message:
+          "defaultModel and defaultReasoningEffort must both be omitted or both be present when defaultProvider is omitted",
+      },
+    ]);
+  }
+
   const unsupportedIssues = Object.entries(parsed.providers)
     .filter(([, entry]) => !providerAdapters.has(entry.type))
     .map(([alias, entry]) => ({
@@ -305,9 +400,12 @@ export function resolveConfig(
     );
   }
 
-  const provider = parsed.providers[parsed.defaultProvider];
+  const defaultProvider =
+    parsed.defaultProvider === undefined
+      ? undefined
+      : parsed.providers[parsed.defaultProvider];
 
-  if (provider === undefined) {
+  if (parsed.defaultProvider !== undefined && defaultProvider === undefined) {
     return configError(configPath, "SUSAN_CONFIG_PROVIDER_UNKNOWN", [
       {
         path: `providers.${parsed.defaultProvider}`,
@@ -317,12 +415,45 @@ export function resolveConfig(
     ]);
   }
 
-  if (provider.apiKey === undefined) {
+  if (defaultProvider !== undefined && defaultProvider.apiKey === undefined) {
     return configError(configPath, "SUSAN_CONFIG_API_KEY_MISSING", [
       {
         path: `providers.${parsed.defaultProvider}.apiKey`,
         code: "api_key_missing",
         message: "Default provider requires an API key",
+      },
+    ]);
+  }
+
+  if (
+    defaultProvider !== undefined &&
+    parsed.defaultModel !== undefined &&
+    !(defaultProvider.models ?? []).some(
+      (model) => model.id === parsed.defaultModel,
+    )
+  ) {
+    return configError(configPath, "SUSAN_CONFIG_SCHEMA", [
+      {
+        path: "defaultModel",
+        code: "model_missing",
+        message: "defaultModel must belong to the default provider Model Catalog",
+      },
+    ]);
+  }
+
+  if (
+    defaultProvider !== undefined &&
+    parsed.defaultReasoningEffort !== undefined &&
+    !REASONING_EFFORTS[defaultProvider.type].includes(
+      parsed.defaultReasoningEffort,
+    )
+  ) {
+    return configError(configPath, "SUSAN_CONFIG_SCHEMA", [
+      {
+        path: "defaultReasoningEffort",
+        code: "reasoning_effort_unsupported",
+        message:
+          "defaultReasoningEffort must belong to the default provider Provider Type",
       },
     ]);
   }
@@ -335,23 +466,68 @@ export function resolveConfig(
       baseURL: new URL(
         entry.baseURL ?? providerAdapters.get(entry.type)!.defaultBaseURL,
       ),
+      models: entry.models,
     };
   }
 
-  const resolvedProvider: ResolvedProviderConfig = {
-    type: provider.type,
-    apiKey: provider.apiKey,
-    baseURL: resolvedProviders[parsed.defaultProvider].baseURL,
-  };
+  const resolvedProvider =
+    defaultProvider === undefined
+      ? undefined
+      : {
+          type: defaultProvider.type,
+          apiKey: defaultProvider.apiKey!,
+          baseURL: resolvedProviders[parsed.defaultProvider!].baseURL,
+        };
+
+  const activeModel =
+    parsed.defaultProvider === undefined ||
+    parsed.defaultModel === undefined ||
+    parsed.defaultReasoningEffort === undefined ||
+    defaultProvider === undefined
+      ? undefined
+      : {
+          providerAlias: parsed.defaultProvider,
+          provider: resolvedProvider!,
+          model: parsed.defaultModel,
+          reasoningEffort: parsed.defaultReasoningEffort,
+          contextWindow:
+            defaultProvider.models?.find(
+              (model) => model.id === parsed.defaultModel,
+            )?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
+          maxOutputTokens:
+            defaultProvider.models?.find(
+              (model) => model.id === parsed.defaultModel,
+            )?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+        };
+
+  const preferredProviderAlias =
+    parsed.defaultProvider === undefined &&
+    parsed.defaultModel !== undefined &&
+    parsed.defaultReasoningEffort !== undefined
+      ? Object.entries(parsed.providers).find(
+          ([, entry]) =>
+            (entry.models ?? []).some(
+              (model) => model.id === parsed.defaultModel,
+            ) &&
+            REASONING_EFFORTS[entry.type].includes(
+              parsed.defaultReasoningEffort!,
+            ),
+        )?.[0]
+      : undefined;
 
   return {
     ok: true,
     config: {
       defaultProvider: parsed.defaultProvider,
       defaultModel: parsed.defaultModel,
+      defaultReasoningEffort: parsed.defaultReasoningEffort,
       approval: flags.approval ?? parsed.approval,
       providers: resolvedProviders,
-      provider: resolvedProvider,
+      ...(resolvedProvider === undefined ? {} : { provider: resolvedProvider }),
+      ...(activeModel === undefined ? {} : { activeModel }),
+      ...(preferredProviderAlias === undefined
+        ? {}
+        : { preferredProviderAlias }),
     },
   };
 }
@@ -382,6 +558,58 @@ export async function loadConfig(
     { approval: options.approval },
     configPath,
   );
+}
+
+export async function updateConfigActiveModel(
+  providerAdapters: ReadonlyMap<ProviderType, ProviderAdapter>,
+  configPath: string,
+  selection: ActiveModelSelection,
+): Promise<ConfigResult> {
+  const permissionIssues = await checkConfigPermissions(configPath);
+  if (permissionIssues.length > 0) {
+    return configError(
+      configPath,
+      "SUSAN_CONFIG_PERMISSION",
+      permissionIssues,
+    );
+  }
+
+  const fileResult = await readConfigFile(configPath);
+  if (!fileResult.ok) {
+    return fileResult;
+  }
+
+  const merged: Config = {
+    ...fileResult.config,
+    defaultProvider: selection.providerAlias,
+    defaultModel: selection.model,
+    defaultReasoningEffort: selection.reasoningEffort,
+  };
+  const resolved = resolveConfig(providerAdapters, merged, {}, configPath);
+  if (!resolved.ok) {
+    return resolved;
+  }
+
+  const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(merged, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await chmod(temporaryPath, 0o600);
+    await rename(temporaryPath, configPath);
+  } catch {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    return configError(configPath, "SUSAN_CONFIG_IO", [
+      {
+        path: configPath,
+        code: "write_failed",
+        message: "Unable to atomically write the Config file",
+      },
+    ]);
+  }
+
+  return resolved;
 }
 
 export function parseApprovalFlags(

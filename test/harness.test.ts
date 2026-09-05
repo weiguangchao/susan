@@ -16,6 +16,7 @@ import type {
   ProviderStreamEvent,
   ProviderUsage,
   SessionStore,
+  SessionUsageRecord,
   SessionTranscript,
 } from "../src/index.js";
 
@@ -52,6 +53,7 @@ function transcript(
 function fakeSessionStore(
   appended: CompletionMessage[],
   appendedUsage: ProviderUsage[] = [],
+  appendedUsageRecords: SessionUsageRecord[] = [],
 ): SessionStore {
   return {
     async createSession() {
@@ -64,8 +66,18 @@ function fakeSessionStore(
     async appendCompaction() {
       return { ok: true, value: undefined };
     },
-    async appendUsage(_sessionId, usage) {
+    async appendUsage(_sessionId, usage, modelConfiguration) {
       appendedUsage.push(usage);
+      appendedUsageRecords.push({
+        type: "usage",
+        usage,
+        ...(modelConfiguration === undefined
+          ? {}
+          : {
+              model: modelConfiguration.model,
+              reasoningEffort: modelConfiguration.reasoningEffort,
+            }),
+      });
       return { ok: true, value: undefined };
     },
     async loadSession() {
@@ -132,6 +144,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "deepseek-v4-flash",
+      reasoningLevel: "medium",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -147,6 +160,7 @@ describe("Harness", () => {
     expect(requests).toEqual([
       {
         model: "deepseek-v4-flash",
+        reasoningEffort: "medium",
         messages: [
           { role: "system", content: buildSystemPrompt("/workspace") },
           { role: "user", content: "Hi" },
@@ -164,10 +178,136 @@ describe("Harness", () => {
     });
   });
 
+  it("configures the model atomically and uses it on the next request", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    const harness = createHarness({
+      provider: fakeProvider([], requests),
+      sessionStore: fakeSessionStore(appended),
+      session: transcript(),
+      model: "old-model",
+      reasoningLevel: "high",
+      contextWindow: 128_000,
+      maxOutputTokens: 16_384,
+      approvalPolicy: "ask",
+      tools: [],
+    });
+    const replacement = fakeProvider(
+      [
+        [
+          {
+            type: "response-complete",
+            response: {
+              assistant: { role: "assistant", content: "Switched" },
+              finishReason: "stop",
+            },
+          },
+        ],
+      ],
+      requests,
+    );
+
+    const configured = await harness.dispatch({
+      type: "configure-model",
+      provider: replacement,
+      model: "new-model",
+      reasoningLevel: "low",
+      contextWindow: 64_000,
+      maxOutputTokens: 8_192,
+    });
+    expect(configured).toEqual({ ok: true });
+    expect(harness.getSnapshot()).toMatchObject({
+      model: "new-model",
+      reasoningLevel: "low",
+      contextWindow: 64_000,
+    });
+
+    expect(await harness.dispatch({ type: "submit", content: "Hi" })).toEqual({
+      ok: true,
+    });
+    expect(requests).toEqual([
+      {
+        model: "new-model",
+        reasoningEffort: "low",
+        messages: [
+          { role: "system", content: buildSystemPrompt("/workspace") },
+          { role: "user", content: "Hi" },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a Pending Agent Loop when configuring a model", async () => {
+    const harness = createHarness({
+      provider: fakeProvider([], []),
+      sessionStore: fakeSessionStore([]),
+      session: transcript([
+        {
+          role: "assistant",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "/tmp" } },
+          ],
+        },
+      ]),
+      model: "old-model",
+      reasoningLevel: "high",
+      contextWindow: 128_000,
+      maxOutputTokens: 16_384,
+      approvalPolicy: "ask",
+      tools: [],
+    });
+
+    const result = await harness.dispatch({
+      type: "configure-model",
+      provider: fakeProvider([], []),
+      model: "new-model",
+      reasoningLevel: "low",
+      contextWindow: 64_000,
+      maxOutputTokens: 8_192,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(harness.getSnapshot()).toMatchObject({
+      status: "pending",
+      pending: { reason: "restored" },
+      model: "new-model",
+    });
+  });
+
+  it("fails closed before requests when the Active Model Configuration is incomplete", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    const harness = createHarness({
+      provider: fakeProvider([], requests),
+      sessionStore: fakeSessionStore(appended),
+      session: transcript(),
+      contextWindow: 128_000,
+      maxOutputTokens: 16_384,
+      approvalPolicy: "ask",
+      tools: [],
+    });
+
+    const submitted = await harness.dispatch({
+      type: "submit",
+      content: "Hi",
+    });
+    expect(submitted).toEqual({
+      ok: false,
+      error: {
+        code: "HARNESS_MODEL_CONFIG_INCOMPLETE",
+        message: "Active Model Configuration is incomplete.",
+      },
+    });
+    expect(requests).toEqual([]);
+    expect(appended).toEqual([]);
+    expect(harness.getSnapshot().status).toBe("idle");
+  });
+
   it("accumulates completed Provider request totals for the Session", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const appendedUsage: ProviderUsage[] = [];
+    const appendedUsageRecords: SessionUsageRecord[] = [];
     const harness = createHarness({
       provider: fakeProvider(
         [
@@ -202,9 +342,10 @@ describe("Harness", () => {
         ],
         requests,
       ),
-      sessionStore: fakeSessionStore(appended, appendedUsage),
+      sessionStore: fakeSessionStore(appended, appendedUsage, appendedUsageRecords),
       session: transcript(),
       model: "model",
+      reasoningLevel: "medium",
       contextWindow: 100_000,
       maxOutputTokens: 100,
       approvalPolicy: "ask",
@@ -242,6 +383,20 @@ describe("Harness", () => {
       { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
       { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
     ]);
+    expect(appendedUsageRecords).toEqual([
+      {
+        type: "usage",
+        usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+        model: "model",
+        reasoningEffort: "medium",
+      },
+      {
+        type: "usage",
+        usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+        model: "model",
+        reasoningEffort: "medium",
+      },
+    ]);
     expect(harness.getSnapshot().sessionTotalTokens).toBe(335);
   });
 
@@ -264,6 +419,7 @@ describe("Harness", () => {
         ],
       },
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 100_000,
       maxOutputTokens: 100,
       approvalPolicy: "ask",
@@ -321,6 +477,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -474,6 +631,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -567,6 +725,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -644,6 +803,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "yolo",
@@ -725,6 +885,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -790,6 +951,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -862,6 +1024,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript([{ role: "user", content: "Persisted" }]),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -918,6 +1081,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -926,6 +1090,20 @@ describe("Harness", () => {
 
     const running = harness.dispatch({ type: "submit", content: "Long answer" });
     await waitFor(() => providerStarted);
+    expect(
+      await harness.dispatch({
+        type: "configure-model",
+        provider: fakeProvider([], []),
+        model: "replacement",
+        reasoningLevel: "low",
+        contextWindow: 64_000,
+        maxOutputTokens: 8_192,
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "HARNESS_BUSY" },
+    });
+    expect(harness.getSnapshot().model).toBe("model");
     expect(await harness.dispatch({ type: "interrupt" })).toEqual({ ok: true });
     expect(await running).toMatchObject({
       ok: false,
@@ -965,6 +1143,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -1046,6 +1225,7 @@ describe("Harness", () => {
         sessionStore: fakeSessionStore(appended),
         session: transcript(),
         model: "model",
+        reasoningLevel: "high",
         contextWindow: 1_000_000,
         maxOutputTokens: 1_000,
         approvalPolicy: "yolo",
@@ -1082,6 +1262,7 @@ describe("Harness", () => {
       sessionStore: store,
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -1156,6 +1337,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(persisted),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "yolo",
@@ -1212,6 +1394,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(persisted),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "ask",
@@ -1286,6 +1469,7 @@ describe("Harness", () => {
       sessionStore: fakeSessionStore(appended),
       session: transcript(),
       model: "model",
+      reasoningLevel: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
       approvalPolicy: "yolo",

@@ -17,12 +17,14 @@ export type ConfigErrorView = {
 const MINIMAL_CONFIG_EXAMPLE = `{
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-v4-flash",
+  "defaultReasoningEffort": "high",
   "approval": "ask",
   "providers": {
     "deepseek": {
       "type": "openai-completion",
       "apiKey": "sk-...",
-      "baseURL": "https://api.deepseek.com"
+      "baseURL": "https://api.deepseek.com",
+      "models": [{ "id": "deepseek-v4-flash" }]
     }
   }
 }`;
@@ -35,6 +37,7 @@ const HEADINGS: Record<ConfigErrorCode, string> = {
   SUSAN_CONFIG_PROVIDER_UNKNOWN: "默认 Provider 未配置",
   SUSAN_CONFIG_API_KEY_MISSING: "默认 Provider 缺少 API key",
   SUSAN_CONFIG_PROVIDER_TYPE_UNSUPPORTED: "Provider type 未注册",
+  SUSAN_CONFIG_IO: "Config 无法写入",
 };
 
 function redactSecrets(value: string): string {

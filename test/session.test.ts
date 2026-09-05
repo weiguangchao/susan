@@ -146,19 +146,35 @@ describe("session store", () => {
       { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
     ];
 
-    for (const usage of usages) {
+    for (const [index, usage] of usages.entries()) {
       expect(await store.appendUsage(created.value.header.id, usage)).toEqual({
         ok: true,
         value: undefined,
       });
+      if (index === 1) {
+        expect(
+          await store.appendUsage(
+            created.value.header.id,
+            usage,
+            { model: "deepseek-v4-flash", reasoningEffort: "medium" },
+          ),
+        ).toEqual({ ok: true, value: undefined });
+      }
     }
 
     const loaded = await store.loadSession(created.value.header.id);
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
-      expect(loaded.value.records).toEqual(
-        usages.map((usage) => ({ type: "usage", usage })),
-      );
+      expect(loaded.value.records).toEqual([
+        { type: "usage", usage: usages[0] },
+        { type: "usage", usage: usages[1] },
+        {
+          type: "usage",
+          usage: usages[1],
+          model: "deepseek-v4-flash",
+          reasoningEffort: "medium",
+        },
+      ]);
       expect(loaded.value.messages).toEqual([]);
     }
   });

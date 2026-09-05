@@ -5,6 +5,7 @@ export {
   DEFAULT_CONFIG_PATH,
   loadConfig,
   resolveConfig,
+  updateConfigActiveModel,
 } from "./config.js";
 export { parseApprovalFlags } from "./core/config.js";
 export { parseCli, formatCliError, CLI_USAGE } from "./core/cli.js";
@@ -15,6 +16,11 @@ export {
   reduceSessionPickerState,
   resolveSessionPickerIntent,
 } from "./core/picker.js";
+export {
+  createModelPickerState,
+  reduceModelPickerState,
+  resolveModelPickerIntent,
+} from "./core/model-picker.js";
 export type {
   CliError,
   CliFlags,
@@ -42,9 +48,20 @@ export type {
   ConfigIssue,
   ConfigResult,
   ProviderConfigEntry,
+  ActiveModelConfiguration,
+  ActiveModelSelection,
+  ResolvedModelEntry,
   ResolvedProviderEntry,
   ResolvedConfig,
 } from "./core/config.js";
+export type {
+  ModelPickerCatalog,
+  ModelPickerIntent,
+  ModelPickerKey,
+  ModelPickerProvider,
+  ModelPickerSelection,
+  ModelPickerState,
+} from "./core/model-picker.js";
 export type {
   JsonObject,
   JsonPrimitive,
@@ -64,6 +81,12 @@ export type {
   ProviderType,
   ProviderUsage,
   ResolvedProviderConfig,
+  ReasoningLevel,
+} from "./core/provider.js";
+export {
+  DEFAULT_MODEL_CONTEXT_WINDOW,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+  REASONING_EFFORTS,
 } from "./core/provider.js";
 export type {
   SessionCompactionRecord,
@@ -71,6 +94,7 @@ export type {
   SessionMessageRecord,
   SessionRecord,
   SessionUsageRecord,
+  SessionUsageAudit,
   SessionStore,
   SessionStoreError,
   SessionStoreErrorCode,
@@ -123,7 +147,6 @@ export type {
   HarnessError,
   HarnessEvent,
   HarnessOptions,
-  ReasoningLevel,
   HarnessSnapshot,
   HarnessStatus,
   HarnessTool,

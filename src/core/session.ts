@@ -11,7 +11,11 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
-import type { CompletionMessage, ProviderUsage } from "./provider.js";
+import type {
+  CompletionMessage,
+  ProviderUsage,
+  ReasoningLevel,
+} from "./provider.js";
 
 export type SessionHeader = {
   type: "session";
@@ -38,7 +42,14 @@ export type SessionCompactionRecord = {
 export type SessionUsageRecord = {
   type: "usage";
   usage: ProviderUsage;
+  model?: string;
+  reasoningEffort?: ReasoningLevel;
 };
+
+export type SessionUsageAudit = Pick<
+  SessionUsageRecord,
+  "model" | "reasoningEffort"
+>;
 
 export type SessionRecord =
   | SessionMessageRecord
@@ -99,6 +110,7 @@ export type SessionStore = {
   appendUsage(
     sessionId: string,
     usage: ProviderUsage,
+    modelConfiguration?: SessionUsageAudit,
   ): Promise<SessionStoreResult<void>>;
   loadSession(
     sessionId: string,
@@ -250,10 +262,25 @@ function isSessionRecord(value: unknown): value is SessionRecord {
     );
   }
   if (value.type === "usage") {
+    if (!isRecord(value) || !isProviderUsage(value.usage)) {
+      return false;
+    }
+    const hasModel = Object.hasOwn(value, "model");
+    const hasReasoningEffort = Object.hasOwn(value, "reasoningEffort");
     return (
-      hasExactKeys(value, ["type", "usage"]) &&
-      isProviderUsage(value.usage)
-    );
+      (hasModel && hasReasoningEffort) ||
+      (!hasModel && !hasReasoningEffort)
+    ) &&
+      (!hasModel ||
+        (typeof value.model === "string" &&
+          value.model.length > 0 &&
+          (value.reasoningEffort === "minimal" ||
+            value.reasoningEffort === "low" ||
+            value.reasoningEffort === "medium" ||
+            value.reasoningEffort === "high"))) &&
+      Object.keys(value).every((key) =>
+        ["type", "usage", "model", "reasoningEffort"].includes(key),
+      );
   }
   return false;
 }
@@ -633,7 +660,7 @@ export function createSessionStore(
       return success(undefined);
     },
 
-    async appendUsage(sessionId, usage) {
+    async appendUsage(sessionId, usage, modelConfiguration) {
       const prepared = await ensureSessionsDirectory(sessionsDirectory);
       if (!prepared.ok) {
         return prepared;
@@ -641,7 +668,16 @@ export function createSessionStore(
       if (!UUID_PATTERN.test(sessionId)) {
         return failure("SUSAN_SESSION_SCHEMA", "sessionId must be a UUID");
       }
-      const record: SessionUsageRecord = { type: "usage", usage };
+      const record: SessionUsageRecord = {
+        type: "usage",
+        usage,
+        ...(modelConfiguration === undefined
+          ? {}
+          : {
+              model: modelConfiguration.model,
+              reasoningEffort: modelConfiguration.reasoningEffort,
+            }),
+      };
       if (!isSessionRecord(record)) {
         return failure(
           "SUSAN_SESSION_SCHEMA",

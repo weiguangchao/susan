@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   createTuiState,
+  createModelPickerState,
   formatToolCallDetail,
   isEmptySession,
+  reduceModelPickerState,
   reduceTuiState,
   resolveInputIntent,
+  resolveModelPickerIntent,
   resolveSubmission,
 } from "../src/index.js";
 import type { ProviderToolCall } from "../src/index.js";
@@ -52,6 +55,155 @@ describe("TUI state", () => {
     expect(
       resolveInputIntent(state, { input: "\r", return: true }),
     ).toEqual({ type: "submit", content: "a\nb" });
+  });
+
+  it("opens the model picker with /model without submitting it", () => {
+    let state = initialState();
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "/model" },
+    });
+
+    expect(resolveSubmission(state.input)).toEqual({ type: "model-picker" });
+
+    state = reduceTuiState(state, {
+      type: "input-intent",
+      intent: { type: "model-picker" },
+    });
+
+    expect(state.modelPickerActive).toBe(true);
+    expect(state.input).toBe("");
+  });
+
+  it("opens the model picker before an incomplete submit or retry", () => {
+    let idle = initialState({ model: undefined, reasoningLevel: undefined });
+    idle = reduceTuiState(idle, {
+      type: "input-key",
+      key: { input: "keep this prompt" },
+    });
+
+    expect(
+      resolveInputIntent(idle, { input: "\r", return: true }),
+    ).toEqual({ type: "model-picker" });
+    idle = reduceTuiState(idle, {
+      type: "input-intent",
+      intent: { type: "model-picker" },
+    });
+    expect(idle.modelPickerActive).toBe(true);
+    expect(idle.input).toBe("keep this prompt");
+
+    const pending = initialState({
+      status: "pending",
+      pending: { reason: "restored" },
+      model: undefined,
+      reasoningLevel: undefined,
+    });
+    expect(resolveInputIntent(pending, { input: "r" })).toEqual({
+      type: "model-picker",
+    });
+  });
+
+  it("moves among providers and models in declaration order", () => {
+    const catalog = {
+      defaultProviderAlias: "deepseek",
+      preferredModel: "deepseek-v4-flash",
+      preferredReasoningEffort: "medium" as const,
+      providers: [
+        {
+          alias: "deepseek",
+          type: "openai-completion" as const,
+          models: [{ id: "deepseek-v4-flash" }],
+        },
+        {
+          alias: "backup",
+          type: "openai-completion" as const,
+          models: [
+            { id: "backup-fast" },
+            { id: "backup-thinking" },
+          ],
+        },
+      ],
+    };
+    let state = createModelPickerState(catalog);
+
+    expect(state).toMatchObject({
+      providerIndex: 0,
+      modelIndex: 0,
+      reasoningEffort: "medium",
+    });
+
+    state = reduceModelPickerState(state, { type: "next-provider" });
+    expect(state).toMatchObject({
+      providerIndex: 1,
+      modelIndex: 0,
+      reasoningEffort: "medium",
+    });
+
+    state = reduceModelPickerState(state, { type: "move-model", delta: 1 });
+    expect(state.modelIndex).toBe(1);
+    state = reduceModelPickerState(state, { type: "move-model", delta: -1 });
+    expect(state.modelIndex).toBe(0);
+    state = reduceModelPickerState(state, { type: "next-provider" });
+    expect(state.providerIndex).toBe(0);
+    expect(state.modelIndex).toBe(0);
+  });
+
+  it("selects Reasoning Effort only after an explicit adjustment", () => {
+    const catalog = {
+      providers: [
+        {
+          alias: "deepseek",
+          type: "openai-completion" as const,
+          models: [{ id: "deepseek-v4-flash" }],
+        },
+      ],
+    };
+    let state = createModelPickerState(catalog);
+
+    expect(state.reasoningEffort).toBeNull();
+    expect(state.modelIndex).toBeNull();
+    expect(
+      resolveModelPickerIntent(state, { input: "\r", return: true }),
+    ).toEqual({ type: "none" });
+
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: -1 });
+    expect(state.reasoningEffort).toBe("minimal");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("low");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("medium");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("high");
+    state = reduceModelPickerState(state, { type: "adjust-effort", delta: 1 });
+    expect(state.reasoningEffort).toBe("high");
+
+    state = reduceModelPickerState(state, { type: "move-model", delta: -1 });
+    expect(
+      resolveModelPickerIntent(state, { input: "\r", return: true }),
+    ).toEqual({
+      type: "apply",
+      selection: {
+        providerAlias: "deepseek",
+        model: "deepseek-v4-flash",
+        reasoningEffort: "high",
+      },
+    });
+  });
+
+  it("selects the first model on the first arrow press from unset", () => {
+    let state = createModelPickerState({
+      providers: [
+        {
+          alias: "deepseek",
+          type: "openai-completion",
+          models: [{ id: "first" }, { id: "second" }],
+        },
+      ],
+    });
+
+    expect(state.modelIndex).toBeNull();
+    state = reduceModelPickerState(state, { type: "move-model", delta: 1 });
+    expect(state.modelIndex).toBe(0);
   });
 
   it("treats Shift+Space as an ordinary space", () => {

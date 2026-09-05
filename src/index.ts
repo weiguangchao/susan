@@ -67,6 +67,18 @@ export type {
   JsonPrimitive,
   JsonValue,
 } from "./core/json.js";
+export { createSessionPathResolver } from "./core/path-resolver.js";
+export type {
+  CwdRelation,
+  PathExistence,
+  PathResolution,
+  PathResolutionError,
+  PathResolutionErrorCode,
+  PathResolutionOptions,
+  PathResolutionResult,
+  PathSymlinkPolicy,
+  SessionPathResolver,
+} from "./core/path-resolver.js";
 export type {
   AssistantMessage,
   CompletionMessage,

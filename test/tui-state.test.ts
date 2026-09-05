@@ -207,7 +207,7 @@ describe("TUI state", () => {
   });
 
   it("starts at the first declared provider when provider is omitted", () => {
-    const state = createModelPickerState({
+    let state = createModelPickerState({
       preferredModel: "matching-second",
       preferredReasoningEffort: "medium",
       providers: [
@@ -227,6 +227,11 @@ describe("TUI state", () => {
     expect(state.providerIndex).toBe(0);
     expect(state.modelIndex).toBeNull();
     expect(state.reasoningEffort).toBeNull();
+
+    state = reduceModelPickerState(state, { type: "next-provider" });
+    expect(state.providerIndex).toBe(1);
+    expect(state.modelIndex).toBe(0);
+    expect(state.reasoningEffort).toBe("medium");
   });
 
   it("treats Shift+Space as an ordinary space", () => {

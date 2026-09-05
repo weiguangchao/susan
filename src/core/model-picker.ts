@@ -191,7 +191,8 @@ function initialModel(
   }
   if (
     provider.alias === catalog.defaultProviderAlias ||
-    (catalog.defaultProviderAlias === undefined && providerIndex === 0)
+    (catalog.defaultProviderAlias === undefined &&
+      providerMatchesPreference(catalog, providerIndex))
   ) {
     const preferred = catalog.preferredModel;
     if (preferred !== undefined && provider.models.some((model) => model.id === preferred)) {
@@ -211,13 +212,10 @@ function initialReasoningEffort(
   }
   if (
     provider.alias !== catalog.defaultProviderAlias &&
-    !(catalog.defaultProviderAlias === undefined && providerIndex === 0)
-  ) {
-    return null;
-  }
-  if (
-    catalog.defaultProviderAlias === undefined &&
-    !provider.models.some((model) => model.id === catalog.preferredModel)
+    !(
+      catalog.defaultProviderAlias === undefined &&
+      providerMatchesPreference(catalog, providerIndex)
+    )
   ) {
     return null;
   }
@@ -237,7 +235,8 @@ function providerState(
   }
   const preferredModel =
     provider.alias === state.catalog.defaultProviderAlias ||
-    (state.catalog.defaultProviderAlias === undefined && providerIndex === 0)
+    (state.catalog.defaultProviderAlias === undefined &&
+      providerMatchesPreference(state.catalog, providerIndex))
       ? state.catalog.preferredModel
       : undefined;
   const modelIndex = Math.max(
@@ -250,9 +249,28 @@ function providerState(
     providerIndex,
     modelIndex: provider.models.length === 0 ? null : modelIndex,
     reasoningEffort:
-      state.reasoningEffort !== null &&
-      efforts.includes(state.reasoningEffort)
+      state.catalog.defaultProviderAlias === undefined &&
+      providerMatchesPreference(state.catalog, providerIndex)
+        ? state.catalog.preferredReasoningEffort ?? null
+        : state.reasoningEffort !== null &&
+            efforts.includes(state.reasoningEffort)
         ? state.reasoningEffort
         : null,
   };
+}
+
+function providerMatchesPreference(
+  catalog: ModelPickerCatalog,
+  providerIndex: number,
+): boolean {
+  const provider = catalog.providers[providerIndex];
+  return (
+    provider !== undefined &&
+    catalog.preferredModel !== undefined &&
+    catalog.preferredReasoningEffort !== undefined &&
+    provider.models.some((model) => model.id === catalog.preferredModel) &&
+    REASONING_EFFORTS[provider.type].includes(
+      catalog.preferredReasoningEffort,
+    )
+  );
 }

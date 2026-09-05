@@ -7,6 +7,7 @@ import type {
 } from "../core/harness.js";
 import type {
   ProviderFailure,
+  ReasoningEffort,
   ProviderToolCall,
 } from "../core/provider.js";
 import { moveInputCursorVertically } from "./input-layout.js";
@@ -61,7 +62,7 @@ export type TuiState = {
   readonly failure: ProviderFailure | null;
   readonly pending: PendingAgentLoop | null;
   readonly model?: string;
-  readonly reasoningEffort?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
   readonly notice: string | null;

@@ -107,7 +107,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
             type: "configure-model",
             provider: createProviderClient(activeModel.provider),
             model: activeModel.model,
-            reasoningLevel: activeModel.reasoningEffort,
+            reasoningEffort: activeModel.reasoningEffort,
             contextWindow: activeModel.contextWindow,
             maxOutputTokens: activeModel.maxOutputTokens,
           },
@@ -293,7 +293,7 @@ function createSusanHarness(
     sessionStore: store,
     session,
     model: activeModel?.model,
-    reasoningLevel: activeModel?.reasoningEffort,
+    reasoningEffort: activeModel?.reasoningEffort,
     contextWindow:
       activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
     maxOutputTokens:
@@ -306,7 +306,6 @@ function createSusanHarness(
 function modelPickerCatalog(config: ResolvedConfig): ModelPickerCatalog {
   return {
     defaultProviderAlias: config.defaultProvider,
-    preferredProviderAlias: config.preferredProviderAlias,
     preferredModel: config.defaultModel,
     preferredReasoningEffort: config.defaultReasoningEffort,
     providers: Object.entries(config.providers).map(([alias, provider]) => ({

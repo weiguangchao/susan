@@ -28,7 +28,7 @@ function initialState(
     messages: [],
     pending: null,
     model: "gpt-5-codex",
-    reasoningLevel: "high",
+    reasoningEffort: "high",
     contextWindow: 418_000,
     sessionTotalTokens: 0,
     ...overrides,
@@ -76,7 +76,7 @@ describe("TUI state", () => {
   });
 
   it("opens the model picker before an incomplete submit or retry", () => {
-    let idle = initialState({ model: undefined, reasoningLevel: undefined });
+    let idle = initialState({ model: undefined, reasoningEffort: undefined });
     idle = reduceTuiState(idle, {
       type: "input-key",
       key: { input: "keep this prompt" },
@@ -96,7 +96,7 @@ describe("TUI state", () => {
       status: "pending",
       pending: { reason: "restored" },
       model: undefined,
-      reasoningLevel: undefined,
+      reasoningEffort: undefined,
     });
     expect(resolveInputIntent(pending, { input: "r" })).toEqual({
       type: "model-picker",
@@ -206,6 +206,29 @@ describe("TUI state", () => {
     expect(state.modelIndex).toBe(0);
   });
 
+  it("starts at the first declared provider when provider is omitted", () => {
+    const state = createModelPickerState({
+      preferredModel: "matching-second",
+      preferredReasoningEffort: "medium",
+      providers: [
+        {
+          alias: "first",
+          type: "openai-completion",
+          models: [{ id: "first-model" }],
+        },
+        {
+          alias: "second",
+          type: "openai-completion",
+          models: [{ id: "matching-second" }],
+        },
+      ],
+    });
+
+    expect(state.providerIndex).toBe(0);
+    expect(state.modelIndex).toBeNull();
+    expect(state.reasoningEffort).toBeNull();
+  });
+
   it("treats Shift+Space as an ordinary space", () => {
     expect(
       resolveInputIntent(initialState(), { input: " ", shift: true }),
@@ -287,7 +310,7 @@ describe("TUI state", () => {
         messages: [],
         pending: { reason: "restored" },
         model: "gpt-5-codex",
-        reasoningLevel: "high",
+        reasoningEffort: "high",
         contextWindow: 418_000,
         sessionTotalTokens: 18_400,
       },
@@ -474,7 +497,7 @@ describe("TUI state", () => {
         messages: [],
         pending: null,
         model: "gpt-5-codex",
-        reasoningLevel: "high",
+        reasoningEffort: "high",
         contextWindow: 418_000,
         sessionTotalTokens: 0,
       },
@@ -521,7 +544,7 @@ describe("TUI state", () => {
     const state = initialState();
 
     expect(state.model).toBe("gpt-5-codex");
-    expect(state.reasoningLevel).toBe("high");
+    expect(state.reasoningEffort).toBe("high");
     expect(state.contextWindow).toBe(418_000);
     expect(state.sessionTotalTokens).toBe(0);
 
@@ -534,14 +557,14 @@ describe("TUI state", () => {
         messages: [],
         pending: null,
         model: "deepseek-v4-flash",
-        reasoningLevel: "medium",
+        reasoningEffort: "medium",
         contextWindow: 128_000,
         sessionTotalTokens: 18_400,
       },
     });
 
     expect(updated.model).toBe("deepseek-v4-flash");
-    expect(updated.reasoningLevel).toBe("medium");
+    expect(updated.reasoningEffort).toBe("medium");
     expect(updated.contextWindow).toBe(128_000);
     expect(updated.sessionTotalTokens).toBe(18_400);
   });
@@ -578,7 +601,7 @@ describe("TUI state", () => {
         messages: [],
         pending: null,
         model: "model",
-        reasoningLevel: "high",
+        reasoningEffort: "high",
         contextWindow: 128_000,
         sessionTotalTokens: 0,
       },
@@ -763,7 +786,7 @@ describe("TUI state", () => {
         messages: [],
         pending: { reason: "provider-failure" },
         model: "gpt-5-codex",
-        reasoningLevel: "high",
+        reasoningEffort: "high",
         contextWindow: 418_000,
         sessionTotalTokens: 18_400,
       },

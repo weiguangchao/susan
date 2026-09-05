@@ -14,7 +14,7 @@ import { isJsonValue, isRecord } from "./json.js";
 import type {
   CompletionMessage,
   ProviderUsage,
-  ReasoningLevel,
+  ReasoningEffort,
 } from "./provider.js";
 
 export type SessionHeader = {
@@ -43,7 +43,7 @@ export type SessionUsageRecord = {
   type: "usage";
   usage: ProviderUsage;
   model?: string;
-  reasoningEffort?: ReasoningLevel;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type SessionUsageAudit = Pick<

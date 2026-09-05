@@ -15,7 +15,7 @@ import type {
   ProviderAdapter,
   ProviderType,
   ResolvedProviderConfig,
-  ReasoningLevel,
+  ReasoningEffort,
 } from "./provider.js";
 import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
@@ -31,12 +31,12 @@ const providerTypeSchema = z.enum([
   "responses",
 ] as const satisfies readonly ProviderType[]);
 
-const reasoningLevelSchema = z.enum([
+const reasoningEffortSchema = z.enum([
   "minimal",
   "low",
   "medium",
   "high",
-] as const satisfies readonly ReasoningLevel[]);
+] as const satisfies readonly ReasoningEffort[]);
 
 const providerAliasSchema = z
   .string()
@@ -86,7 +86,7 @@ const providerEntrySchema = z.strictObject({
 const configSchema = z.strictObject({
   defaultProvider: providerAliasSchema.optional(),
   defaultModel: z.string().min(1).optional(),
-  defaultReasoningEffort: reasoningLevelSchema.optional(),
+  defaultReasoningEffort: reasoningEffortSchema.optional(),
   approval: z.enum(["ask", "yolo"]).default("ask"),
   providers: z
     .record(providerAliasSchema, providerEntrySchema)
@@ -120,7 +120,7 @@ export type ActiveModelConfiguration = {
   providerAlias: string;
   provider: ResolvedProviderConfig;
   model: string;
-  reasoningEffort: ReasoningLevel;
+  reasoningEffort: ReasoningEffort;
   contextWindow: number;
   maxOutputTokens: number;
 };
@@ -128,18 +128,17 @@ export type ActiveModelConfiguration = {
 export type ActiveModelSelection = {
   providerAlias: string;
   model: string;
-  reasoningEffort: ReasoningLevel;
+  reasoningEffort: ReasoningEffort;
 };
 
 export type ResolvedConfig = {
   defaultProvider?: string;
   defaultModel?: string;
-  defaultReasoningEffort?: ReasoningLevel;
+  defaultReasoningEffort?: ReasoningEffort;
   approval: ApprovalPolicy;
   providers: Readonly<Record<string, ResolvedProviderEntry>>;
   provider?: ResolvedProviderConfig;
   activeModel?: ActiveModelConfiguration;
-  preferredProviderAlias?: string;
 };
 
 export type ConfigIssue = {
@@ -479,6 +478,12 @@ export function resolveConfig(
           baseURL: resolvedProviders[parsed.defaultProvider!].baseURL,
         };
 
+  const selectedModel =
+    parsed.defaultModel === undefined
+      ? undefined
+      : defaultProvider?.models?.find(
+          (model) => model.id === parsed.defaultModel,
+        );
   const activeModel =
     parsed.defaultProvider === undefined ||
     parsed.defaultModel === undefined ||
@@ -491,29 +496,10 @@ export function resolveConfig(
           model: parsed.defaultModel,
           reasoningEffort: parsed.defaultReasoningEffort,
           contextWindow:
-            defaultProvider.models?.find(
-              (model) => model.id === parsed.defaultModel,
-            )?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
+            selectedModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
           maxOutputTokens:
-            defaultProvider.models?.find(
-              (model) => model.id === parsed.defaultModel,
-            )?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+            selectedModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
         };
-
-  const preferredProviderAlias =
-    parsed.defaultProvider === undefined &&
-    parsed.defaultModel !== undefined &&
-    parsed.defaultReasoningEffort !== undefined
-      ? Object.entries(parsed.providers).find(
-          ([, entry]) =>
-            (entry.models ?? []).some(
-              (model) => model.id === parsed.defaultModel,
-            ) &&
-            REASONING_EFFORTS[entry.type].includes(
-              parsed.defaultReasoningEffort!,
-            ),
-        )?.[0]
-      : undefined;
 
   return {
     ok: true,
@@ -525,9 +511,6 @@ export function resolveConfig(
       providers: resolvedProviders,
       ...(resolvedProvider === undefined ? {} : { provider: resolvedProvider }),
       ...(activeModel === undefined ? {} : { activeModel }),
-      ...(preferredProviderAlias === undefined
-        ? {}
-        : { preferredProviderAlias }),
     },
   };
 }

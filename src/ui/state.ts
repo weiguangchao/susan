@@ -61,7 +61,7 @@ export type TuiState = {
   readonly failure: ProviderFailure | null;
   readonly pending: PendingAgentLoop | null;
   readonly model?: string;
-  readonly reasoningLevel?: string;
+  readonly reasoningEffort?: string;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
   readonly notice: string | null;
@@ -155,13 +155,13 @@ export function createTuiState(
     failure: null,
     pending: snapshot.pending,
     model: snapshot.model,
-    reasoningLevel: snapshot.reasoningLevel,
+    reasoningEffort: snapshot.reasoningEffort,
     contextWindow: snapshot.contextWindow,
     sessionTotalTokens: snapshot.sessionTotalTokens,
     notice:
       snapshot.pending !== null
         ? pendingNotice(snapshot.pending)
-        : snapshot.model === undefined || snapshot.reasoningLevel === undefined
+        : snapshot.model === undefined || snapshot.reasoningEffort === undefined
           ? "模型配置未完整 · /model 选择"
           : null,
     input: "",
@@ -294,7 +294,7 @@ export function resolveInputIntent(
   if (state.status === "pending") {
     if (state.input === "") {
       if (key.input === "r") {
-        return state.model === undefined || state.reasoningLevel === undefined
+        return state.model === undefined || state.reasoningEffort === undefined
           ? { type: "model-picker" }
           : { type: "retry" };
       }
@@ -336,7 +336,7 @@ export function resolveInputIntent(
     }
     if (
       submission.type === "submit" &&
-      (state.model === undefined || state.reasoningLevel === undefined)
+      (state.model === undefined || state.reasoningEffort === undefined)
     ) {
       return { type: "model-picker" };
     }
@@ -361,7 +361,7 @@ export function reduceTuiState(
         status: action.snapshot.status,
         pending: action.snapshot.pending,
         model: action.snapshot.model,
-        reasoningLevel: action.snapshot.reasoningLevel,
+        reasoningEffort: action.snapshot.reasoningEffort,
         contextWindow: action.snapshot.contextWindow,
         sessionTotalTokens: action.snapshot.sessionTotalTokens,
         ...(action.snapshot.pending === null

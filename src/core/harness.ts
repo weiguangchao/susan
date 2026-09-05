@@ -17,7 +17,7 @@ import type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
-  ReasoningLevel,
+  ReasoningEffort,
   ProviderToolDefinition,
   ProviderToolCall,
   ProviderUsage,
@@ -88,12 +88,12 @@ export type HarnessSnapshot = {
   readonly messages: readonly CompletionMessage[];
   readonly pending: PendingAgentLoop | null;
   readonly model?: string;
-  readonly reasoningLevel?: ReasoningLevel;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
 };
 
-export type { ReasoningLevel };
+export type { ReasoningEffort };
 
 export type HarnessEvent =
   | { readonly type: "text-delta"; readonly textDelta: string }
@@ -170,7 +170,7 @@ export type HarnessCommand =
       readonly type: "configure-model";
       readonly provider: ProviderClient;
       readonly model: string;
-      readonly reasoningLevel: ReasoningLevel;
+      readonly reasoningEffort: ReasoningEffort;
       readonly contextWindow: number;
       readonly maxOutputTokens: number;
     };
@@ -204,7 +204,7 @@ export type HarnessOptions = {
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
   readonly model?: string;
-  readonly reasoningLevel?: ReasoningLevel;
+  readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
   readonly approvalPolicy: ApprovalPolicy;
@@ -383,12 +383,12 @@ export function createHarness(options: HarnessOptions): Harness {
   const random = options.random ?? Math.random;
   let provider = options.provider;
   let model = options.model;
-  let reasoningLevel = options.reasoningLevel;
+  let reasoningEffort = options.reasoningEffort;
   let contextWindow = options.contextWindow;
   let maxOutputTokens = options.maxOutputTokens;
 
   const activeModelConfigurationError = (): HarnessError | null => {
-    if (provider !== undefined && model !== undefined && reasoningLevel !== undefined) {
+    if (provider !== undefined && model !== undefined && reasoningEffort !== undefined) {
       return null;
     }
     return {
@@ -399,8 +399,8 @@ export function createHarness(options: HarnessOptions): Harness {
 
   const currentUsageAudit = (): {
     readonly model: string;
-    readonly reasoningEffort: ReasoningLevel;
-  } => ({ model: model!, reasoningEffort: reasoningLevel! });
+    readonly reasoningEffort: ReasoningEffort;
+  } => ({ model: model!, reasoningEffort: reasoningEffort! });
 
   const emit = (event: HarnessEvent) => {
     for (const listener of listeners) {
@@ -432,7 +432,7 @@ export function createHarness(options: HarnessOptions): Harness {
   const appendProviderUsage = async (
     usage: ProviderUsage | undefined,
     modelConfiguration:
-      | { readonly model: string; readonly reasoningEffort: ReasoningLevel }
+      | { readonly model: string; readonly reasoningEffort: ReasoningEffort }
       | undefined,
   ): Promise<HarnessCommandResult> => {
     if (usage === undefined) {
@@ -553,7 +553,7 @@ export function createHarness(options: HarnessOptions): Harness {
     const complete = provider!.complete;
     const summaryRequest: ProviderRequest = {
       model: model!,
-      reasoningEffort: reasoningLevel,
+      reasoningEffort: reasoningEffort,
       messages: [
         {
           role: "system",
@@ -698,7 +698,7 @@ export function createHarness(options: HarnessOptions): Harness {
     }
     const request: ProviderRequest = {
       model: model!,
-      reasoningEffort: reasoningLevel,
+      reasoningEffort: reasoningEffort,
       messages: [
         { role: "system", content: buildSystemPrompt(options.session.header.cwd) },
         ...modelContextMessages(messages, checkpoint),
@@ -1228,7 +1228,7 @@ export function createHarness(options: HarnessOptions): Harness {
         }
         provider = command.provider;
         model = command.model;
-        reasoningLevel = command.reasoningLevel;
+        reasoningEffort = command.reasoningEffort;
         contextWindow = command.contextWindow;
         maxOutputTokens = command.maxOutputTokens;
         return { ok: true };
@@ -1279,7 +1279,7 @@ export function createHarness(options: HarnessOptions): Harness {
         messages: [...messages],
         pending,
         model,
-        reasoningLevel,
+        reasoningEffort,
         contextWindow,
         sessionTotalTokens,
       };

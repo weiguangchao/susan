@@ -169,7 +169,6 @@ describe("config loading", () => {
       expect(result.config.defaultModel).toBe("deepseek-v4-flash");
       expect(result.config.defaultReasoningEffort).toBe("medium");
       expect(result.config.activeModel).toBeUndefined();
-      expect(result.config.preferredProviderAlias).toBe("deepseek");
     }
   });
 

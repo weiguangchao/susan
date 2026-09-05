@@ -81,7 +81,7 @@ export type {
   ProviderType,
   ProviderUsage,
   ResolvedProviderConfig,
-  ReasoningLevel,
+  ReasoningEffort,
 } from "./core/provider.js";
 export {
   DEFAULT_MODEL_CONTEXT_WINDOW,

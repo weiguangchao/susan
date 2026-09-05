@@ -5,10 +5,10 @@ export type ProviderType =
   | "openai-completion"
   | "responses";
 
-export type ReasoningLevel = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
 export const REASONING_EFFORTS: Readonly<
-  Record<ProviderType, readonly ReasoningLevel[]>
+  Record<ProviderType, readonly ReasoningEffort[]>
 > = {
   anthropic: [],
   "openai-completion": ["minimal", "low", "medium", "high"],
@@ -51,7 +51,7 @@ export type ProviderToolDefinition = {
 
 export type ProviderRequest = {
   model: string;
-  reasoningEffort?: ReasoningLevel;
+  reasoningEffort?: ReasoningEffort;
   messages: readonly CompletionMessage[];
   tools?: readonly ProviderToolDefinition[];
 };

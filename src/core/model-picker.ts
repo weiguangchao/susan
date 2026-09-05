@@ -1,6 +1,6 @@
 import {
   REASONING_EFFORTS,
-  type ReasoningLevel,
+  type ReasoningEffort,
 } from "./provider.js";
 
 export type ModelPickerProvider = {
@@ -11,23 +11,22 @@ export type ModelPickerProvider = {
 
 export type ModelPickerCatalog = {
   readonly defaultProviderAlias?: string;
-  readonly preferredProviderAlias?: string;
   readonly preferredModel?: string;
-  readonly preferredReasoningEffort?: ReasoningLevel;
+  readonly preferredReasoningEffort?: ReasoningEffort;
   readonly providers: readonly ModelPickerProvider[];
 };
 
 export type ModelPickerSelection = {
   readonly providerAlias: string;
   readonly model: string;
-  readonly reasoningEffort: ReasoningLevel;
+  readonly reasoningEffort: ReasoningEffort;
 };
 
 export type ModelPickerState = {
   readonly catalog: ModelPickerCatalog;
   readonly providerIndex: number;
   readonly modelIndex: number | null;
-  readonly reasoningEffort: ReasoningLevel | null;
+  readonly reasoningEffort: ReasoningEffort | null;
 };
 
 export type ModelPickerKey = {
@@ -179,14 +178,6 @@ function initialProviderIndex(catalog: ModelPickerCatalog): number {
       return index;
     }
   }
-  if (catalog.preferredProviderAlias !== undefined) {
-    const index = catalog.providers.findIndex(
-      (provider) => provider.alias === catalog.preferredProviderAlias,
-    );
-    if (index >= 0) {
-      return index;
-    }
-  }
   return catalog.providers.length === 0 ? -1 : 0;
 }
 
@@ -200,7 +191,7 @@ function initialModel(
   }
   if (
     provider.alias === catalog.defaultProviderAlias ||
-    provider.alias === catalog.preferredProviderAlias
+    (catalog.defaultProviderAlias === undefined && providerIndex === 0)
   ) {
     const preferred = catalog.preferredModel;
     if (preferred !== undefined && provider.models.some((model) => model.id === preferred)) {
@@ -213,14 +204,20 @@ function initialModel(
 function initialReasoningEffort(
   catalog: ModelPickerCatalog,
   providerIndex: number,
-): ReasoningLevel | null {
+): ReasoningEffort | null {
   const provider = catalog.providers[providerIndex];
   if (provider === undefined) {
     return null;
   }
   if (
     provider.alias !== catalog.defaultProviderAlias &&
-    provider.alias !== catalog.preferredProviderAlias
+    !(catalog.defaultProviderAlias === undefined && providerIndex === 0)
+  ) {
+    return null;
+  }
+  if (
+    catalog.defaultProviderAlias === undefined &&
+    !provider.models.some((model) => model.id === catalog.preferredModel)
   ) {
     return null;
   }
@@ -239,7 +236,8 @@ function providerState(
     return state;
   }
   const preferredModel =
-    provider.alias === state.catalog.defaultProviderAlias
+    provider.alias === state.catalog.defaultProviderAlias ||
+    (state.catalog.defaultProviderAlias === undefined && providerIndex === 0)
       ? state.catalog.preferredModel
       : undefined;
   const modelIndex = Math.max(

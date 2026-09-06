@@ -226,6 +226,18 @@ export type {
   BashToolOptions,
 } from "./core/bash.js";
 export {
+  LS_DEFAULT_LIMIT,
+  LS_DEFAULT_TIMEOUT_MS,
+  LS_MAX_LIMIT,
+  createLsTool,
+  executeLs,
+} from "./core/ls.js";
+export type {
+  LsErrorCode,
+  LsTool,
+  LsToolOptions,
+} from "./core/ls.js";
+export {
   CANONICAL_SYSTEM_PROMPT,
   buildSystemPrompt,
   createHarness,

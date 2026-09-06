@@ -490,7 +490,7 @@ async function loadGitignore(
       diagnostic: {
         path: relativePath,
         operation: "read-file",
-        code: filesystemCode(error),
+        code: filesystemErrorCode(error),
       },
     };
   }
@@ -514,7 +514,7 @@ const TRAVERSAL_ERROR_MESSAGES: Record<TraversalErrorCode, string> = {
   ETIMEDOUT: "Query timed out.",
 };
 
-function filesystemCode(error: unknown): TraversalErrorCode {
+export function filesystemErrorCode(error: unknown): TraversalErrorCode {
   const platformCode = nodeErrorCode(error);
   return platformCode === "ENOENT"
     ? "ENOENT"
@@ -528,7 +528,7 @@ function filesystemCode(error: unknown): TraversalErrorCode {
 }
 
 function filesystemRootFailure(error: unknown): TraversalResult<never> {
-  const code = filesystemCode(error);
+  const code = filesystemErrorCode(error);
   return fail(code, TRAVERSAL_ERROR_MESSAGES[code]);
 }
 
@@ -572,7 +572,7 @@ async function walk(
     state.diagnostics.push({
       path: relativeDir,
       operation: "read-directory",
-      code: filesystemCode(error),
+      code: filesystemErrorCode(error),
     });
     return { ok: true, value: undefined };
   }
@@ -623,7 +623,7 @@ async function walk(
       state.diagnostics.push({
         path: relativePath,
         operation: "read-metadata",
-        code: filesystemCode(error),
+        code: filesystemErrorCode(error),
       });
       continue;
     }

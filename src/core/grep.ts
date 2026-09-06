@@ -22,6 +22,7 @@ import {
   TRAVERSAL_MAX_DEPTH,
   TRAVERSAL_MAX_DIAGNOSTICS,
   compileGlob,
+  filesystemErrorCode,
   traverse,
   type TraversalDiagnostic,
   type TraversalDiagnosticOperation,
@@ -36,7 +37,7 @@ export const GREP_MAX_LINE_TEXT_BYTES = 1_000;
 export const GREP_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
 
 const GREP_DESCRIPTION =
-  "Search UTF-8 regular files line by line. path defaults to the Session cwd and may be a single file or a directory searched recursively as the Search Root; pattern is an ECMAScript Unicode regex unless literal is true. glob, maxDepth, and includeIgnored only apply to a directory target. Hidden files are searched; .gitignore and the built-in .git/ ignore apply unless includeIgnored is true. Symlinks, binary, invalid UTF-8, special, and over-10-MiB files are skipped with diagnostics during traversal and fail the call when targeted directly. Use offset/limit or meta.truncation.nextArguments to continue.";
+  "Search UTF-8 regular files line by line. path defaults to the Session cwd and may be a single file or a directory searched recursively as the Search Root; pattern is an ECMAScript Unicode regex unless literal is true. glob, maxDepth, and includeIgnored only apply to a directory target. Hidden files are searched; .gitignore and the built-in .git/ ignore apply unless includeIgnored is true. Traversal never follows symlinks, while an explicit path resolves through them. Binary, invalid UTF-8, special, and over-10-MiB files become diagnostics during traversal and fail the call when targeted directly. Use offset/limit or meta.truncation.nextArguments to continue.";
 
 const ALLOWED_FIELDS = new Set([
   "pattern",
@@ -134,9 +135,16 @@ type GrepMatch = {
   readonly after: readonly ContextLine[];
 };
 
-type Candidate = {
+type MatchCandidate = {
   readonly match: GrepMatch;
-  readonly clipped: boolean;
+  readonly hasClippedText: boolean;
+};
+
+type QueryBudget = {
+  readonly signal: AbortSignal;
+  readonly now: () => number;
+  readonly deadline: number;
+  readonly timeoutMs: number;
 };
 
 type FileContentFailure = {
@@ -327,7 +335,9 @@ function validateArguments(input: unknown): ArgumentValidationResult {
         offset: input.offset ?? 0,
       },
       matcher,
-      provided: new Set(Object.keys(input)),
+      provided: new Set(
+        Object.keys(input).filter((key) => input[key] !== undefined),
+      ),
     },
   };
 }
@@ -402,19 +412,6 @@ function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
     : fail("ETOOL", "Tool execution failed.", details);
 }
 
-function diagnosticCode(error: unknown): string {
-  const code = nodeErrorCode(error);
-  return code === "ENOENT"
-    ? "ENOENT"
-    : code === "ENOTDIR"
-      ? "ENOTDIR"
-      : code === "ELOOP"
-        ? "ELOOP"
-        : code === "EACCES" || code === "EPERM"
-          ? "EACCES"
-          : "EIO";
-}
-
 function splitLogicalLines(text: string): readonly string[] {
   const lines: string[] = [];
   let start = 0;
@@ -449,16 +446,16 @@ function collectMatches(
   lines: readonly string[],
   matcher: RegExp,
   context: number,
-): readonly Candidate[] {
-  const candidates: Candidate[] = [];
+): readonly MatchCandidate[] {
+  const candidates: MatchCandidate[] = [];
   for (const [index, line] of lines.entries()) {
     if (!matcher.test(line)) {
       continue;
     }
-    let clipped = false;
+    let hasClippedText = false;
     const clip = (value: string): string => {
       const result = clipLineText(value);
-      clipped = clipped || result.clipped;
+      hasClippedText = hasClippedText || result.clipped;
       return result.text;
     };
     const before: ContextLine[] = [];
@@ -473,7 +470,7 @@ function collectMatches(
     const text = clip(line);
     candidates.push({
       match: { path, line: index + 1, text, before, after },
-      clipped,
+      hasClippedText,
     });
   }
   return candidates;
@@ -489,7 +486,7 @@ async function readLogicalLines(
   } catch (error) {
     return {
       ok: false,
-      failure: { operation: "read-metadata", code: diagnosticCode(error) },
+      failure: { operation: "read-metadata", code: filesystemErrorCode(error) },
     };
   }
   if (stats.isSymbolicLink() || !stats.isFile()) {
@@ -510,26 +507,13 @@ async function readLogicalLines(
   } catch (error) {
     return {
       ok: false,
-      failure: { operation: "read-file", code: diagnosticCode(error) },
+      failure: { operation: "read-file", code: filesystemErrorCode(error) },
     };
   }
   const decoded = decodeUtf8Text(bytes);
   return decoded.ok
     ? { ok: true, lines: splitLogicalLines(decoded.text) }
     : { ok: false, failure: { operation: "read-file", code: "EBINARY" } };
-}
-
-function compareDiagnostics(
-  left: TraversalDiagnostic,
-  right: TraversalDiagnostic,
-): number {
-  const keys = ["path", "operation", "code"] as const;
-  for (const key of keys) {
-    if (left[key] !== right[key]) {
-      return left[key] < right[key] ? -1 : 1;
-    }
-  }
-  return 0;
 }
 
 function continuationArguments(
@@ -557,8 +541,8 @@ function fieldBytes(value: unknown): number {
 function mergeGrepTruncation(
   bounded: ToolResult,
   args: ValidatedArguments,
-  paged: readonly Candidate[],
-  remaining: readonly Candidate[],
+  paged: readonly MatchCandidate[],
+  remaining: readonly MatchCandidate[],
   diagnostics: readonly TraversalDiagnostic[],
 ): ToolResult {
   if (!bounded.ok) {
@@ -572,7 +556,7 @@ function mergeGrepTruncation(
     remaining.length > paged.length && retainedMatches === paged.length;
   const clipped = paged
     .slice(0, retainedMatches)
-    .some((candidate) => candidate.clipped);
+    .some((candidate) => candidate.hasClippedText);
   const added = new Set<ToolTruncationReason>([
     ...(overflowed ? (["items"] as const) : []),
     ...(clipped ? (["line-length"] as const) : []),
@@ -618,7 +602,7 @@ function mergeGrepTruncation(
 function boundGrepResult(
   facts: PathFacts,
   args: ValidatedArguments,
-  candidates: readonly Candidate[],
+  candidates: readonly MatchCandidate[],
   diagnostics: readonly TraversalDiagnostic[],
 ): ToolResult {
   const remaining = candidates.slice(args.offset);
@@ -716,23 +700,21 @@ async function searchSingleFile(
   );
 }
 
-async function searchSearchRoot(
+async function searchTree(
   facts: PathFacts,
   query: ValidatedQuery,
-  options: GrepToolOptions,
-  signal: AbortSignal,
-  now: () => number,
-  deadline: number,
+  budget: QueryBudget,
 ): Promise<ToolResult> {
   const { args } = query;
+  const { signal } = budget;
   const walked = await traverse({
     searchRoot: facts.realTargetPath,
     ...(args.glob === undefined ? {} : { glob: args.glob }),
     ...(args.maxDepth === undefined ? {} : { maxDepth: args.maxDepth }),
     includeIgnored: args.includeIgnored === true,
-    timeoutMs: options.timeoutMs ?? GREP_DEFAULT_TIMEOUT_MS,
+    timeoutMs: budget.timeoutMs,
+    now: budget.now,
     signal,
-    ...(options.now === undefined ? {} : { now: options.now }),
   });
   if (!walked.ok) {
     return signal.aborted
@@ -740,7 +722,7 @@ async function searchSearchRoot(
       : mapTraversalError(walked.error, facts);
   }
 
-  const candidates: Candidate[] = [];
+  const candidates: MatchCandidate[] = [];
   const diagnostics = [...walked.value.diagnostics];
   for (const entry of walked.value.entries) {
     if (entry.type !== "file") {
@@ -749,7 +731,7 @@ async function searchSearchRoot(
     if (signal.aborted) {
       return abortResult(signal, facts);
     }
-    if (now() >= deadline) {
+    if (budget.now() >= budget.deadline) {
       return fail("ETIMEDOUT", "Grep timed out.", {
         ...facts,
         matchedItems: candidates.length,
@@ -776,7 +758,9 @@ async function searchSearchRoot(
     args,
     candidates,
     diagnostics
-      .sort(compareDiagnostics)
+      .sort((left, right) =>
+        left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      )
       .slice(0, TRAVERSAL_MAX_DIAGNOSTICS),
   );
 }
@@ -799,7 +783,12 @@ export async function executeGrep(
   if (signal.aborted) {
     return abortResult(signal);
   }
-  const deadline = now() + timeoutMs;
+  const budget: QueryBudget = {
+    signal,
+    now,
+    deadline: now() + timeoutMs,
+    timeoutMs,
+  };
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
@@ -830,9 +819,9 @@ export async function executeGrep(
       : mapObservedIoError(error, facts);
   }
   if (rootStats.isDirectory()) {
-    return searchSearchRoot(facts, validated.value, options, signal, now, deadline);
+    return searchTree(facts, validated.value, budget);
   }
-  if (now() >= deadline) {
+  if (budget.now() >= budget.deadline) {
     return fail("ETIMEDOUT", "Grep timed out.", facts);
   }
   return searchSingleFile(facts, validated.value, rootStats, signal);

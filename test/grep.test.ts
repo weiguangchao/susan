@@ -23,9 +23,22 @@ type Match = {
   readonly after: readonly { readonly line: number; readonly text: string }[];
 };
 
+type Diagnostic = {
+  readonly path: string;
+  readonly operation: string;
+  readonly code: string;
+};
+
 function matchesOf(result: unknown): readonly Match[] {
   const record = result as { readonly result?: { readonly matches?: readonly Match[] } };
   return record.result?.matches ?? [];
+}
+
+function diagnosticsOf(result: unknown): readonly Diagnostic[] {
+  const record = result as {
+    readonly result?: { readonly diagnostics?: readonly Diagnostic[] };
+  };
+  return record.result?.diagnostics ?? [];
 }
 
 describe("Grep Tool", () => {
@@ -245,6 +258,15 @@ describe("Grep Tool", () => {
     await expect(
       tool.execute({ pattern: "hit", path: "a.txt", context: 1, offset: 0, limit: 5 }),
     ).resolves.toMatchObject({ ok: true });
+    await expect(
+      tool.execute({
+        pattern: "hit",
+        path: "a.txt",
+        glob: undefined,
+        maxDepth: undefined,
+        includeIgnored: undefined,
+      }),
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it("recurses a Search Root and sorts matches by path then line", async () => {
@@ -463,6 +485,28 @@ describe("Grep Tool", () => {
         ],
       },
     });
+  });
+
+  it("caps diagnostics at 100 in path order without dropping matches", async () => {
+    await writeFile(join(sessionCwd, "keep.ts"), "needle\n");
+    for (let index = 0; index < 105; index += 1) {
+      await writeFile(
+        join(sessionCwd, `bin-${String(index).padStart(3, "0")}.dat`),
+        Buffer.from([0x00, 0x01]),
+      );
+    }
+
+    const result = await tool.execute({ pattern: "needle" });
+
+    expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
+    const diagnostics = diagnosticsOf(result);
+    expect(diagnostics).toHaveLength(100);
+    expect(diagnostics[0]).toEqual({
+      path: "bin-000.dat",
+      operation: "read-file",
+      code: "EBINARY",
+    });
+    expect(diagnostics[99]?.path).toBe("bin-099.dat");
   });
 
   it("returns unified context clipped at file boundaries and kept per match", async () => {

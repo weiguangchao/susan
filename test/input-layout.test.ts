@@ -2,6 +2,7 @@ import stringWidth from "string-width";
 import { describe, expect, it } from "vitest";
 import {
   inputContentWidth,
+  inputImeCursorPosition,
   layoutInput,
 } from "../src/ui/input-layout.js";
 
@@ -87,5 +88,38 @@ describe("input layout", () => {
       cursorStart: null,
       cursorEnd: null,
     });
+  });
+
+  it("places the IME caret on the input row, not the status bar", () => {
+    const visualRows = layoutInput("", { row: 0, column: 0 }, 20, 10);
+
+    expect(
+      inputImeCursorPosition({
+        visualRows,
+        screenRows: 24,
+      }),
+    ).toEqual({ x: 4, y: 22 });
+  });
+
+  it("advances the IME caret by terminal cell width for CJK text", () => {
+    const visualRows = layoutInput("你好", { row: 0, column: 2 }, 20, 10);
+
+    expect(
+      inputImeCursorPosition({
+        visualRows,
+        screenRows: 24,
+      }),
+    ).toEqual({ x: 8, y: 22 });
+  });
+
+  it("keeps a wrapped IME caret on its visible row", () => {
+    const visualRows = layoutInput("123456", { row: 0, column: 3 }, 3, 10);
+
+    expect(
+      inputImeCursorPosition({
+        visualRows,
+        screenRows: 24,
+      }),
+    ).toEqual({ x: 7, y: 21 });
   });
 });

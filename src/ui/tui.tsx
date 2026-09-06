@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useCursor, useInput, useStdout } from "ink";
 import type {
   Harness,
   HarnessCommand,
@@ -12,7 +12,12 @@ import {
   type ModelPickerCatalog,
   type ModelPickerSelection,
 } from "../core/model-picker.js";
-import { inputBoxWidth, inputContentWidth, layoutInput } from "./input-layout.js";
+import {
+  inputBoxWidth,
+  inputContentWidth,
+  inputImeCursorPosition,
+  layoutInput,
+} from "./input-layout.js";
 import { ModelPickerView } from "./model-picker.js";
 import {
   createTuiState,
@@ -289,10 +294,11 @@ export function TuiApp({
       {state.modelPickerActive ? (
         <ModelPickerView state={modelPickerState} />
       ) : (
-        <InputLine
+        <ImeInputLine
           input={state.input}
           cursor={state.inputCursor}
           columns={columns}
+          screenRows={rows}
           maxRows={maxInputRows}
         />
       )}
@@ -521,6 +527,52 @@ export function CommandHintLine({ input }: { readonly input: string }) {
   );
 }
 
+const STEADY_UNDERLINE_CURSOR = "\u001B[4 q";
+const RESET_CURSOR_SHAPE = "\u001B[0 q";
+
+function ImeInputLine({
+  input,
+  cursor,
+  columns,
+  screenRows,
+  maxRows,
+}: {
+  readonly input: string;
+  readonly cursor: TuiState["inputCursor"];
+  readonly columns: number;
+  readonly screenRows: number;
+  readonly maxRows: number;
+}) {
+  const { stdout } = useStdout();
+  const { setCursorPosition } = useCursor();
+  const visualRows = layoutInput(
+    input,
+    cursor,
+    inputContentWidth(columns),
+    maxRows,
+  );
+  setCursorPosition(
+    inputImeCursorPosition({
+      visualRows,
+      screenRows,
+    }),
+  );
+  useEffect(() => {
+    stdout.write(STEADY_UNDERLINE_CURSOR);
+    return () => {
+      stdout.write(RESET_CURSOR_SHAPE);
+    };
+  }, [stdout]);
+  return (
+    <InputLine
+      input={input}
+      cursor={cursor}
+      columns={columns}
+      maxRows={maxRows}
+    />
+  );
+}
+
 export function InputLine({
   input,
   cursor,
@@ -552,25 +604,12 @@ export function InputLine({
         paddingLeft={1}
         paddingRight={1}
       >
-        {rows.map((row, index) => {
-          const hasCursor = row.cursorStart !== null && row.cursorEnd !== null;
-          const cursorStart = row.cursorStart ?? 0;
-          const cursorEnd = row.cursorEnd ?? 0;
-          return (
-            <Text key={`input-${index}`} wrap="truncate-end">
-              {index === 0 ? "❯ " : "  "}
-              {hasCursor ? row.text.slice(0, cursorStart) : row.text}
-              {hasCursor ? (
-                <Text inverse>
-                  {cursorStart === cursorEnd
-                    ? " "
-                    : row.text.slice(cursorStart, cursorEnd)}
-                </Text>
-              ) : null}
-              {hasCursor ? row.text.slice(cursorEnd) : null}
-            </Text>
-          );
-        })}
+        {rows.map((row, index) => (
+          <Text key={`input-${index}`} wrap="truncate-end">
+            {index === 0 ? "❯ " : "  "}
+            {row.text}
+          </Text>
+        ))}
       </Box>
     </Box>
   );

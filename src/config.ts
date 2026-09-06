@@ -1,8 +1,11 @@
 import { openAICompletionProvider } from "./adapters/openai-completion.js";
 import {
   DEFAULT_CONFIG_PATH,
+  DEFAULT_SUSAN_HOME,
+  formatSusanHomeError,
   loadConfig as loadConfigWithProviders,
   resolveConfig as resolveConfigWithProviders,
+  resolveSusanHome,
   updateConfigActiveModel as updateConfigActiveModelWithProviders,
 } from "./core/config.js";
 import type {
@@ -16,7 +19,12 @@ const providerAdapters: ReadonlyMap<ProviderType, ProviderAdapter> = new Map([
   [openAICompletionProvider.type, openAICompletionProvider],
 ]);
 
-export { DEFAULT_CONFIG_PATH };
+export {
+  DEFAULT_CONFIG_PATH,
+  DEFAULT_SUSAN_HOME,
+  formatSusanHomeError,
+  resolveSusanHome,
+};
 
 export function resolveConfig(
   config: Config,

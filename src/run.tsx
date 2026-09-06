@@ -1,8 +1,9 @@
 import { render } from "ink";
 import {
   createProviderClient,
-  DEFAULT_CONFIG_PATH,
+  formatSusanHomeError,
   loadConfig,
+  resolveSusanHome,
   updateConfigActiveModel,
 } from "./config.js";
 import type { ConfigError, ResolvedConfig } from "./core/config.js";
@@ -41,7 +42,14 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
-  const store = createSessionStore();
+  const home = await resolveSusanHome(parsed.flags.susanHomeParent);
+  if (!home.ok) {
+    process.stderr.write(formatSusanHomeError(home.error));
+    return 1;
+  }
+  const store = createSessionStore({
+    sessionsDirectory: home.value.sessionsDirectory,
+  });
   const inputHistory = await loadInputHistory(store);
   if (!inputHistory.ok) {
     process.stderr.write(
@@ -49,14 +57,12 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     );
     return 1;
   }
-  const loadedConfig = await loadResolvedConfig(
-    parsed.flags.configPath,
-  );
+  const loadedConfig = await loadResolvedConfig(home.value.configPath);
   if (!loadedConfig.ok) {
     return loadedConfig.exitCode;
   }
   let config = loadedConfig.config;
-  const configPath = parsed.flags.configPath ?? DEFAULT_CONFIG_PATH;
+  const configPath = home.value.configPath;
 
   const started = await resolveStartupSession(store, parsed.flags.resume);
   if (!started.ok) {

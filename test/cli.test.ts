@@ -3,6 +3,8 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  stat,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,18 +48,18 @@ describe("CLI flags", () => {
     }
   });
 
-  it("accepts a custom Config file path", () => {
-    expect(parseCli(["--config", "/tmp/susan-config.json"])).toEqual({
+  it("accepts a Susan Home parent directory", () => {
+    expect(parseCli(["--config", "/tmp/project"])).toEqual({
       ok: true,
       flags: {
-        configPath: "/tmp/susan-config.json",
+        susanHomeParent: "/tmp/project",
         resume: { kind: "none" },
       },
     });
-    expect(parseCli(["--config=/tmp/susan-config.json"])).toEqual({
+    expect(parseCli(["--config=/tmp/project"])).toEqual({
       ok: true,
       flags: {
-        configPath: "/tmp/susan-config.json",
+        susanHomeParent: "/tmp/project",
         resume: { kind: "none" },
       },
     });
@@ -88,11 +90,11 @@ describe("CLI flags", () => {
       },
     });
     expect(
-      parseCli(["--config=/tmp/susan-config.json", "--resume", "--last"]),
+      parseCli(["--config=/tmp/project", "--resume", "--last"]),
     ).toEqual({
       ok: true,
       flags: {
-        configPath: "/tmp/susan-config.json",
+        susanHomeParent: "/tmp/project",
         resume: { kind: "last" },
       },
     });
@@ -130,7 +132,7 @@ describe("CLI flags", () => {
       ok: false,
       error: {
         code: "SUSAN_CLI_USAGE",
-        message: "--config requires a Config file path",
+        message: "--config requires a Susan Home parent directory",
       },
     });
     expect(parseCli(["--resume="])).toEqual({
@@ -176,6 +178,58 @@ describe("CLI flags", () => {
 
     expect(captured).toContain("Unknown argument");
     expect(captured).toContain(CLI_USAGE);
+  });
+
+  it("rejects a --config path that is not an existing directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "susan-cli-config-"));
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let captured = "";
+    try {
+      const missing = join(root, "missing");
+      expect(await runCli(["--config", missing])).toBe(1);
+      const filePath = join(root, "file");
+      await writeFile(filePath, "{}");
+      expect(await runCli(["--config", filePath])).toBe(1);
+    } finally {
+      captured = stderr.mock.calls
+        .map((call) => String(call[0]))
+        .join("");
+      stderr.mockRestore();
+      await rm(root, { force: true, recursive: true });
+    }
+
+    expect(captured).toContain("Susan Home parent does not exist");
+    expect(captured).toContain("Susan Home parent is not a directory");
+    expect(captured).not.toContain("SUSAN_CONFIG_MISSING");
+  });
+
+  it("loads Config from <dir>/.susan and keeps Session Store there", async () => {
+    const root = await mkdtemp(join(tmpdir(), "susan-cli-home-"));
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let captured = "";
+    try {
+      expect(await runCli(["--config", root])).toBe(1);
+    } finally {
+      captured = stderr.mock.calls
+        .map((call) => String(call[0]))
+        .join("");
+      stderr.mockRestore();
+    }
+
+    try {
+      expect(captured).toContain("SUSAN_CONFIG_MISSING");
+      expect(captured).toContain(join(root, ".susan", "config.json"));
+      expect((await stat(join(root, ".susan"))).isDirectory()).toBe(true);
+      expect((await stat(join(root, ".susan", "sessions"))).isDirectory()).toBe(
+        true,
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });
 
@@ -407,6 +461,7 @@ describe("package metadata", () => {
       engines: { node: string };
       files: string[];
       type: string;
+      scripts: Record<string, string>;
     };
 
     expect(pkg.name).toBe("@weiguangchao/susan");
@@ -414,5 +469,8 @@ describe("package metadata", () => {
     expect(pkg.engines.node).toBe(">=22 <26");
     expect(pkg.files).toContain("dist");
     expect(pkg.type).toBe("module");
+    expect(pkg.scripts).toMatchObject({
+      dev: "tsx src/cli.ts --config .",
+    });
   });
 });

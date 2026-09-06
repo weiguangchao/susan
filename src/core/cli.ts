@@ -5,7 +5,7 @@ export type ResumeMode =
   | { readonly kind: "id"; readonly id: string };
 
 export type CliFlags = {
-  readonly configPath?: string;
+  readonly susanHomeParent?: string;
   readonly resume: ResumeMode;
 };
 
@@ -19,7 +19,7 @@ export type CliParseResult =
   | { readonly ok: false; readonly error: CliError };
 
 export const CLI_USAGE = `Usage:
-  susan [--config <path>] [--resume | --resume <id> | --resume --last]`;
+  susan [--config <dir>] [--resume | --resume <id> | --resume --last]`;
 
 function usageError(message: string): CliParseResult {
   return {
@@ -43,7 +43,7 @@ export function parseCli(args: readonly string[]): CliParseResult {
   let resumeSeen = false;
   let resumeId: string | undefined;
   let resumeLast = false;
-  let configPath: string | undefined;
+  let susanHomeParent: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -51,24 +51,24 @@ export function parseCli(args: readonly string[]): CliParseResult {
     if (arg === "--config") {
       const value = args[index + 1];
       if (value === undefined || isFlag(value)) {
-        return usageError("--config requires a Config file path");
+        return usageError("--config requires a Susan Home parent directory");
       }
-      if (configPath !== undefined) {
+      if (susanHomeParent !== undefined) {
         return usageError("--config can only be specified once");
       }
-      configPath = value;
+      susanHomeParent = value;
       index += 1;
       continue;
     }
     if (arg.startsWith("--config=")) {
       const value = arg.slice("--config=".length);
       if (value === "") {
-        return usageError("--config requires a Config file path");
+        return usageError("--config requires a Susan Home parent directory");
       }
-      if (configPath !== undefined) {
+      if (susanHomeParent !== undefined) {
         return usageError("--config can only be specified once");
       }
-      configPath = value;
+      susanHomeParent = value;
       continue;
     }
     if (arg === "--resume") {
@@ -114,7 +114,7 @@ export function parseCli(args: readonly string[]): CliParseResult {
   return {
     ok: true,
     flags: {
-      ...(configPath === undefined ? {} : { configPath }),
+      ...(susanHomeParent === undefined ? {} : { susanHomeParent }),
       resume,
     },
   };

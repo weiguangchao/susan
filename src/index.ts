@@ -3,8 +3,11 @@ export {
 } from "./adapters/openai-completion.js";
 export {
   DEFAULT_CONFIG_PATH,
+  DEFAULT_SUSAN_HOME,
+  formatSusanHomeError,
   loadConfig,
   resolveConfig,
+  resolveSusanHome,
   updateConfigActiveModel,
 } from "./config.js";
 export { parseCli, formatCliError, CLI_USAGE } from "./core/cli.js";
@@ -45,6 +48,10 @@ export type {
   ConfigIssue,
   ConfigResult,
   ProviderConfigEntry,
+  SusanHome,
+  SusanHomeError,
+  SusanHomeErrorCode,
+  SusanHomeResult,
   ActiveModelConfiguration,
   ActiveModelSelection,
   ResolvedModelEntry,

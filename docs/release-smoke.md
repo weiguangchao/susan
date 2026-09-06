@@ -14,7 +14,7 @@
 
 ## Checklist
 
-- [ ] 启动：`susan --config <path>` 打开 TUI，终端保持可用，布局在 80×24 下无意外自动换行。
+- [ ] 启动：`susan --config <dir>` 打开 TUI，终端保持可用，布局在 80×24 下无意外自动换行。
 - [ ] 输入：单行、多行、粘贴与全宽字符可编辑并提交；输入 viewport 不吞掉左右边框。
 - [ ] 取消：在 Provider streaming 与长时间 Bash Tool 运行中分别按取消键；界面回到稳定状态，进程按平台保证结束。
 - [ ] 恢复：`susan --resume`、`susan --resume --last` 与指定 Session id 可恢复；Pending Agent Loop 不会自动请求 Provider。

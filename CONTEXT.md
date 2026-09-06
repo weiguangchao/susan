@@ -125,7 +125,7 @@ _Avoid_: auto mode, unattended mode
 _Avoid_: conversation, thread, chat
 
 **Session Store**:
-持久化 Session Transcript 的无 UI adapter，负责 append-only JSONL 的写入与恢复。
+持久化 Session Transcript 的无 UI adapter，位于 Susan Home 内，负责 append-only JSONL 的写入与恢复。
 _Avoid_: database, session service
 
 **Session Header**:
@@ -180,8 +180,12 @@ _Avoid_: truncation, deletion
 一次 Compaction 的持久结果，记录 rolling structured summary 与 recent tail 的保留边界，用于恢复 Model Context。
 _Avoid_: snapshot, truncated history
 
+**Susan Home**:
+存放 Config 与 Session Store 的 `.susan` 目录。默认位于用户 home 下；启动时可指定另一个父目录。
+_Avoid_: config directory, config root, susan dir, data directory
+
 **Config**:
-`~/.susan/config.json` 中的用户配置；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。
+Susan Home 内的用户配置文件 `config.json`；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。
 _Avoid_: settings, preferences
 
 **Resolved Config**:

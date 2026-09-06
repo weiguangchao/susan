@@ -153,32 +153,46 @@ try {
     "Usage:",
   ]);
 
-  const missingConfig = runInstalledCli([
-    "--config",
-    join(temporaryRoot, "missing.json"),
+  const missingParent = join(temporaryRoot, "missing-parent");
+  const missingParentResult = runInstalledCli(["--config", missingParent]);
+  requireExit(missingParentResult, "missing Susan Home parent", 1, [
+    "Susan Home parent does not exist",
   ]);
-  requireExit(missingConfig, "missing Config", 1, ["SUSAN_CONFIG_MISSING"]);
 
-  const invalidConfigPath = join(temporaryRoot, "invalid-config.json");
+  const missingConfigParent = join(temporaryRoot, "missing-config");
+  await mkdir(missingConfigParent, { mode: 0o700 });
+  const missingConfig = runInstalledCli(["--config", missingConfigParent]);
+  requireExit(missingConfig, "missing Config", 1, [
+    "SUSAN_CONFIG_MISSING",
+    join(missingConfigParent, ".susan", "config.json"),
+  ]);
+
+  const invalidParent = join(temporaryRoot, "invalid");
+  const invalidConfigPath = join(invalidParent, ".susan", "config.json");
+  await mkdir(join(invalidParent, ".susan"), { recursive: true, mode: 0o700 });
   await writeFile(
     invalidConfigPath,
     JSON.stringify({ approval: "ask", providers: {} }),
     { encoding: "utf8", mode: 0o600 },
   );
+  await chmod(join(invalidParent, ".susan"), 0o700);
   await chmod(invalidConfigPath, 0o600);
-  const invalidConfig = runInstalledCli(["--config", invalidConfigPath]);
+  const invalidConfig = runInstalledCli(["--config", invalidParent]);
   requireExit(invalidConfig, "invalid Config", 1, [
     "SUSAN_CONFIG_SCHEMA",
     "approval",
   ]);
 
-  const validConfigPath = join(temporaryRoot, "valid-config.json");
+  const validParent = join(temporaryRoot, "valid");
+  const validConfigPath = join(validParent, ".susan", "config.json");
+  await mkdir(join(validParent, ".susan"), { recursive: true, mode: 0o700 });
   await writeFile(validConfigPath, JSON.stringify({ providers: {} }), {
     encoding: "utf8",
     mode: 0o600,
   });
+  await chmod(join(validParent, ".susan"), 0o700);
   await chmod(validConfigPath, 0o600);
-  const nonInteractive = runInstalledCli(["--config", validConfigPath]);
+  const nonInteractive = runInstalledCli(["--config", validParent]);
   requireExit(nonInteractive, "non-interactive startup", 1, [
     "TUI requires an interactive terminal",
   ]);

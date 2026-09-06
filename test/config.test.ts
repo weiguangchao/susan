@@ -7,12 +7,15 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { platform } from "node:process";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_SUSAN_HOME,
   loadConfig,
+  resolveSusanHome,
   updateConfigActiveModel,
 } from "../src/index.js";
 import type { JsonObject } from "../src/index.js";
@@ -602,5 +605,129 @@ describe("config loading", () => {
     });
 
     expect((await stat(configConfigPath)).mode & 0o777).toBe(0o640);
+  });
+});
+
+describe("Susan Home", () => {
+  let parent: string;
+
+  beforeEach(async () => {
+    parent = await mkdtemp(join(tmpdir(), "susan-home-"));
+  });
+
+  afterEach(async () => {
+    await rm(parent, { force: true, recursive: true });
+  });
+
+  it("creates .susan under the parent and does not scaffold Config", async () => {
+    const result = await resolveSusanHome(parent);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        path: join(parent, ".susan"),
+        configPath: join(parent, ".susan", "config.json"),
+        sessionsDirectory: join(parent, ".susan", "sessions"),
+      },
+    });
+    const home = await stat(join(parent, ".susan"));
+    expect(home.isDirectory()).toBe(true);
+    if (platform !== "win32") {
+      expect(home.mode & 0o777).toBe(0o700);
+    }
+    await expect(stat(join(parent, ".susan", "config.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("reuses an existing Susan Home without changing its mode", async () => {
+    const homePath = join(parent, ".susan");
+    await mkdir(homePath);
+    await chmod(homePath, 0o755);
+
+    const result = await resolveSusanHome(parent);
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { path: homePath },
+    });
+    expect((await stat(homePath)).mode & 0o777).toBe(0o755);
+  });
+
+  it("defaults to the user home parent", async () => {
+    expect(DEFAULT_SUSAN_HOME).toBe(join(homedir(), ".susan"));
+    const result = await resolveSusanHome();
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        path: DEFAULT_SUSAN_HOME,
+        configPath: join(DEFAULT_SUSAN_HOME, "config.json"),
+        sessionsDirectory: join(DEFAULT_SUSAN_HOME, "sessions"),
+      },
+    });
+  });
+
+  it("resolves a relative parent against process cwd", async () => {
+    const previous = process.cwd();
+    try {
+      process.chdir(parent);
+      const result = await resolveSusanHome(".");
+      expect(result).toMatchObject({
+        ok: true,
+        value: { path: join(resolve("."), ".susan") },
+      });
+    } finally {
+      process.chdir(previous);
+    }
+  });
+
+  it("always appends .susan even when the parent is already named .susan", async () => {
+    const nestedParent = join(parent, ".susan");
+    await mkdir(nestedParent);
+
+    const result = await resolveSusanHome(nestedParent);
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { path: join(nestedParent, ".susan") },
+    });
+  });
+
+  it("fails when the parent does not exist", async () => {
+    const missing = join(parent, "missing");
+    expect(await resolveSusanHome(missing)).toEqual({
+      ok: false,
+      error: {
+        code: "SUSAN_HOME_PARENT_MISSING",
+        path: missing,
+        message: `Susan Home parent does not exist: ${missing}`,
+      },
+    });
+  });
+
+  it("fails when the parent is not a directory", async () => {
+    const filePath = join(parent, "file");
+    await writeFile(filePath, "not a directory");
+    expect(await resolveSusanHome(filePath)).toEqual({
+      ok: false,
+      error: {
+        code: "SUSAN_HOME_PARENT_NOT_DIRECTORY",
+        path: filePath,
+        message: `Susan Home parent is not a directory: ${filePath}`,
+      },
+    });
+  });
+
+  it("fails when .susan exists and is not a directory", async () => {
+    const homePath = join(parent, ".susan");
+    await writeFile(homePath, "not a directory");
+    expect(await resolveSusanHome(parent)).toEqual({
+      ok: false,
+      error: {
+        code: "SUSAN_HOME_NOT_DIRECTORY",
+        path: homePath,
+        message: `Susan Home is not a directory: ${homePath}`,
+      },
+    });
   });
 });

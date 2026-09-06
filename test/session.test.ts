@@ -41,7 +41,7 @@ describe("session store", () => {
     }
     const { header, filePath, records } = result.value;
     expect(header.type).toBe("session");
-    expect(header.version).toBe(1);
+    expect(header.version).toBe(2);
     expect(header.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -95,6 +95,64 @@ describe("session store", () => {
     expect(lines.slice(1).map((line) => JSON.parse(line))).toEqual(
       messages.map((message) => ({ type: "message", message })),
     );
+  });
+
+  it("restores only canonical bounded Tool Results", async () => {
+    const store = createSessionStore({
+      sessionsDirectory: join(root, "sessions"),
+    });
+    const created = await store.createSession({ cwd: root });
+    if (!created.ok) {
+      throw new Error("session was not created");
+    }
+    const result = {
+      ok: true,
+      result: { content: "甲" },
+      meta: {
+        truncation: {
+          reasons: ["bytes"] as const,
+          strategy: "head" as const,
+          fields: ["content"],
+          retained: { bytes: 5 },
+          total: { bytes: 8 },
+          nextArguments: { path: "a.txt", offset: 2 },
+        },
+      },
+    };
+    await store.appendMessage(created.value.header.id, {
+      role: "tool",
+      toolCallId: "call-1",
+      content: result,
+    });
+    const loaded = await store.loadSession(created.value.header.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) {
+      expect(loaded.value.messages[0]).toEqual({
+        role: "tool",
+        toolCallId: "call-1",
+        content: result,
+      });
+    }
+
+    await writeFile(
+      created.value.filePath,
+      `${JSON.stringify(created.value.header)}\n${JSON.stringify({
+        type: "message",
+        message: {
+          role: "tool",
+          toolCallId: "call-1",
+          content: {
+            ok: false,
+            error: { code: "ENOENT", message: "Missing", path: "/secret" },
+          },
+        },
+      })}\n`,
+      { mode: 0o600 },
+    );
+    expect(await store.loadSession(created.value.header.id)).toMatchObject({
+      ok: false,
+      error: { code: "SUSAN_SESSION_SCHEMA" },
+    });
   });
 
   it("appends and restores a Compaction Checkpoint without rewriting the Session Transcript", async () => {

@@ -225,7 +225,7 @@ describe("config loading", () => {
 
   it("rejects unknown fields and invalid values with structured schema issues", async () => {
     const configPath = await writeConfig({
-      version: 1,
+      version: 2,
       unknownField: true,
       approval: "always",
       providers: {

@@ -3,8 +3,8 @@ import type {
   HarnessSnapshot,
   HarnessStatus,
   PendingAgentLoop,
-  ToolResult,
 } from "../core/harness.js";
+import type { ToolResult } from "../core/tool-result.js";
 import type {
   ProviderFailure,
   ReasoningEffort,

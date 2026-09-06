@@ -67,6 +67,28 @@ export type {
   JsonPrimitive,
   JsonValue,
 } from "./core/json.js";
+export {
+  SHARED_TOOL_ERROR_CODES,
+  TOOL_RESULT_FIXED_BUDGET_BYTES,
+  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
+  boundToolFailure,
+  boundToolResult,
+  isToolResult,
+  normalizeToolResult,
+} from "./core/tool-result.js";
+export type {
+  BoundToolFailureOptions,
+  BoundToolResultOptions,
+  SharedToolErrorCode,
+  ToolError,
+  ToolResultContinuationContext,
+  ToolResultField,
+  ToolResultRecord,
+  ToolResultStrategy,
+  ToolResult,
+  ToolResultMeta,
+  ToolTruncationReason,
+} from "./core/tool-result.js";
 export { createSessionPathResolver } from "./core/path-resolver.js";
 export type {
   CwdRelation,
@@ -164,7 +186,6 @@ export type {
   HarnessTool,
   InterruptedResponse,
   PendingAgentLoop,
-  ToolResult,
 } from "./core/harness.js";
 export type {
   TuiAction,

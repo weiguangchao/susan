@@ -22,7 +22,7 @@ function transcript(messages: readonly CompletionMessage[]): SessionTranscript {
   return {
     header: {
       type: "session",
-      version: 1,
+      version: 2,
       id: "00000000-0000-4000-8000-000000000028",
       createdAt: "2026-09-03T00:00:00.000Z",
       cwd: "/workspace",

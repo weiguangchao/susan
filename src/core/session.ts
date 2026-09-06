@@ -12,6 +12,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
 import { isReasoningEffort } from "./provider.js";
+import { isToolResult } from "./tool-result.js";
 import type {
   CompletionMessage,
   ProviderUsage,
@@ -20,7 +21,7 @@ import type {
 
 export type SessionHeader = {
   type: "session";
-  version: 1;
+  version: 2;
   id: string;
   createdAt: string;
   cwd: string;
@@ -177,7 +178,7 @@ function isCompletionMessage(value: unknown): value is CompletionMessage {
     return true;
   }
   if (value.role === "tool") {
-    return typeof value.toolCallId === "string" && isJsonValue(value.content);
+    return typeof value.toolCallId === "string" && isToolResult(value.content);
   }
   return false;
 }
@@ -194,7 +195,7 @@ function isSessionHeader(value: unknown): value is SessionHeader {
     !isRecord(value) ||
     !hasExactKeys(value, ["type", "version", "id", "createdAt", "cwd"]) ||
     value.type !== "session" ||
-    value.version !== 1 ||
+    value.version !== 2 ||
     typeof value.id !== "string" ||
     !UUID_PATTERN.test(value.id) ||
     typeof value.createdAt !== "string" ||
@@ -488,7 +489,7 @@ export function createSessionStore(
       const createdAt = new Date().toISOString();
       const header: SessionHeader = {
         type: "session",
-        version: 1,
+        version: 2,
         id,
         createdAt,
         cwd: resolvedCwd,

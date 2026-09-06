@@ -9,7 +9,11 @@ import {
   selectRecentTailStart,
   serializeCompactionInput,
 } from "./context.js";
-import { isJsonValue, isRecord, type JsonValue } from "./json.js";
+import type { JsonValue } from "./json.js";
+import {
+  normalizeToolResult,
+  type ToolResult,
+} from "./tool-result.js";
 import type {
   CompletionMessage,
   ProviderClient,
@@ -44,17 +48,6 @@ Rules:
 export function buildSystemPrompt(cwd: string): string {
   return CANONICAL_SYSTEM_PROMPT.replace("{cwd}", () => cwd);
 }
-
-export type ToolResult =
-  | { readonly ok: true; readonly result: JsonValue }
-  | {
-      readonly ok: false;
-      readonly error: {
-        readonly code: string;
-        readonly message: string;
-        readonly [key: string]: JsonValue;
-      };
-    };
 
 export type HarnessTool = ProviderToolDefinition & {
   execute(input: unknown, signal?: AbortSignal): Promise<unknown>;
@@ -847,30 +840,6 @@ export function createHarness(options: HarnessOptions): Harness {
     activeApproval = undefined;
     status = "running";
     return approved;
-  };
-
-  const normalizeToolResult = (value: unknown): ToolResult => {
-    if (
-      isRecord(value) &&
-      value.ok === true &&
-      isJsonValue(value.result)
-    ) {
-      return { ok: true, result: value.result };
-    }
-    if (
-      isRecord(value) &&
-      value.ok === false &&
-      isRecord(value.error) &&
-      typeof value.error.code === "string" &&
-      typeof value.error.message === "string" &&
-      isJsonValue(value.error)
-    ) {
-      return { ok: false, error: value.error } as ToolResult;
-    }
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool returned an invalid result." },
-    };
   };
 
   const executeToolCall = async (

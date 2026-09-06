@@ -1,0 +1,102 @@
+name: Release npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact package.json version to release
+        required: true
+        type: string
+      commit:
+        description: Full 40-character SHA at the head of main
+        required: true
+        type: string
+      smoke-record-url:
+        description: Issue comment URL containing the signed-off manual smoke record
+        required: true
+        type: string
+      dry-run:
+        description: Verify every gate and print the mutation plan without publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+  issues: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate and release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require dispatch from main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: test "$DISPATCH_REF" = refs/heads/main
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test:unit
+      - run: pnpm package:smoke
+
+      - name: Verify Release Gate and compute recovery plan
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          SMOKE_RECORD_URL: ${{ inputs.smoke-record-url }}
+        run: pnpm exec tsx scripts/release-preflight.ts
+
+      - name: Report dry-run plan
+        if: inputs.dry-run
+        env:
+          CREATE_RELEASE: ${{ steps.preflight.outputs.create_release }}
+          CREATE_TAG: ${{ steps.preflight.outputs.create_tag }}
+          PUBLISH: ${{ steps.preflight.outputs.publish }}
+        run: |
+          echo "dry-run: publish=$PUBLISH create_tag=$CREATE_TAG create_release=$CREATE_RELEASE"
+
+      - name: Publish with npm trusted publishing
+        if: ${{ !inputs.dry-run && steps.preflight.outputs.publish == 'true' }}
+        env:
+          TARBALL: ${{ steps.preflight.outputs.tarball }}
+        run: npm publish "$TARBALL" --access public --provenance
+
+      - name: Create immutable version tag
+        if: ${{ !inputs.dry-run && steps.preflight.outputs.create_tag == 'true' }}
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+        run: |
+          git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry-run && steps.preflight.outputs.create_release == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_COMMIT" --title "$RELEASE_TAG" --generate-notes

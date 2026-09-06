@@ -26,3 +26,29 @@
 - [ ] 退出：`/exit` 与终端中断都能结束进程，不留下仍占用终端的前台任务。
 
 任一必选项失败时记录平台、终端、复现命令、Session id 与可公开的错误输出，并阻止该 Package Version 发布。
+
+## 发布记录格式
+
+三平台全部通过后，由仓库 OWNER、MEMBER 或 COLLABORATOR 在本仓库任一 issue 中提交一条独立评论。评论必须包含以下逐行 marker；发布 workflow 会读取评论 URL，并把版本、完整 commit SHA、三平台结果和完整 checklist 结论作为 Release Gate 的人工证据：
+
+```text
+<!-- susan-release-smoke:v1 -->
+Package-Version: 0.0.1
+Commit: <main 上的完整 40 位 commit SHA>
+macOS: PASS
+Linux: PASS
+Windows: PASS
+Checklist: PASS
+```
+
+marker 之外应保留上表的终端、Node、执行人和日期，并记录各平台 `pnpm package:smoke` 与 checklist 的结果。`Checklist: PASS` 表示本页全部必选项均已在三平台完成，不用于豁免单项记录。
+
+## 受控发布
+
+在 GitHub Actions 手动运行 `Release npm package`：
+
+1. 选择 `main`，填写与 `package.json` 完全一致的 version、当前 `main` 的完整 commit SHA，以及上述 issue comment URL。
+2. 首次保持 `dry-run` 开启。它会重跑 typecheck、unit tests 和 package smoke，核对目标 commit 的完整 CI jobs、人工记录、`npm pack` 文件清单、npm version、tag 与 GitHub Release 状态，并打印后续计划。
+3. 核对 dry-run 后，以相同输入关闭 `dry-run`。workflow 通过 npm trusted publishing/OIDC 发布，不读取长期 npm token，也不会改写版本。
+
+若 npm publish 成功而 tag 或 GitHub Release 创建失败，以相同输入重跑。只有 registry 中既有 tarball 的 integrity 与当前 `npm pack` 完全一致时，workflow 才会跳过不可变 npm version 并补齐缺失的 `v<version>` tag 或 GitHub Release；任何内容或 commit 冲突都会停止。

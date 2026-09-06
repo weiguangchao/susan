@@ -19,6 +19,21 @@ export interface ReleasePlan {
   createRelease: boolean;
 }
 
+export const RELEASE_SMOKE_PLATFORMS = ["macOS", "Linux", "Windows"] as const;
+
+export const RELEASE_SMOKE_CHECKS = [
+  "Startup",
+  "Input",
+  "Cancel",
+  "Resume",
+  "Tool-Cards",
+  "Outside-Cwd",
+  "Failure",
+  "Truncation",
+  "Session",
+  "Exit",
+] as const;
+
 export const REQUIRED_RELEASE_GATE_JOBS = [
   "Typecheck and unit tests (Ubuntu, Node 22)",
   "Integration (ubuntu-latest, Node 22)",
@@ -61,19 +76,56 @@ export function evaluateReleasePolicy(facts: ReleaseFacts): ReleasePlan {
     );
   }
 
-  const smokeLines = new Set(facts.smokeRecord.split(/\r?\n/u));
+  const smokeLines = facts.smokeRecord.split(/\r?\n/u);
+  const smokeLineSet = new Set(smokeLines);
   const requiredSmokeLines = [
     "<!-- susan-release-smoke:v1 -->",
     `Package-Version: ${facts.requestedVersion}`,
     `Commit: ${facts.requestedCommit}`,
-    "macOS: PASS",
-    "Linux: PASS",
-    "Windows: PASS",
     "Checklist: PASS",
   ];
   for (const requiredLine of requiredSmokeLines) {
-    if (!smokeLines.has(requiredLine)) {
+    if (!smokeLineSet.has(requiredLine)) {
       throw new Error(`manual smoke record is missing: ${requiredLine}`);
+    }
+  }
+
+  const smokeFields = new Map<string, string>();
+  for (const line of smokeLines) {
+    const separator = line.indexOf(":");
+    if (separator < 1) {
+      continue;
+    }
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1).trim();
+    if (smokeFields.has(key)) {
+      throw new Error(`manual smoke record repeats field: ${key}`);
+    }
+    smokeFields.set(key, value);
+  }
+  for (const platform of RELEASE_SMOKE_PLATFORMS) {
+    for (const field of ["Terminal", "Executor"] as const) {
+      const key = `${platform}-${field}`;
+      if (smokeFields.get(key) === undefined || smokeFields.get(key) === "") {
+        throw new Error(`manual smoke record is missing field: ${key}`);
+      }
+    }
+    const node = smokeFields.get(`${platform}-Node`);
+    if (node === undefined || !/^(?:22|24)(?:\.[0-9]+){0,2}$/u.test(node)) {
+      throw new Error(`manual smoke record has invalid Node version: ${platform}`);
+    }
+    const date = smokeFields.get(`${platform}-Date`);
+    if (date === undefined || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
+      throw new Error(`manual smoke record has invalid date: ${platform}`);
+    }
+    const passFields = [
+      `${platform}-Package-Smoke`,
+      ...RELEASE_SMOKE_CHECKS.map((check) => `${platform}-${check}`),
+    ];
+    for (const field of passFields) {
+      if (smokeFields.get(field) !== "PASS") {
+        throw new Error(`manual smoke record did not pass: ${field}`);
+      }
     }
   }
 

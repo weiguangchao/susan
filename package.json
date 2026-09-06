@@ -18,7 +18,7 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run test/built-in-tools.test.ts test/coding-agent-prompt.test.ts test/config.test.ts test/context-compaction.test.ts test/input-layout.test.ts test/model-picker-apply.test.tsx test/release-policy.test.ts test/shared-contracts.test.ts test/tool-result.test.ts test/tui-input.test.tsx test/tui-render.test.tsx test/tui-state.test.ts test/tui-tool-ledger.test.tsx",
+    "test:unit": "vitest run test/built-in-tools.test.ts test/coding-agent-prompt.test.ts test/config.test.ts test/context-compaction.test.ts test/input-layout.test.ts test/model-picker-apply.test.tsx test/release-policy.test.ts test/release-workflow.test.ts test/shared-contracts.test.ts test/tool-result.test.ts test/tui-input.test.tsx test/tui-render.test.tsx test/tui-state.test.ts test/tui-tool-ledger.test.tsx",
     "test:integration": "vitest run test/bash.test.ts test/cli.test.ts test/edit.test.ts test/file-replacement.test.ts test/find.test.ts test/grep.test.ts test/harness.test.ts test/ls.test.ts test/openai-completion-provider.test.ts test/path-resolver.test.ts test/read.test.ts test/session.test.ts test/traverse.test.ts test/write.test.ts",
     "build": "tsdown",
     "package:smoke": "pnpm build && node scripts/package-smoke.mjs",

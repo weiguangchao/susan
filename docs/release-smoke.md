@@ -35,19 +35,61 @@
 <!-- susan-release-smoke:v1 -->
 Package-Version: 0.0.1
 Commit: <main 上的完整 40 位 commit SHA>
-macOS: PASS
-Linux: PASS
-Windows: PASS
 Checklist: PASS
+macOS-Terminal: <终端与版本>
+macOS-Node: <22.x 或 24.x>
+macOS-Executor: <GitHub 用户名>
+macOS-Date: <YYYY-MM-DD>
+macOS-Package-Smoke: PASS
+macOS-Startup: PASS
+macOS-Input: PASS
+macOS-Cancel: PASS
+macOS-Resume: PASS
+macOS-Tool-Cards: PASS
+macOS-Outside-Cwd: PASS
+macOS-Failure: PASS
+macOS-Truncation: PASS
+macOS-Session: PASS
+macOS-Exit: PASS
+Linux-Terminal: <终端与版本>
+Linux-Node: <22.x 或 24.x>
+Linux-Executor: <GitHub 用户名>
+Linux-Date: <YYYY-MM-DD>
+Linux-Package-Smoke: PASS
+Linux-Startup: PASS
+Linux-Input: PASS
+Linux-Cancel: PASS
+Linux-Resume: PASS
+Linux-Tool-Cards: PASS
+Linux-Outside-Cwd: PASS
+Linux-Failure: PASS
+Linux-Truncation: PASS
+Linux-Session: PASS
+Linux-Exit: PASS
+Windows-Terminal: <终端与版本>
+Windows-Node: <22.x 或 24.x>
+Windows-Executor: <GitHub 用户名>
+Windows-Date: <YYYY-MM-DD>
+Windows-Package-Smoke: PASS
+Windows-Startup: PASS
+Windows-Input: PASS
+Windows-Cancel: PASS
+Windows-Resume: PASS
+Windows-Tool-Cards: PASS
+Windows-Outside-Cwd: PASS
+Windows-Failure: PASS
+Windows-Truncation: PASS
+Windows-Session: PASS
+Windows-Exit: PASS
 ```
 
-marker 之外应保留上表的终端、Node、执行人和日期，并记录各平台 `pnpm package:smoke` 与 checklist 的结果。`Checklist: PASS` 表示本页全部必选项均已在三平台完成，不用于豁免单项记录。
+`Checklist: PASS` 是汇总结论，不用于豁免任何平台字段。workflow 要求三平台分别记录终端、Node、执行人、日期、`pnpm package:smoke` 与上方全部 checklist 项；缺字段、重复字段、非 `PASS` 或非 Node 22/24 都会阻止发布。
 
 ## 受控发布
 
 在 GitHub Actions 手动运行 `Release npm package`：
 
-1. 选择 `main`，填写与 `package.json` 完全一致的 version、当前 `main` 的完整 commit SHA，以及上述 issue comment URL。
+1. 选择 `main`，填写与 `package.json` 完全一致的 version、当前 `main` 的完整 commit SHA，以及上述 issue comment URL。npm trusted publisher 需在 npm package settings 中绑定本仓库、`release.yml` 和 GitHub-hosted runner；workflow 不接受 token fallback。
 2. 首次保持 `dry-run` 开启。它会重跑 typecheck、unit tests 和 package smoke，核对目标 commit 的完整 CI jobs、人工记录、`npm pack` 文件清单、npm version、tag 与 GitHub Release 状态，并打印后续计划。
 3. 核对 dry-run 后，以相同输入关闭 `dry-run`。workflow 通过 npm trusted publishing/OIDC 发布，不读取长期 npm token，也不会改写版本。
 

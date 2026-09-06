@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { evaluateReleasePolicy } from "./release-policy.js";
-
-interface CommandResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
+import {
+  issueCommentId,
+  npmPublishedIntegrity,
+  releaseOutputs,
+  requireCommandOutput,
+  type CommandResult,
+} from "./release-preflight-support.js";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -36,13 +37,7 @@ function requireSuccess(
   args: string[],
   description: string,
 ): string {
-  const result = run(command, args);
-  if (result.status !== 0) {
-    throw new Error(
-      `${description} failed (${String(result.status)}): ${result.stdout}${result.stderr}`,
-    );
-  }
-  return result.stdout.trim();
+  return requireCommandOutput(run(command, args), description);
 }
 
 function parseJson<T>(text: string, description: string): T {
@@ -51,20 +46,6 @@ function parseJson<T>(text: string, description: string): T {
   } catch {
     throw new Error(`${description} did not return valid JSON`);
   }
-}
-
-function issueCommentId(repository: string, url: string): string {
-  const escapedRepository = repository.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const match = new RegExp(
-    `^https://github\\.com/${escapedRepository}/issues/[1-9][0-9]*#issuecomment-([1-9][0-9]*)$`,
-    "u",
-  ).exec(url);
-  if (match?.[1] === undefined) {
-    throw new Error(
-      "manual smoke record must be an issue comment URL in this repository",
-    );
-  }
-  return match[1];
 }
 
 function publishedIntegrity(
@@ -77,18 +58,8 @@ function publishedIntegrity(
     "dist.integrity",
     "--json",
   ]);
-  if (result.status === 0) {
-    const integrity = parseJson<unknown>(result.stdout, "npm view");
-    if (typeof integrity !== "string" || integrity === "") {
-      throw new Error("npm view returned no dist.integrity");
-    }
-    return integrity;
-  }
-  if (`${result.stdout}${result.stderr}`.includes("E404")) {
-    return undefined;
-  }
-  throw new Error(
-    `npm registry lookup failed (${String(result.status)}): ${result.stdout}${result.stderr}`,
+  return npmPublishedIntegrity(result, (text) =>
+    parseJson<unknown>(text, "npm view"),
   );
 }
 
@@ -264,17 +235,7 @@ async function main(): Promise<void> {
   });
 
   const tarball = join(packDirectory, report.filename);
-  await appendFile(
-    githubOutput,
-    [
-      `publish=${String(plan.publish)}`,
-      `create_tag=${String(plan.createTag)}`,
-      `create_release=${String(plan.createRelease)}`,
-      `tag=${tag}`,
-      `tarball=${tarball}`,
-      "",
-    ].join("\n"),
-  );
+  await appendFile(githubOutput, releaseOutputs(plan, tag, tarball));
   process.stdout.write(
     `${JSON.stringify({ version: requestedVersion, commit: requestedCommit, files, ...plan }, null, 2)}\n`,
   );

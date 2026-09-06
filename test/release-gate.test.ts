@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  evaluateReleasePolicy,
+  evaluateReleaseGate,
   RELEASE_SMOKE_CHECKS,
   RELEASE_SMOKE_PLATFORMS,
   REQUIRED_RELEASE_GATE_JOBS,
-  type ReleaseFacts,
-} from "../scripts/release-policy.js";
+  type ReleaseGateFacts,
+} from "../scripts/release-gate.js";
 
 const COMMIT = "a".repeat(40);
 
@@ -30,7 +30,9 @@ function smokeRecord(): string {
   return lines.join("\n");
 }
 
-function releaseFacts(overrides: Partial<ReleaseFacts> = {}): ReleaseFacts {
+function releaseGateFacts(
+  overrides: Partial<ReleaseGateFacts> = {},
+): ReleaseGateFacts {
   return {
     requestedVersion: "0.0.1",
     packageVersion: "0.0.1",
@@ -54,27 +56,27 @@ function releaseFacts(overrides: Partial<ReleaseFacts> = {}): ReleaseFacts {
 describe("Release Gate policy", () => {
   it("requires the input version to equal the Package Version", () => {
     expect(() =>
-      evaluateReleasePolicy(releaseFacts({ requestedVersion: "0.0.2" })),
+      evaluateReleaseGate(releaseGateFacts({ requestedVersion: "0.0.2" })),
     ).toThrow("release version 0.0.2 does not match package.json 0.0.1");
   });
 
   it("requires the input commit to equal the current main commit", () => {
     const requestedCommit = "b".repeat(40);
     expect(() =>
-      evaluateReleasePolicy(releaseFacts({ requestedCommit })),
+      evaluateReleaseGate(releaseGateFacts({ requestedCommit })),
     ).toThrow(`release commit ${requestedCommit} is not main ${COMMIT}`);
   });
 
   it("rejects a dirty checkout", () => {
     expect(() =>
-      evaluateReleasePolicy(releaseFacts({ workingTreeClean: false })),
+      evaluateReleaseGate(releaseGateFacts({ workingTreeClean: false })),
     ).toThrow("release checkout is not clean");
   });
 
   it("requires every release-blocking CI job to succeed", () => {
     expect(() =>
-      evaluateReleasePolicy(
-        releaseFacts({
+      evaluateReleaseGate(
+        releaseGateFacts({
           ciJobs: [
             {
               name: "Typecheck and unit tests (Ubuntu, Node 22)",
@@ -90,8 +92,8 @@ describe("Release Gate policy", () => {
 
   it("requires every checklist item on every smoke platform", () => {
     expect(() =>
-      evaluateReleasePolicy(
-        releaseFacts({
+      evaluateReleaseGate(
+        releaseGateFacts({
           smokeRecord: smokeRecord().replace("Windows-Truncation: PASS", ""),
         }),
       ),
@@ -100,8 +102,8 @@ describe("Release Gate policy", () => {
 
   it("requires traceable details for every smoke platform", () => {
     expect(() =>
-      evaluateReleasePolicy(
-        releaseFacts({
+      evaluateReleaseGate(
+        releaseGateFacts({
           smokeRecord: smokeRecord().replace("Linux-Executor: @tester", ""),
         }),
       ),
@@ -110,8 +112,8 @@ describe("Release Gate policy", () => {
 
   it("repairs metadata without republishing an immutable version", () => {
     expect(
-      evaluateReleasePolicy(
-        releaseFacts({ publishedIntegrity: "sha512-local" }),
+      evaluateReleaseGate(
+        releaseGateFacts({ publishedIntegrity: "sha512-local" }),
       ),
     ).toEqual({
       publish: false,
@@ -122,8 +124,8 @@ describe("Release Gate policy", () => {
 
   it("rejects an existing npm version with different package contents", () => {
     expect(() =>
-      evaluateReleasePolicy(
-        releaseFacts({ publishedIntegrity: "sha512-other" }),
+      evaluateReleaseGate(
+        releaseGateFacts({ publishedIntegrity: "sha512-other" }),
       ),
     ).toThrow("npm 0.0.1 already exists with different package contents");
   });
@@ -131,7 +133,7 @@ describe("Release Gate policy", () => {
   it("rejects a version tag that points at another commit", () => {
     const tagCommit = "b".repeat(40);
     expect(() =>
-      evaluateReleasePolicy(releaseFacts({ tagCommit })),
+      evaluateReleaseGate(releaseGateFacts({ tagCommit })),
     ).toThrow(`v0.0.1 points at ${tagCommit}, not ${COMMIT}`);
   });
 });

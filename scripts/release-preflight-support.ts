@@ -1,4 +1,4 @@
-import type { ReleasePlan } from "./release-policy.js";
+import type { ReleaseRecoveryPlan } from "./release-gate.js";
 
 export interface CommandResult {
   status: number;
@@ -52,7 +52,7 @@ export function npmPublishedIntegrity(
 }
 
 export function releaseOutputs(
-  plan: ReleasePlan,
+  plan: ReleaseRecoveryPlan,
   tag: string,
   tarball: string,
 ): string {

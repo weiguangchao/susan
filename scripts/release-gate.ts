@@ -1,4 +1,4 @@
-export interface ReleaseFacts {
+export interface ReleaseGateFacts {
   requestedVersion: string;
   packageVersion: string;
   requestedCommit: string;
@@ -13,7 +13,7 @@ export interface ReleaseFacts {
   releaseExists: boolean;
 }
 
-export interface ReleasePlan {
+export interface ReleaseRecoveryPlan {
   publish: boolean;
   createTag: boolean;
   createRelease: boolean;
@@ -45,7 +45,9 @@ export const REQUIRED_RELEASE_GATE_JOBS = [
   "Package smoke (windows-latest, Node 22)",
 ] as const;
 
-export function evaluateReleasePolicy(facts: ReleaseFacts): ReleasePlan {
+export function evaluateReleaseGate(
+  facts: ReleaseGateFacts,
+): ReleaseRecoveryPlan {
   if (facts.requestedVersion !== facts.packageVersion) {
     throw new Error(
       `release version ${facts.requestedVersion} does not match package.json ${facts.packageVersion}`,

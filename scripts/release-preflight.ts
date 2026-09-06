@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { evaluateReleasePolicy } from "./release-policy.js";
+import { evaluateReleaseGate } from "./release-gate.js";
 import {
   issueCommentId,
   npmPublishedIntegrity,
@@ -219,7 +219,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const plan = evaluateReleasePolicy({
+  const plan = evaluateReleaseGate({
     requestedVersion,
     packageVersion: manifest.version,
     requestedCommit,

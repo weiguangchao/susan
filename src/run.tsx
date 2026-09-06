@@ -298,7 +298,6 @@ function createSusanHarness(
       activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
     maxOutputTokens:
       activeModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-    approvalPolicy: config.approval,
     tools: [readFileTool],
   });
 }

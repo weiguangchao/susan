@@ -189,7 +189,6 @@ export type {
 } from "./core/harness.js";
 export type {
   TuiAction,
-  TuiApproval,
   TuiInputIntent,
   TuiInputKey,
   TuiMessage,

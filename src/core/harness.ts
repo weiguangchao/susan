@@ -1,4 +1,3 @@
-import type { ApprovalPolicy } from "./config.js";
 import {
   estimateMessageTokens,
   estimateMessagesTokens,
@@ -56,7 +55,6 @@ export type HarnessTool = ProviderToolDefinition & {
 export type HarnessStatus =
   | "idle"
   | "running"
-  | "awaiting-approval"
   | "pending"
   | "failed";
 
@@ -97,11 +95,6 @@ export type HarnessEvent =
       readonly id?: string;
       readonly name?: string;
       readonly argumentsDelta: string;
-    }
-  | {
-      readonly type: "approval-requested";
-      readonly approvalId: string;
-      readonly toolCall: ProviderToolCall;
     }
   | {
       readonly type: "tool-started";
@@ -152,11 +145,6 @@ export type HarnessCommand =
       readonly type: "submit";
       readonly content: string;
     }
-  | {
-      readonly type: "resolve-approval";
-      readonly approvalId: string;
-      readonly approved: boolean;
-    }
   | { readonly type: "retry" }
   | { readonly type: "interrupt" }
   | {
@@ -171,7 +159,6 @@ export type HarnessCommand =
 export type HarnessError = {
   readonly code:
     | "HARNESS_BUSY"
-    | "HARNESS_APPROVAL"
     | "HARNESS_ABORTED"
     | "HARNESS_INVALID_COMMAND"
     | "HARNESS_PROVIDER"
@@ -200,9 +187,7 @@ export type HarnessOptions = {
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
-  readonly approvalPolicy: ApprovalPolicy;
   readonly tools: readonly HarnessTool[];
-  readonly createId?: () => string;
   readonly clock?: HarnessClock;
   readonly random?: () => number;
 };
@@ -363,12 +348,6 @@ export function createHarness(options: HarnessOptions): Harness {
   );
   let pending = restoredPending(messages);
   let status: HarnessStatus = pending === null ? "idle" : "pending";
-  let activeApproval:
-    | {
-        readonly id: string;
-        readonly resolve: (approved: boolean) => void;
-      }
-    | undefined;
   let activeRunController: AbortController | undefined;
   let currentToolRounds = restoredToolRoundCount(messages);
   let pendingToolBatch = restoredToolBatch(messages);
@@ -827,42 +806,14 @@ export function createHarness(options: HarnessOptions): Harness {
     };
   };
 
-  const approvalFor = async (toolCall: ProviderToolCall): Promise<boolean> => {
-    if (options.approvalPolicy === "yolo") {
-      return true;
-    }
-    const approvalId = options.createId?.() ?? crypto.randomUUID();
-    status = "awaiting-approval";
-    const approved = await new Promise<boolean>((resolve) => {
-      activeApproval = { id: approvalId, resolve };
-      emit({ type: "approval-requested", approvalId, toolCall });
-    });
-    activeApproval = undefined;
-    status = "running";
-    return approved;
-  };
-
   const executeToolCall = async (
     toolCall: ProviderToolCall,
   ): Promise<
     | { readonly kind: "completed"; readonly result: ToolResult }
     | { readonly kind: "interrupted" }
   > => {
-    const approved = await approvalFor(toolCall);
     if (activeRunController?.signal.aborted) {
       return { kind: "interrupted" };
-    }
-    if (!approved) {
-      return {
-        kind: "completed",
-        result: {
-          ok: false,
-          error: {
-            code: "EAPPROVAL_DENIED",
-            message: "Tool execution was denied.",
-          },
-        },
-      };
     }
     const tool = options.tools.find(
       (candidate) => candidate.name === toolCall.name,
@@ -1123,29 +1074,9 @@ export function createHarness(options: HarnessOptions): Harness {
 
   return {
     async dispatch(command) {
-      if (command.type === "resolve-approval") {
-        if (
-          status !== "awaiting-approval" ||
-          activeApproval === undefined ||
-          activeApproval.id !== command.approvalId
-        ) {
-          return {
-            ok: false,
-            error: {
-              code: "HARNESS_APPROVAL",
-              message: "Approval is not active.",
-            },
-          };
-        }
-        const approval = activeApproval;
-        activeApproval = undefined;
-        status = "running";
-        approval.resolve(command.approved);
-        return { ok: true };
-      }
       if (command.type === "interrupt") {
         if (
-          (status !== "running" && status !== "awaiting-approval") ||
+          status !== "running" ||
           activeRunController === undefined
         ) {
           return {
@@ -1157,11 +1088,6 @@ export function createHarness(options: HarnessOptions): Harness {
           };
         }
         activeRunController.abort();
-        if (activeApproval !== undefined) {
-          const approval = activeApproval;
-          activeApproval = undefined;
-          approval.resolve(false);
-        }
         return { ok: true };
       }
       if (command.type === "retry") {

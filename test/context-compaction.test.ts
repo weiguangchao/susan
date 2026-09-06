@@ -145,7 +145,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 25_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
     harness.subscribe((event) => events.push(event));
@@ -198,7 +197,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 16_384,
       maxOutputTokens: 1,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -275,7 +273,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 100_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "yolo",
       tools: [
         {
           name: "read_file",
@@ -327,7 +324,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 25_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
       clock: { async sleep() {} },
     });
@@ -389,7 +385,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 25_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -444,7 +439,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 50_000,
       maxOutputTokens: 20_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -516,7 +510,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 50_000,
       maxOutputTokens: 25_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -581,7 +574,6 @@ describe("Model Context compaction", () => {
       reasoningEffort: "high",
       contextWindow: 100_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 

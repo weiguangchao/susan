@@ -20,10 +20,9 @@ export type TuiMessage =
   | { readonly kind: "error"; readonly text: string };
 
 export type TuiToolStatus =
-  | "waiting-approval"
+  | "requested"
   | "running"
   | "completed"
-  | "denied"
   | "failed"
   | "interrupted";
 
@@ -34,11 +33,6 @@ export type TuiToolCard = {
   readonly status: TuiToolStatus;
   readonly summary: string;
   readonly preview?: readonly string[];
-};
-
-export type TuiApproval = {
-  readonly approvalId: string;
-  readonly toolCall: ProviderToolCall;
 };
 
 export type TuiRetry = {
@@ -53,7 +47,6 @@ export type TuiState = {
   readonly status: HarnessStatus;
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
-  readonly approval: TuiApproval | null;
   readonly stream: {
     readonly text: string;
     readonly reasoning: string;
@@ -111,8 +104,6 @@ export type TuiInputIntent =
   | { readonly type: "model-picker" }
   | { readonly type: "exit" }
   | { readonly type: "interrupt" }
-  | { readonly type: "approve-approval"; readonly approvalId: string }
-  | { readonly type: "deny-approval"; readonly approvalId: string }
   | { readonly type: "retry" }
   | { readonly type: "new-session" }
   | { readonly type: "dismiss-failure" }
@@ -160,7 +151,6 @@ export function createTuiState(
     status: snapshot.status,
     messages: snapshot.messages.flatMap(messageToTuiMessages),
     tools: [],
-    approval: null,
     stream: null,
     retry: null,
     failure: null,
@@ -215,13 +205,7 @@ export function resolveInputIntent(
   key: TuiInputKey,
 ): TuiInputIntent {
   if (key.ctrl && key.input === "c") {
-    if (state.approval !== null) {
-      return {
-        type: "deny-approval",
-        approvalId: state.approval.approvalId,
-      };
-    }
-    if (state.status === "running" || state.status === "awaiting-approval") {
+    if (state.status === "running") {
       return { type: "interrupt" };
     }
     if (state.input !== "") {
@@ -270,27 +254,11 @@ export function resolveInputIntent(
     return { type: "move-cursor-right" };
   }
 
-  if (state.approval !== null) {
-    if (key.return) {
-      return {
-        type: "approve-approval",
-        approvalId: state.approval.approvalId,
-      };
-    }
-    if (key.escape) {
-      return {
-        type: "deny-approval",
-        approvalId: state.approval.approvalId,
-      };
-    }
-    return { type: "none" };
-  }
-
   if (key.escape && state.failure !== null) {
     return { type: "dismiss-failure" };
   }
 
-  if (state.status === "running" || state.status === "awaiting-approval") {
+  if (state.status === "running") {
     if (key.return) {
       return { type: "notice", message: "生成中 · Ctrl+C 可中断" };
     }
@@ -665,22 +633,6 @@ function applyInputIntent(
             : state.inputCursor,
         notice: null,
       };
-    case "approve-approval":
-    case "deny-approval":
-      const deniedToolId = state.approval?.toolCall.id;
-      return {
-        ...state,
-        status: "running",
-        approval: null,
-        ...(intent.type === "deny-approval"
-          ? {
-              tools:
-                deniedToolId === undefined
-                  ? state.tools
-                  : denyTool(state.tools, deniedToolId),
-            }
-          : {}),
-      };
     case "retry":
       return {
         ...state,
@@ -732,21 +684,11 @@ function reduceHarnessEvent(
           id,
           name: event.name ?? "tool",
           detail: "",
-          status: "waiting-approval",
-          summary: "等待审批",
+          status: "requested",
+          summary: "等待执行",
         }),
       };
     }
-    case "approval-requested":
-      return {
-        ...state,
-        approval: {
-          approvalId: event.approvalId,
-          toolCall: event.toolCall,
-        },
-        tools: upsertTool(state.tools, toolCard(event.toolCall, "waiting-approval")),
-        notice: null,
-      };
     case "tool-started":
       return {
         ...state,
@@ -912,8 +854,8 @@ function toolCard(
     detail: formatToolCallDetail(toolCall),
     status,
     summary:
-      status === "waiting-approval"
-        ? "等待审批"
+      status === "requested"
+        ? "等待执行"
         : status === "running"
           ? "执行中"
           : "",
@@ -926,10 +868,8 @@ function completedToolCard(
 ): TuiToolCard {
   const card = toolCard(toolCall, result.ok ? "completed" : "failed");
   if (!result.ok) {
-    const denied = result.error.code === "EAPPROVAL_DENIED";
     return {
       ...card,
-      status: denied ? "denied" : "failed",
       summary: `${result.error.code} · ${result.error.message}`,
     };
   }
@@ -990,19 +930,4 @@ function updateTool(
     return [...tools, next];
   }
   return tools.map((tool, toolIndex) => (toolIndex === index ? next : tool));
-}
-
-function denyTool(
-  tools: readonly TuiToolCard[],
-  approvalId: string,
-): readonly TuiToolCard[] {
-  const tool = tools.find((candidate) => candidate.id === approvalId);
-  if (tool === undefined) {
-    return tools;
-  }
-  return tools.map((candidate) =>
-    candidate.id === tool.id
-      ? { ...candidate, status: "denied" as const, summary: "EAPPROVAL_DENIED · 已拒绝" }
-      : candidate,
-  );
 }

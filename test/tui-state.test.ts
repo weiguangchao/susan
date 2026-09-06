@@ -518,14 +518,6 @@ describe("TUI state", () => {
   });
 
   it("applies layered Ctrl+C semantics", () => {
-    const approvalState = reduceTuiState(
-      initialState({ status: "running" }),
-      { type: "harness-event", event: { type: "approval-requested", approvalId: "approval-1", toolCall } },
-    );
-    expect(
-      resolveInputIntent(approvalState, { input: "c", ctrl: true }),
-    ).toEqual({ type: "deny-approval", approvalId: "approval-1" });
-
     expect(
       resolveInputIntent(initialState({ status: "running" }), {
         input: "c",
@@ -621,7 +613,7 @@ describe("TUI state", () => {
     expect(next.sessionTotalTokens).toBe(0);
   });
 
-  it("reduces streaming, Tool, approval, and retry events without Ink", () => {
+  it("reduces streaming, Tool, and retry events without Ink", () => {
     let state = initialState({ status: "running" });
     state = reduceTuiState(state, {
       type: "harness-event",
@@ -631,18 +623,7 @@ describe("TUI state", () => {
       type: "harness-event",
       event: { type: "text-delta", textDelta: "llo" },
     });
-    state = reduceTuiState(state, {
-      type: "harness-event",
-      event: { type: "approval-requested", approvalId: "approval-1", toolCall },
-    });
     expect(state.stream?.text).toBe("Hello");
-    expect(state.approval?.toolCall.name).toBe("read_file");
-    expect(state.tools[0]).toMatchObject({ status: "waiting-approval" });
-
-    state = reduceTuiState(state, {
-      type: "input-key",
-      key: { input: "\r", return: true },
-    });
     state = reduceTuiState(state, {
       type: "harness-event",
       event: { type: "tool-started", toolCall },
@@ -705,7 +686,7 @@ describe("TUI state", () => {
     );
   });
 
-  it("uses the agreed approval keys and collapses partial Tool deltas", () => {
+  it("collapses partial Tool deltas before Yolo execution starts", () => {
     let state = initialState({ status: "running" });
     state = reduceTuiState(state, {
       type: "harness-event",
@@ -726,18 +707,20 @@ describe("TUI state", () => {
       },
     });
     expect(state.tools).toHaveLength(1);
-    expect(state.tools[0]).toMatchObject({ id: toolCall.id });
+    expect(state.tools[0]).toMatchObject({
+      id: toolCall.id,
+      status: "requested",
+      summary: "等待执行",
+    });
 
     state = reduceTuiState(state, {
       type: "harness-event",
-      event: { type: "approval-requested", approvalId: "approval-1", toolCall },
+      event: { type: "tool-started", toolCall },
     });
-    expect(
-      resolveInputIntent(state, { input: "\r", return: true }),
-    ).toEqual({ type: "approve-approval", approvalId: "approval-1" });
-    expect(resolveInputIntent(state, { input: "", escape: true })).toEqual({
-      type: "deny-approval",
-      approvalId: "approval-1",
+    expect(state.tools[0]).toMatchObject({
+      id: toolCall.id,
+      status: "running",
+      summary: "执行中",
     });
   });
 

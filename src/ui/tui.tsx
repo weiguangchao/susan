@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import type { Harness, HarnessCommand, HarnessError } from "../core/harness.js";
+import type {
+  Harness,
+  HarnessCommand,
+  HarnessError,
+} from "../core/harness.js";
 import {
   createModelPickerState,
   reduceModelPickerState,
@@ -164,20 +168,6 @@ export function TuiApp({
         await harness.dispatch({ type: "interrupt" });
         return;
       }
-      if (
-        intent.type === "approve-approval" ||
-        intent.type === "deny-approval"
-      ) {
-        const result = await harness.dispatch({
-          type: "resolve-approval",
-          approvalId: intent.approvalId,
-          approved: intent.type === "approve-approval",
-        });
-        if (!result.ok) {
-          handleModelError(result.error);
-        }
-        return;
-      }
       if (intent.type === "retry") {
         const result = await harness.dispatch({ type: "retry" });
         if (!result.ok) {
@@ -295,12 +285,6 @@ export function TuiApp({
         ))}
         {state.stream !== null && <StreamView state={state} />}
       </Box>
-      {state.approval !== null && (
-        <ApprovalLine
-          name={state.approval.toolCall.name}
-          detail={formatToolCallDetail(state.approval.toolCall)}
-        />
-      )}
       <ActivityLine state={state} now={now} />
       {state.modelPickerActive ? (
         <ModelPickerView state={modelPickerState} />
@@ -387,16 +371,14 @@ function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
   const color =
     tool.status === "completed"
       ? "green"
-      : tool.status === "denied" ||
-          tool.status === "failed" ||
+      : tool.status === "failed" ||
           tool.status === "interrupted"
         ? "red"
         : "yellow";
   const marker =
     tool.status === "completed"
       ? "✓"
-      : tool.status === "denied" ||
-          tool.status === "failed" ||
+      : tool.status === "failed" ||
           tool.status === "interrupted"
         ? "✗"
         : "⏳";
@@ -432,23 +414,6 @@ function StreamView({ state }: { readonly state: TuiState }) {
   );
 }
 
-function ApprovalLine({
-  name,
-  detail,
-}: {
-  readonly name: string;
-  readonly detail: string;
-}) {
-  return (
-    <Box flexDirection="column" paddingLeft={1} flexShrink={0}>
-      <Text color="magenta">
-        审批 ▸ {name} · {detail}
-      </Text>
-      <Text dimColor>      Enter 允许 · Esc / Ctrl+C 拒绝</Text>
-    </Box>
-  );
-}
-
 function ActivityLine({
   state,
   now,
@@ -479,7 +444,7 @@ function ActivityLine({
       </Box>
     );
   }
-  if (state.status === "running" || state.status === "awaiting-approval") {
+  if (state.status === "running") {
     return (
       <Box paddingLeft={1}>
         <Text color="yellow">▍ 生成中</Text>

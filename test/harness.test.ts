@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   buildSystemPrompt,
   createHarness,
@@ -9,7 +9,11 @@ import {
 } from "../src/index.js";
 import type {
   CompletionMessage,
+  HarnessCommand,
+  HarnessError,
   HarnessEvent,
+  HarnessOptions,
+  HarnessStatus,
   HarnessTool,
   ProviderClient,
   ProviderRequest,
@@ -121,6 +125,24 @@ function fakeProvider(
 }
 
 describe("Harness", () => {
+  it("does not expose approval concepts in its public contracts", () => {
+    expectTypeOf<
+      Extract<HarnessStatus, "awaiting-approval">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<HarnessCommand, { type: "resolve-approval" }>
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<HarnessEvent, { type: "approval-requested" }>
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<HarnessError["code"], "HARNESS_APPROVAL">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<keyof HarnessOptions, "approvalPolicy" | "createId">
+    >().toEqualTypeOf<never>();
+  });
+
   it("persists one user turn and the final assistant response", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
@@ -147,7 +169,6 @@ describe("Harness", () => {
       reasoningEffort: "medium",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -189,7 +210,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
-      approvalPolicy: "ask",
       tools: [],
     });
     const replacement = fakeProvider(
@@ -253,7 +273,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -283,7 +302,6 @@ describe("Harness", () => {
       session: transcript(),
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -348,7 +366,6 @@ describe("Harness", () => {
       reasoningEffort: "medium",
       contextWindow: 100_000,
       maxOutputTokens: 100,
-      approvalPolicy: "ask",
       tools: [],
     });
     const usageEvents: Extract<
@@ -422,14 +439,13 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 100_000,
       maxOutputTokens: 100,
-      approvalPolicy: "ask",
       tools: [],
     });
 
     expect(restored.getSnapshot().sessionTotalTokens).toBe(330);
   });
 
-  it("approves and executes every Tool Call serially before continuing the Agent Loop", async () => {
+  it("executes every Yolo Tool Call serially before continuing the Agent Loop", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const executionOrder: string[] = [];
@@ -480,53 +496,16 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [tool("first"), tool("second")],
-      createId: (() => {
-        let next = 0;
-        return () => `approval-${++next}`;
-      })(),
     });
     harness.subscribe((event) => events.push(event));
 
-    const running = harness.dispatch({ type: "submit", content: "Run both" });
-    await waitFor(
-      () => events.some((event) => event.type === "approval-requested"),
-    );
-    expect(executionOrder).toEqual([]);
-    expect(harness.getSnapshot().status).toBe("awaiting-approval");
     expect(
-      events.filter((event) => event.type === "approval-requested"),
-    ).toEqual([
-      expect.objectContaining({
-        type: "approval-requested",
-        approvalId: "approval-1",
-        toolCall: expect.objectContaining({ id: "call-1", name: "first" }),
-      }),
-    ]);
-
-    expect(
-      await harness.dispatch({
-        type: "resolve-approval",
-        approvalId: "approval-1",
-        approved: true,
-      }),
+      await harness.dispatch({ type: "submit", content: "Run both" }),
     ).toEqual({ ok: true });
-    await waitFor(
-      () =>
-        events.filter((event) => event.type === "approval-requested")
-          .length === 2,
-    );
-    expect(executionOrder).toEqual(["first"]);
-
-    await harness.dispatch({
-      type: "resolve-approval",
-      approvalId: "approval-2",
-      approved: true,
-    });
-    expect(await running).toEqual({ ok: true });
 
     expect(executionOrder).toEqual(["first", "second"]);
+    expect(events.map((event) => event.type)).toContain("tool-started");
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messages.slice(-3)).toEqual([
       {
@@ -549,7 +528,7 @@ describe("Harness", () => {
     ]);
   });
 
-  it("maps rejection, typed errors, exceptions, and timeouts to failed Tool Results", async () => {
+  it("maps typed errors, exceptions, and timeouts to failed Tool Results", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const provider = fakeProvider(
@@ -561,7 +540,6 @@ describe("Harness", () => {
               assistant: {
                 role: "assistant",
                 toolCalls: [
-                  { id: "denied", name: "ok", arguments: {} },
                   { id: "typed", name: "typed", arguments: {} },
                   { id: "throws", name: "throws", arguments: {} },
                   { id: "timeout", name: "timeout", arguments: {} },
@@ -584,14 +562,6 @@ describe("Harness", () => {
       requests,
     );
     const tools: HarnessTool[] = [
-      {
-        name: "ok",
-        description: "ok",
-        parameters: {},
-        async execute() {
-          return { ok: true, result: {} };
-        },
-      },
       {
         name: "typed",
         description: "typed",
@@ -628,8 +598,6 @@ describe("Harness", () => {
         },
       },
     ];
-    const events: HarnessEvent[] = [];
-    let approvalNumber = 0;
     const harness = createHarness({
       provider,
       sessionStore: fakeSessionStore(appended),
@@ -638,44 +606,22 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools,
-      createId: () => `approval-${++approvalNumber}`,
       clock: {
         async sleep(milliseconds) {
           expect(milliseconds).toBe(10_000);
         },
       },
     });
-    harness.subscribe((event) => events.push(event));
-
-    const running = harness.dispatch({ type: "submit", content: "Run" });
-    for (let index = 1; index <= 4; index += 1) {
-      await waitFor(
-        () =>
-          events.filter((event) => event.type === "approval-requested")
-            .length === index,
-      );
-      await harness.dispatch({
-        type: "resolve-approval",
-        approvalId: `approval-${index}`,
-        approved: index !== 1,
-      });
-    }
-    expect(await running).toEqual({ ok: true });
+    expect(await harness.dispatch({ type: "submit", content: "Run" })).toEqual({
+      ok: true,
+    });
 
     expect(
       appended
         .filter((message) => message.role === "tool")
         .map((message) => message.content),
     ).toEqual([
-      {
-        ok: false,
-        error: {
-          code: "EAPPROVAL_DENIED",
-          message: "Tool execution was denied.",
-        },
-      },
       {
         ok: false,
         error: {
@@ -695,7 +641,7 @@ describe("Harness", () => {
     ]);
   });
 
-  it("rejects an oversized Tool Batch without approval or partial execution", async () => {
+  it("rejects an oversized Tool Batch without partial execution", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     let executions = 0;
@@ -727,7 +673,6 @@ describe("Harness", () => {
       ],
       requests,
     );
-    const events: HarnessEvent[] = [];
     const harness = createHarness({
       provider,
       sessionStore: fakeSessionStore(appended),
@@ -736,7 +681,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [
         {
           name: "read_file",
@@ -749,16 +693,11 @@ describe("Harness", () => {
         },
       ],
     });
-    harness.subscribe((event) => events.push(event));
-
     expect(
       await harness.dispatch({ type: "submit", content: "Read everything" }),
     ).toEqual({ ok: true });
 
     expect(executions).toBe(0);
-    expect(
-      events.some((event) => event.type === "approval-requested"),
-    ).toBe(false);
     const results = appended.filter((message) => message.role === "tool");
     expect(results).toHaveLength(9);
     expect(results.map((message) => message.content)).toEqual(
@@ -814,7 +753,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "yolo",
       tools: [
         {
           name: "read_file",
@@ -838,9 +776,6 @@ describe("Harness", () => {
     expect(
       events.filter((event) => event.type === "tool-round-limit-reached"),
     ).toHaveLength(1);
-    expect(
-      events.some((event) => event.type === "approval-requested"),
-    ).toBe(false);
     expect(appended.at(-1)).toEqual({
       role: "assistant",
       content: "Stopped safely",
@@ -896,7 +831,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
       random: () => 0.5,
       clock: {
@@ -962,7 +896,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
       clock: {
         async sleep(milliseconds) {
@@ -1035,7 +968,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -1092,7 +1024,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
 
@@ -1154,7 +1085,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
       clock: {
         async sleep(milliseconds) {
@@ -1236,7 +1166,6 @@ describe("Harness", () => {
         reasoningEffort: "high",
         contextWindow: 1_000_000,
         maxOutputTokens: 1_000,
-        approvalPolicy: "yolo",
         tools: [readFileTool],
       });
 
@@ -1273,7 +1202,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [],
     });
     harness.subscribe((event) => events.push(event));
@@ -1348,7 +1276,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "yolo",
       tools: [readFileTool],
     });
 
@@ -1383,7 +1310,6 @@ describe("Harness", () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const executed: string[] = [];
-    const approvals: HarnessEvent[] = [];
     const harness = createHarness({
       provider: fakeProvider(
         [
@@ -1405,7 +1331,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "ask",
       tools: [
         {
           name: "read",
@@ -1418,21 +1343,8 @@ describe("Harness", () => {
           },
         },
       ],
-      createId: () => "resume-approval",
     });
-    harness.subscribe((event) => approvals.push(event));
-
-    const running = harness.dispatch({ type: "retry" });
-    await waitFor(() =>
-      approvals.some((event) => event.type === "approval-requested"),
-    );
-    await harness.dispatch({
-      type: "resolve-approval",
-      approvalId: "resume-approval",
-      approved: true,
-    });
-
-    expect(await running).toEqual({ ok: true });
+    expect(await harness.dispatch({ type: "retry" })).toEqual({ ok: true });
     expect(executed).toEqual(["/pending"]);
     expect(appended).toEqual([
       {
@@ -1480,7 +1392,6 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      approvalPolicy: "yolo",
       tools: [
         {
           name: "slow",

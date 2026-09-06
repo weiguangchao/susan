@@ -184,6 +184,18 @@ export type {
   ReadToolOptions,
 } from "./core/read.js";
 export {
+  WRITE_DEFAULT_TIMEOUT_MS,
+  WRITE_MAX_CONTENT_BYTES,
+  createWriteTool,
+  executeWrite,
+} from "./core/write.js";
+export type {
+  WriteErrorCode,
+  WriteLineEnding,
+  WriteTool,
+  WriteToolOptions,
+} from "./core/write.js";
+export {
   BASH_COMMAND_MAX_BYTES,
   BASH_DEFAULT_TIMEOUT_MS,
   BASH_KILL_GRACE_MS,

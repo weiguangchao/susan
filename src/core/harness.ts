@@ -37,9 +37,10 @@ Current working directory: {cwd}
 
 Rules:
 - Use read to inspect files; do not guess file contents.
+- Use write to create or completely overwrite files; it does not append.
 - Resolve relative paths against the current working directory.
-- If read reports a typed error or truncation, report it and continue only with confirmed content.
-- You can only read files; do not write files or run commands.
+- If a Tool reports a typed error or truncation, report it and continue only with confirmed facts.
+- You can read and write files; do not run commands.
 - Never expose secrets such as API keys or credentials.
 - Respond in the user's language.
 - Be concise and direct.`;

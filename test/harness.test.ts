@@ -8,6 +8,7 @@ import {
   createHarness,
   createReadTool,
   createSessionStore,
+  createWriteTool,
 } from "../src/index.js";
 import type {
   CompletionMessage,
@@ -1486,6 +1487,73 @@ describe("Harness", () => {
           result: { resolvedPath: path, content: "confirmed content\n" },
         },
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the Write Tool through the Harness boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "susan-harness-write-"));
+    try {
+      const path = join(root, "created.txt");
+      const requests: ProviderRequest[] = [];
+      const appended: CompletionMessage[] = [];
+      const session = {
+        ...transcript(),
+        header: { ...transcript().header, cwd: root },
+      };
+      const harness = createHarness({
+        provider: fakeProvider(
+          [
+            [
+              {
+                type: "response-complete",
+                response: {
+                  assistant: {
+                    role: "assistant",
+                    toolCalls: [
+                      {
+                        id: "write-1",
+                        name: "write",
+                        arguments: { path, content: "created\n" },
+                      },
+                    ],
+                  },
+                  finishReason: "tool_calls",
+                },
+              },
+            ],
+            [
+              {
+                type: "response-complete",
+                response: {
+                  assistant: { role: "assistant", content: "Wrote it" },
+                  finishReason: "stop",
+                },
+              },
+            ],
+          ],
+          requests,
+        ),
+        sessionStore: fakeSessionStore(appended),
+        session,
+        model: "model",
+        reasoningEffort: "high",
+        contextWindow: 1_000_000,
+        maxOutputTokens: 1_000,
+        tools: [createWriteTool({ sessionCwd: root })],
+      });
+
+      expect(
+        await harness.dispatch({ type: "submit", content: "Write created.txt" }),
+      ).toEqual({ ok: true });
+      expect(appended.find((message) => message.role === "tool")).toMatchObject({
+        content: {
+          ok: true,
+          result: { resolvedPath: path, operation: "created", bytesWritten: 8 },
+        },
+      });
+      await expect(readFile(path, "utf8")).resolves.toBe("created\n");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

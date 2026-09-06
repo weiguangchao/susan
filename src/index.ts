@@ -98,6 +98,26 @@ export type {
   PathSymlinkPolicy,
   SessionPathResolver,
 } from "./core/path-resolver.js";
+export {
+  TRAVERSAL_DEFAULT_TIMEOUT_MS,
+  TRAVERSAL_ENTRY_BUDGET,
+  TRAVERSAL_MAX_DEPTH,
+  TRAVERSAL_MAX_DIAGNOSTICS,
+  compileGlob,
+  traverse,
+} from "./core/traverse.js";
+export type {
+  GlobMatcher,
+  TraverseOptions,
+  TraversalDiagnostic,
+  TraversalDiagnosticOperation,
+  TraversalEntry,
+  TraversalEntryType,
+  TraversalError,
+  TraversalErrorCode,
+  TraversalResult,
+  TraversalSuccess,
+} from "./core/traverse.js";
 export type {
   AssistantMessage,
   CompletionMessage,

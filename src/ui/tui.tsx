@@ -282,12 +282,7 @@ export function TuiApp({
         />
       )}
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingLeft={1}>
-        {visibleMessages.map((message, index) => (
-          <MessageView key={`message-${index}`} message={message} />
-        ))}
-        {visibleTools.map((tool) => (
-          <ToolLineView key={tool.id} tool={tool} />
-        ))}
+        <SessionContentView messages={visibleMessages} tools={visibleTools} />
         {state.stream !== null && <StreamView state={state} />}
       </Box>
       <ActivityLine state={state} now={now} />
@@ -379,6 +374,23 @@ function MessageView({ message }: { readonly message: TuiMessage }) {
   return <Text color="red">⚠ {message.text}</Text>;
 }
 
+export function SessionContentView({
+  messages,
+  tools,
+}: {
+  readonly messages: readonly TuiMessage[];
+  readonly tools: readonly TuiToolCard[];
+}) {
+  return (
+    <>
+      <ToolLedgerView tools={tools} />
+      {messages.map((message, index) => (
+        <MessageView key={`message-${index}`} message={message} />
+      ))}
+    </>
+  );
+}
+
 export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
   const color =
     tool.status === "completed"
@@ -393,20 +405,33 @@ export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
       : tool.status === "failed" ||
           tool.status === "interrupted"
         ? "✗"
-        : "⏳";
+        : tool.status === "running"
+          ? "●"
+          : "⏳";
   return (
-    <Box flexDirection="column">
-      <Text color={color}>
-        {marker} {tool.name} · {tool.detail}
-      </Text>
-      {tool.summary === "" ? null : (
-        <Text dimColor>  └ {tool.summary}</Text>
-      )}
-      {tool.preview?.map((line, index) => (
-        <Text key={`preview-${index}`} dimColor>
-            {line}
-        </Text>
+    <Text color={color} wrap="truncate-end">
+      {marker} {tool.name} · {tool.invocationLabel}{tool.summary === "" ? "" : ` · ${tool.summary}`}
+    </Text>
+  );
+}
+
+export function ToolLedgerView({
+  tools,
+}: {
+  readonly tools: readonly TuiToolCard[];
+}) {
+  return (
+    <Box flexDirection="column" flexShrink={0}>
+      {tools.map((tool) => (
+        <ToolLineView key={tool.id} tool={tool} />
       ))}
+      {tools.flatMap((tool) =>
+        tool.supplementalLines.map((line, index) => (
+          <Text key={`${tool.id}-detail-${index}`} dimColor wrap="truncate-end">
+            {"  └ "}{tool.name} · {line}
+          </Text>
+        )),
+      )}
     </Box>
   );
 }

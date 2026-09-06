@@ -140,9 +140,10 @@ describe("TUI Tool rendering", () => {
     const requested = renderTool({
       id: toolCall.id,
       name: toolCall.name,
-      detail: "/tmp/example.txt offset=1 limit=2000",
+      invocationLabel: "/tmp/example.txt offset=1 limit=2000",
       status: "requested",
       summary: "等待执行",
+      supplementalLines: [],
     });
     expect(requested).toContain("⏳ read · /tmp/example.txt offset=1 limit=2000");
     expect(requested).toContain("等待执行");
@@ -151,20 +152,21 @@ describe("TUI Tool rendering", () => {
     const running = renderTool({
       id: toolCall.id,
       name: toolCall.name,
-      detail: "/tmp/example.txt offset=1 limit=2000",
+      invocationLabel: "/tmp/example.txt offset=1 limit=2000",
       status: "running",
       summary: "执行中",
+      supplementalLines: [],
     });
-    expect(running).toContain("执行中");
+    expect(running).toContain("● read · /tmp/example.txt offset=1 limit=2000 · 执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
 
     const completed = renderTool({
       id: toolCall.id,
       name: toolCall.name,
-      detail: "/tmp/example.txt offset=1 limit=2000",
+      invocationLabel: "/tmp/example.txt offset=1 limit=2000",
       status: "completed",
       summary: "已读 2 行 · 17 B",
-      preview: ["line one", "line two"],
+      supplementalLines: [],
     });
     expect(completed).toContain("✓ read · /tmp/example.txt offset=1 limit=2000");
     expect(completed).toContain("已读 2 行 · 17 B");
@@ -173,9 +175,10 @@ describe("TUI Tool rendering", () => {
     const failed = renderTool({
       id: toolCall.id,
       name: toolCall.name,
-      detail: "/tmp/example.txt offset=1 limit=2000",
+      invocationLabel: "/tmp/example.txt offset=1 limit=2000",
       status: "failed",
       summary: "ENOENT · 文件不存在",
+      supplementalLines: [],
     });
     expect(failed).toContain("✗ read · /tmp/example.txt offset=1 limit=2000");
     expect(failed).toContain("ENOENT · 文件不存在");

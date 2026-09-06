@@ -6,12 +6,18 @@ import type {
 } from "../core/harness.js";
 import { isRecord } from "../core/json.js";
 import { isToolResult, type ToolResult } from "../core/tool-result.js";
-import type {
-  ProviderFailure,
-  ReasoningEffort,
-  ProviderToolCall,
-} from "../core/provider.js";
+import type { ProviderFailure, ReasoningEffort } from "../core/provider.js";
 import { moveInputCursorVertically } from "./input-layout.js";
+import {
+  createCompletedToolCard,
+  createToolCard,
+  formatToolCallDetail,
+  type TuiToolCard,
+  type TuiToolStatus,
+} from "./tool-ledger.js";
+
+export { formatToolCallDetail } from "./tool-ledger.js";
+export type { TuiToolCard, TuiToolStatus } from "./tool-ledger.js";
 
 export type TuiMessage =
   | { readonly kind: "user"; readonly text: string }
@@ -19,22 +25,6 @@ export type TuiMessage =
   | { readonly kind: "reasoning"; readonly text: string }
   | { readonly kind: "interrupted"; readonly text: string }
   | { readonly kind: "error"; readonly text: string };
-
-export type TuiToolStatus =
-  | "requested"
-  | "running"
-  | "completed"
-  | "failed"
-  | "interrupted";
-
-export type TuiToolCard = {
-  readonly id: string;
-  readonly name: string;
-  readonly detail: string;
-  readonly status: TuiToolStatus;
-  readonly summary: string;
-  readonly preview?: readonly string[];
-};
 
 export type TuiRetry = {
   readonly reason: string;
@@ -45,6 +35,7 @@ export type TuiRetry = {
 };
 
 export type TuiState = {
+  readonly cwd: string;
   readonly status: HarnessStatus;
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
@@ -149,9 +140,10 @@ export function createTuiState(
       message.role === "user" ? [message.content] : [],
     );
   return {
+    cwd: snapshot.cwd,
     status: snapshot.status,
     messages: snapshot.messages.flatMap(messageToTuiMessages),
-    tools: toolsFromMessages(snapshot.messages),
+    tools: toolsFromMessages(snapshot.messages, snapshot.cwd),
     stream: null,
     retry: null,
     failure: null,
@@ -356,6 +348,7 @@ export function reduceTuiState(
     case "snapshot":
       return {
         ...state,
+        cwd: action.snapshot.cwd,
         status: action.snapshot.status,
         pending: action.snapshot.pending,
         model: action.snapshot.model,
@@ -695,19 +688,24 @@ function reduceHarnessEvent(
     }
     case "tool-call-delta": {
       const id = event.id ?? `tool-call-${event.index}`;
-      const tools =
-        event.id === undefined
-          ? state.tools
-          : state.tools.filter((tool) => tool.id !== `tool-call-${event.index}`);
+      const next = {
+        id,
+        name: event.name ?? "tool",
+        invocationLabel: "",
+        status: "requested" as const,
+        summary: "等待执行",
+        supplementalLines: [],
+      };
       return {
         ...state,
-        tools: upsertTool(tools, {
-          id,
-          name: event.name ?? "tool",
-          detail: "",
-          status: "requested",
-          summary: "等待执行",
-        }),
+        tools:
+          event.id === undefined
+            ? upsertTool(state.tools, next)
+            : replaceToolPlaceholder(
+                state.tools,
+                `tool-call-${event.index}`,
+                next,
+              ),
       };
     }
     case "tool-started":
@@ -716,11 +714,11 @@ function reduceHarnessEvent(
         tools: updateTool(
           state.tools,
           event.toolCall.id,
-          toolCard(event.toolCall, "running"),
+          createToolCard(event.toolCall, "running", state.cwd),
         ),
       };
     case "tool-completed": {
-      const card = completedToolCard(event.toolCall, event.result);
+      const card = createCompletedToolCard(event.toolCall, event.result, state.cwd);
       return {
         ...state,
         tools: updateTool(state.tools, event.toolCall.id, card),
@@ -837,6 +835,7 @@ function toolResultFromContent(content: unknown): ToolResult | undefined {
 
 function toolsFromMessages(
   messages: HarnessSnapshot["messages"],
+  sessionCwd: string,
 ): readonly TuiToolCard[] {
   const cards: TuiToolCard[] = [];
   for (const [index, message] of messages.entries()) {
@@ -855,11 +854,11 @@ function toolsFromMessages(
         result === undefined
           ? toolCall.name === "read_file"
             ? {
-                ...toolCard(toolCall, "interrupted"),
+                ...createToolCard(toolCall, "interrupted", sessionCwd),
                 summary: "旧 Tool Call 不可重放",
               }
-            : toolCard(toolCall, "requested")
-          : completedToolCard(toolCall, result),
+            : createToolCard(toolCall, "requested", sessionCwd)
+          : createCompletedToolCard(toolCall, result, sessionCwd),
       );
     }
   }
@@ -921,88 +920,27 @@ export function formatProviderFailure(failure: ProviderFailure): string {
   ].join(" · ");
 }
 
-function toolCard(
-  toolCall: ProviderToolCall,
-  status: TuiToolStatus,
-): TuiToolCard {
-  return {
-    id: toolCall.id,
-    name: toolCall.name,
-    detail: formatToolCallDetail(toolCall),
-    status,
-    summary:
-      status === "requested"
-        ? "等待执行"
-        : status === "running"
-          ? "执行中"
-          : "",
-  };
-}
-
-function completedToolCard(
-  toolCall: ProviderToolCall,
-  result: ToolResult,
-): TuiToolCard {
-  const card = toolCard(toolCall, result.ok ? "completed" : "failed");
-  if (!result.ok) {
-    return {
-      ...card,
-      summary: `${result.error.code} · ${result.error.message}`,
-    };
-  }
-
-  const value = result.result;
-  if (
-    (toolCall.name === "read" || toolCall.name === "read_file") &&
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Record<string, unknown>).content === "string"
-  ) {
-    const record = value as {
-      content: string;
-      totalLines?: unknown;
-      sizeBytes?: unknown;
-      cwdRelation?: unknown;
-    };
-    const content = record.content;
-    const lines = content === "" ? [] : content.split("\n");
-    const totalLines =
-      typeof record.totalLines === "number" ? record.totalLines : lines.length;
-    const bytes =
-      typeof record.sizeBytes === "number"
-        ? record.sizeBytes
-        : new TextEncoder().encode(content).length;
-    const truncated = result.meta?.truncation !== undefined;
-    const outside = record.cwdRelation === "outside";
-    return {
-      ...card,
-      summary: `已读 ${totalLines} 行 · ${bytes} B${truncated ? " · 截断" : ""}${outside ? " · cwd 外" : ""}`,
-      preview: lines.slice(0, 2),
-      detail: formatToolCallDetail(toolCall),
-    };
-  }
-  return { ...card, summary: "完成" };
-}
-
-export function formatToolCallDetail(toolCall: ProviderToolCall): string {
-  const arguments_ = toolCall.arguments;
-  if (typeof arguments_ !== "object" || arguments_ === null) {
-    return toolCall.name;
-  }
-  const record = arguments_ as Record<string, unknown>;
-  const path = typeof record.path === "string" ? record.path : undefined;
-  const offset =
-    typeof record.offset === "number" ? ` offset=${record.offset}` : "";
-  const limit =
-    typeof record.limit === "number" ? ` limit=${record.limit}` : "";
-  return path === undefined ? toolCall.name : `${path}${offset}${limit}`;
-}
-
 function upsertTool(
   tools: readonly TuiToolCard[],
   next: TuiToolCard,
 ): readonly TuiToolCard[] {
   return updateTool(tools, next.id, next);
+}
+
+function replaceToolPlaceholder(
+  tools: readonly TuiToolCard[],
+  placeholderId: string,
+  next: TuiToolCard,
+): readonly TuiToolCard[] {
+  if (!tools.some((tool) => tool.id === placeholderId)) {
+    return upsertTool(tools, next);
+  }
+  return tools.flatMap((tool) => {
+    if (tool.id === placeholderId) {
+      return [next];
+    }
+    return tool.id === next.id ? [] : [tool];
+  });
 }
 
 function updateTool(

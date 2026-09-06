@@ -675,9 +675,7 @@ describe("TUI state", () => {
       text: "Hello",
     });
     expect(state.tools[0]).toMatchObject({ status: "completed" });
-    expect(state.tools[0]?.detail).toBe(
-      "/tmp/example.txt offset=1 limit=2000",
-    );
+    expect(state.tools[0]?.invocationLabel).toBe("/tmp/example.txt");
   });
 
   it("keeps typed Tool failures distinct from successful Tool calls", () => {
@@ -700,9 +698,7 @@ describe("TUI state", () => {
       status: "failed",
       summary: "ENOENT · 文件不存在",
     });
-    expect(formatToolCallDetail(toolCall)).toBe(
-      "/tmp/example.txt offset=1 limit=2000",
-    );
+    expect(formatToolCallDetail(toolCall)).toBe("/tmp/example.txt");
   });
 
   it("collapses partial Tool deltas before Yolo execution starts", () => {
@@ -739,7 +735,7 @@ describe("TUI state", () => {
     expect(state.tools[0]).toMatchObject({
       id: toolCall.id,
       status: "running",
-      summary: "执行中",
+      summary: "执行中 · outside cwd",
     });
   });
 
@@ -767,7 +763,7 @@ describe("TUI state", () => {
     });
     expect(state.tools[0]).toMatchObject({
       status: "running",
-      summary: "执行中",
+      summary: "执行中 · outside cwd",
     });
 
     state = reduceTuiState(state, {
@@ -961,7 +957,8 @@ describe("TUI state", () => {
       {
         id: "call-1",
         name: "read_file",
-        detail: "AGENTS.md",
+        invocationLabel: "AGENTS.md",
+        supplementalLines: [],
         status: "interrupted",
         summary: "旧 Tool Call 不可重放",
       },
@@ -1027,17 +1024,18 @@ describe("TUI state", () => {
       {
         id: "call-1",
         name: "read_file",
-        detail: "missing.txt",
+        invocationLabel: "missing.txt",
+        supplementalLines: [],
         status: "failed",
         summary: "ENOENT · File not found",
       },
       {
         id: "call-2",
         name: "read_file",
-        detail: "AGENTS.md",
+        invocationLabel: "AGENTS.md",
+        supplementalLines: [],
         status: "completed",
         summary: "已读 2 行 · 9 B",
-        preview: ["# Agents", ""],
       },
     ]);
   });

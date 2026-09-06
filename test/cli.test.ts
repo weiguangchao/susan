@@ -411,7 +411,7 @@ describe("package metadata", () => {
 
     expect(pkg.name).toBe("@weiguangchao/susan");
     expect(pkg.bin.susan).toBe("./dist/cli.js");
-    expect(pkg.engines.node).toBe(">=22");
+    expect(pkg.engines.node).toBe(">=22 <26");
     expect(pkg.files).toContain("dist");
     expect(pkg.type).toBe("module");
   });

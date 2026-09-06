@@ -269,6 +269,8 @@ export {
   buildSystemPrompt,
   createHarness,
 } from "./core/harness.js";
+export { createBuiltInToolSet } from "./core/built-in-tools.js";
+export type { BuiltInToolSetOptions } from "./core/built-in-tools.js";
 export { TuiApp } from "./ui/tui.js";
 export type { TuiAppProps } from "./ui/tui.js";
 export {

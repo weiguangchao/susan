@@ -34,7 +34,7 @@ const DIFF_CONTEXT_LINES = 3;
 const DIFF_NO_NEWLINE_MARKER = "\\ No newline at end of file";
 
 const EDIT_DESCRIPTION =
-  "Apply 1-100 exact text replacements to one UTF-8 regular file. Every oldText is matched against the same original content, so later edits never see earlier results. Matching compares LF and CRLF as equivalent and is otherwise byte-exact: no trimming, fuzzy, Unicode, whitespace, or punctuation normalization. oldText must match exactly once unless replaceAll is true. Text outside the matches keeps its original bytes, while newlines inside newText are rewritten to the file's own line ending. The whole batch commits at once and returns a bounded unified diff.";
+  "Apply one batch of exact text replacements to an existing UTF-8 regular file. Use edit instead of shell text-processing commands when the existing text to change is known. Replacements are validated against the original content before one commit; matching is not fuzzy, each match must be unique by default, and replaceAll must be requested explicitly. The result includes a bounded unified diff.";
 
 export type EditLineEnding = LineEnding;
 

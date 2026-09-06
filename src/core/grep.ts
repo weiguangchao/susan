@@ -37,7 +37,7 @@ export const GREP_MAX_LINE_TEXT_BYTES = 1_000;
 export const GREP_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
 
 const GREP_DESCRIPTION =
-  "Search UTF-8 regular files line by line. path defaults to the Session cwd and may be a single file or a directory searched recursively as the Search Root; pattern is an ECMAScript Unicode regex unless literal is true. glob, maxDepth, and includeIgnored only apply to a directory target. Hidden files are searched; .gitignore and the built-in .git/ ignore apply unless includeIgnored is true. Traversal never follows symlinks, while an explicit path resolves through them. Binary, invalid UTF-8, special, and over-10-MiB files become diagnostics during traversal and fail the call when targeted directly. Use offset/limit or meta.truncation.nextArguments to continue.";
+  "Search logical lines in one UTF-8 regular file or recursively beneath a directory. Use grep instead of bash or a host grep command when looking for file content. It supports ECMAScript Unicode regex or literal matching, optional context, a platform-independent file glob, depth and ignore controls, and deterministic pagination. Results may include Traversal Diagnostics; their presence means the traversal was not completely error-free.";
 
 const ALLOWED_FIELDS = new Set([
   "pattern",

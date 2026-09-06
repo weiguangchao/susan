@@ -26,7 +26,7 @@ export const LS_MAX_LIMIT = 5_000;
 export const LS_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
 
 const LS_DESCRIPTION =
-  "List the direct children of a directory. path defaults to the Session cwd; results are non-recursive and do not follow child symlinks. Hidden entries are included; .gitignore of the target directory and the built-in .git/ ignore apply unless includeIgnored is true. Use offset/limit or meta.truncation.nextArguments to continue.";
+  "List a directory's direct children without recursion. Use ls to inspect a known directory and find for deeper path discovery. It returns deterministically ordered file, directory, and symlink entries, applies ignore rules unless requested otherwise, and does not follow symlinks. Results may include Traversal Diagnostics.";
 
 const ALLOWED_FIELDS = new Set(["path", "includeIgnored", "limit", "offset"]);
 const TRUNCATION_REASON_ORDER: readonly ToolTruncationReason[] = [

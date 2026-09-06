@@ -28,7 +28,7 @@ export const FIND_MAX_LIMIT = 10_000;
 export const FIND_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
 
 const FIND_DESCRIPTION =
-  "Find paths under a Search Root by platform-independent glob. path defaults to the Session cwd and must be a directory; pattern matches Search Root descendants only, never the Search Root itself, and a pattern without / matches a basename at any depth. Hidden entries are matched; .gitignore and the built-in .git/ ignore apply unless includeIgnored is true. Traversal never follows symlinks, so a symlink is reported as type symlink and is never descended into, while an explicit path resolves through them. Use type to keep only files, directories, or symlinks, and offset/limit or meta.truncation.nextArguments to continue.";
+  "Find descendant path names beneath a directory using a platform-independent glob. Use find instead of bash or a host find command when locating files, directories, or symlinks by name or relative path; use grep when searching file contents. It supports type, depth, ignore controls, and deterministic pagination. It does not match the Search Root itself or traverse through symlinks, and results may include Traversal Diagnostics.";
 
 const ALLOWED_FIELDS = new Set([
   "pattern",

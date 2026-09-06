@@ -28,7 +28,7 @@ export const WRITE_MAX_CONTENT_BYTES = 10 * 1024 * 1024;
 export const WRITE_DEFAULT_TIMEOUT_MS = 10_000;
 
 const WRITE_DESCRIPTION =
-  "Create or completely overwrite a UTF-8 regular file. Missing parent directories are created recursively. Content is written exactly without appending a newline or converting line endings. Final symlinks, directories, special files, binary content, and content over 10 MiB are rejected.";
+  "Create or completely replace a UTF-8 regular file, creating missing parent directories when needed. Use write for new files or intentional whole-file replacement; use edit for precise changes to an existing file. Content is written exactly, without implicit append, newline, or permission changes. The operation rejects a final symlink and reports whether it created or overwrote the target.";
 
 export type WriteLineEnding = LineEnding;
 

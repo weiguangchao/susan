@@ -8,11 +8,8 @@ import {
 import type { ConfigError, ResolvedConfig } from "./core/config.js";
 import { formatCliError, parseCli, type ResumeMode } from "./core/cli.js";
 import { formatConfigError } from "./core/config-error.js";
-import { createEditTool } from "./core/edit.js";
-import { createFindTool } from "./core/find.js";
-import { createGrepTool } from "./core/grep.js";
+import { createBuiltInToolSet } from "./core/built-in-tools.js";
 import { createHarness, type Harness } from "./core/harness.js";
-import { createLsTool } from "./core/ls.js";
 import { resolveSessionLaunch } from "./core/launch.js";
 import type {
   ModelPickerCatalog,
@@ -21,8 +18,6 @@ import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
 } from "./core/provider.js";
-import { createReadTool } from "./core/read.js";
-import { createWriteTool } from "./core/write.js";
 import {
   createSessionStore,
   type SessionStore,
@@ -298,14 +293,7 @@ function createSusanHarness(
       activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
     maxOutputTokens:
       activeModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-    tools: [
-      createReadTool({ sessionCwd: session.header.cwd }),
-      createWriteTool({ sessionCwd: session.header.cwd }),
-      createEditTool({ sessionCwd: session.header.cwd }),
-      createLsTool({ sessionCwd: session.header.cwd }),
-      createGrepTool({ sessionCwd: session.header.cwd }),
-      createFindTool({ sessionCwd: session.header.cwd }),
-    ],
+    tools: createBuiltInToolSet({ sessionCwd: session.header.cwd }),
   });
 }
 

@@ -19,7 +19,7 @@ export const READ_MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const READ_DEFAULT_TIMEOUT_MS = 10_000;
 
 const READ_DESCRIPTION =
-  "Read a UTF-8 regular file by path. offset is the 1-based start line (default 1); limit is the maximum number of lines (default and maximum 2000). Successful results include path facts, BOM, line ending, and shared truncation metadata. Use offset/limit or meta.truncation.nextArguments to continue. Directories, special files, binary, and invalid UTF-8 fail with typed errors.";
+  "Read a known UTF-8 regular file, optionally from a 1-based line offset with a line limit. Use read instead of bash or cat when inspecting file contents. It reports file and path facts together with the confirmed content. Large results may be truncated; use nextArguments only when the omitted content is relevant. It does not list directories or read binary and special files.";
 
 export type ReadLineEnding = LineEnding;
 

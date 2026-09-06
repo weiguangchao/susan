@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   buildSystemPrompt,
+  createBuiltInToolSet,
   createHarness,
   createReadTool,
   createSessionStore,
@@ -229,6 +230,54 @@ describe("Harness", () => {
       messages: appended,
       pending: null,
     });
+  });
+
+  it("sends the canonical prompt and Built-in Tool definitions on each request", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    const tools = createBuiltInToolSet({ sessionCwd: "/workspace" });
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Done" },
+                finishReason: "stop",
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore(appended),
+      session: transcript(),
+      model: "deepseek-v4-flash",
+      reasoningEffort: "medium",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools,
+    });
+
+    await harness.dispatch({ type: "submit", content: "Hi" });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.messages[0]).toEqual({
+      role: "system",
+      content: buildSystemPrompt("/workspace"),
+    });
+    expect(requests[0]!.tools).toEqual(
+      tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      })),
+    );
+    for (const definition of requests[0]!.tools ?? []) {
+      expect("execute" in definition).toBe(false);
+    }
+    expect(appended.some((message) => message.role === "system")).toBe(false);
   });
 
   it("configures the model atomically and uses it on the next request", async () => {

@@ -5,7 +5,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   buildSystemPrompt,
   createHarness,
-  readFileTool,
+  createReadTool,
 } from "../src/index.js";
 import type {
   CompletionMessage,
@@ -1120,13 +1120,17 @@ describe("Harness", () => {
     });
   });
 
-  it("runs the Read File Tool through the Harness boundary", async () => {
+  it("runs the Read Tool through the Harness boundary", async () => {
     const root = await mkdtemp(join(tmpdir(), "susan-harness-"));
     try {
       const path = join(root, "note.txt");
       await writeFile(path, "confirmed content\n", "utf8");
       const requests: ProviderRequest[] = [];
       const appended: CompletionMessage[] = [];
+      const session = {
+        ...transcript(),
+        header: { ...transcript().header, cwd: root },
+      };
       const harness = createHarness({
         provider: fakeProvider(
           [
@@ -1139,7 +1143,7 @@ describe("Harness", () => {
                     toolCalls: [
                       {
                         id: "read-1",
-                        name: "read_file",
+                        name: "read",
                         arguments: { path },
                       },
                     ],
@@ -1161,12 +1165,12 @@ describe("Harness", () => {
           requests,
         ),
         sessionStore: fakeSessionStore(appended),
-        session: transcript(),
+        session,
         model: "model",
         reasoningEffort: "high",
         contextWindow: 1_000_000,
         maxOutputTokens: 1_000,
-        tools: [readFileTool],
+        tools: [createReadTool({ sessionCwd: root })],
       });
 
       expect(
@@ -1175,7 +1179,7 @@ describe("Harness", () => {
       expect(appended.find((message) => message.role === "tool")).toMatchObject({
         content: {
           ok: true,
-          result: { path, content: "confirmed content\n" },
+          result: { resolvedPath: path, content: "confirmed content\n" },
         },
       });
     } finally {
@@ -1276,7 +1280,7 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-      tools: [readFileTool],
+        tools: [createReadTool({ sessionCwd: process.cwd() })],
     });
 
     expect(await harness.dispatch({ type: "retry" })).toMatchObject({

@@ -139,20 +139,18 @@ export {
   createSessionStore,
 } from "./core/session.js";
 export {
-  READ_FILE_MAX_BYTES,
-  READ_FILE_MAX_LINE_CHARACTERS,
-  READ_FILE_MAX_LINES,
-  executeReadFile,
-  readFileTool,
-} from "./core/read-file.js";
+  READ_DEFAULT_TIMEOUT_MS,
+  READ_MAX_FILE_BYTES,
+  READ_MAX_LINES,
+  createReadTool,
+  executeRead,
+} from "./core/read.js";
 export type {
-  ReadFileError,
-  ReadFileErrorCode,
-  ReadFileSuccess,
-  ReadFileTool,
-  ReadFileToolResult,
-  ReadFileTruncationReason,
-} from "./core/read-file.js";
+  ReadErrorCode,
+  ReadLineEnding,
+  ReadTool,
+  ReadToolOptions,
+} from "./core/read.js";
 export {
   BASH_COMMAND_MAX_BYTES,
   BASH_DEFAULT_TIMEOUT_MS,

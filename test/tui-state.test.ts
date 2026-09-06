@@ -14,7 +14,7 @@ import type { ProviderToolCall } from "../src/index.js";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
-  name: "read_file",
+  name: "read",
   arguments: { path: "/tmp/example.txt", offset: 1, limit: 2000 },
 };
 
@@ -636,11 +636,15 @@ describe("TUI state", () => {
         result: {
           ok: true,
           result: {
-            path: "/tmp/example.txt",
+            resolvedPath: "/tmp/example.txt",
+            realTargetPath: "/tmp/example.txt",
+            cwdRelation: "inside",
             content: "line one\nline two\nline three",
-            startLine: 1,
-            endLine: 3,
-            truncated: false,
+            range: { startLine: 1, endLine: 3 },
+            totalLines: 3,
+            sizeBytes: 29,
+            bom: false,
+            lineEnding: "lf",
           },
         },
       },

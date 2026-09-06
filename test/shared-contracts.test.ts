@@ -45,8 +45,8 @@ describe("shared type contracts", () => {
 
   it("models provider-neutral requests, tools, and failures", () => {
     const tool = {
-      name: "read_file",
-      description: "Read a UTF-8 text file.",
+      name: "read",
+      description: "Read a UTF-8 regular file.",
       parameters: {
         type: "object",
         properties: {
@@ -64,7 +64,7 @@ describe("shared type contracts", () => {
           role: "assistant",
           reasoning: "The user wants one file.",
           toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "/tmp/a" } },
+            { id: "call-1", name: "read", arguments: { path: "/tmp/a" } },
           ],
         },
         {
@@ -104,7 +104,7 @@ describe("shared type contracts", () => {
         type: "tool-call-delta",
         index: 0,
         id: "call-1",
-        name: "read_file",
+        name: "read",
         argumentsDelta: "{\"path\":",
       },
       {
@@ -115,7 +115,7 @@ describe("shared type contracts", () => {
             content: "Hello",
             reasoning: "Done",
             toolCalls: [
-              { id: "call-1", name: "read_file", arguments: { path: "/tmp/a" } },
+              { id: "call-1", name: "read", arguments: { path: "/tmp/a" } },
             ],
           },
           finishReason: "tool_calls",

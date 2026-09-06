@@ -17,7 +17,7 @@ import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
 } from "./core/provider.js";
-import { readFileTool } from "./core/read-file.js";
+import { createReadTool } from "./core/read.js";
 import {
   createSessionStore,
   type SessionStore,
@@ -293,7 +293,7 @@ function createSusanHarness(
       activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
     maxOutputTokens:
       activeModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-    tools: [readFileTool],
+    tools: [createReadTool({ sessionCwd: session.header.cwd })],
   });
 }
 

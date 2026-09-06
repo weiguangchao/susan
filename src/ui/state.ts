@@ -876,22 +876,30 @@ function completedToolCard(
 
   const value = result.result;
   if (
-    toolCall.name === "read_file" &&
+    toolCall.name === "read" &&
     typeof value === "object" &&
     value !== null &&
     typeof (value as Record<string, unknown>).content === "string"
   ) {
     const record = value as {
-      path?: unknown;
       content: string;
-      truncated?: unknown;
+      totalLines?: unknown;
+      sizeBytes?: unknown;
+      cwdRelation?: unknown;
     };
     const content = record.content;
-    const lines = content.split("\n");
-    const bytes = new TextEncoder().encode(content).length;
+    const lines = content === "" ? [] : content.split("\n");
+    const totalLines =
+      typeof record.totalLines === "number" ? record.totalLines : lines.length;
+    const bytes =
+      typeof record.sizeBytes === "number"
+        ? record.sizeBytes
+        : new TextEncoder().encode(content).length;
+    const truncated = result.meta?.truncation !== undefined;
+    const outside = record.cwdRelation === "outside";
     return {
       ...card,
-      summary: `已读 ${lines.length} 行 · ${bytes} B${record.truncated === true ? " · 截断" : ""}`,
+      summary: `已读 ${totalLines} 行 · ${bytes} B${truncated ? " · 截断" : ""}${outside ? " · cwd 外" : ""}`,
       preview: lines.slice(0, 2),
       detail: formatToolCallDetail(toolCall),
     };

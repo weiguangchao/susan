@@ -7,6 +7,7 @@ import {
   type PathResolution,
   type PathResolutionError,
 } from "./path-resolver.js";
+import { decodeUtf8Text, type LineEnding } from "./text-file.js";
 import {
   boundToolResult,
   normalizeToolResult,
@@ -20,7 +21,7 @@ export const READ_DEFAULT_TIMEOUT_MS = 10_000;
 const READ_DESCRIPTION =
   "Read a UTF-8 regular file by path. offset is the 1-based start line (default 1); limit is the maximum number of lines (default and maximum 2000). Successful results include path facts, BOM, line ending, and shared truncation metadata. Use offset/limit or meta.truncation.nextArguments to continue. Directories, special files, binary, and invalid UTF-8 fail with typed errors.";
 
-export type ReadLineEnding = "lf" | "crlf" | "mixed" | "none";
+export type ReadLineEnding = LineEnding;
 
 export type ReadErrorCode =
   | "EINVAL"
@@ -257,27 +258,6 @@ function scanLines(text: string): LineScan {
           ? "crlf"
           : "lf";
   return { lines, lineEnding };
-}
-
-function decodeUtf8Text(bytes: Uint8Array):
-  | { readonly ok: true; readonly text: string; readonly bom: boolean }
-  | { readonly ok: false } {
-  if (bytes.includes(0)) {
-    return { ok: false };
-  }
-  const bom =
-    bytes.length >= 3 &&
-    bytes[0] === 0xef &&
-    bytes[1] === 0xbb &&
-    bytes[2] === 0xbf;
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(
-      bom ? bytes.subarray(3) : bytes,
-    );
-    return { ok: true, text, bom };
-  } catch {
-    return { ok: false };
-  }
 }
 
 function finalizeReadResult(

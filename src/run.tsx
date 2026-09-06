@@ -8,6 +8,7 @@ import {
 import type { ConfigError, ResolvedConfig } from "./core/config.js";
 import { formatCliError, parseCli, type ResumeMode } from "./core/cli.js";
 import { formatConfigError } from "./core/config-error.js";
+import { createEditTool } from "./core/edit.js";
 import { createHarness, type Harness } from "./core/harness.js";
 import { resolveSessionLaunch } from "./core/launch.js";
 import type {
@@ -297,6 +298,7 @@ function createSusanHarness(
     tools: [
       createReadTool({ sessionCwd: session.header.cwd }),
       createWriteTool({ sessionCwd: session.header.cwd }),
+      createEditTool({ sessionCwd: session.header.cwd }),
     ],
   });
 }

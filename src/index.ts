@@ -196,6 +196,20 @@ export type {
   WriteToolOptions,
 } from "./core/write.js";
 export {
+  EDIT_DEFAULT_TIMEOUT_MS,
+  EDIT_MAX_CONTENT_BYTES,
+  EDIT_MAX_EDITS,
+  createEditTool,
+  executeEdit,
+} from "./core/edit.js";
+export type {
+  EditErrorCode,
+  EditLineEnding,
+  EditTool,
+  EditToolOptions,
+} from "./core/edit.js";
+export type { LineEnding } from "./core/text-file.js";
+export {
   BASH_COMMAND_MAX_BYTES,
   BASH_DEFAULT_TIMEOUT_MS,
   BASH_KILL_GRACE_MS,

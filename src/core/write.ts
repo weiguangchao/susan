@@ -14,6 +14,11 @@ import {
   type PathResolutionError,
 } from "./path-resolver.js";
 import {
+  detectLineEnding,
+  isWellFormedUnicode,
+  type LineEnding,
+} from "./text-file.js";
+import {
   boundToolFailure,
   boundToolResult,
   type ToolResult,
@@ -25,7 +30,7 @@ export const WRITE_DEFAULT_TIMEOUT_MS = 10_000;
 const WRITE_DESCRIPTION =
   "Create or completely overwrite a UTF-8 regular file. Missing parent directories are created recursively. Content is written exactly without appending a newline or converting line endings. Final symlinks, directories, special files, binary content, and content over 10 MiB are rejected.";
 
-export type WriteLineEnding = "lf" | "crlf" | "mixed" | "none";
+export type WriteLineEnding = LineEnding;
 
 export type WriteErrorCode =
   | "EINVAL"
@@ -172,44 +177,6 @@ function mapDirectoryError(error: unknown, facts: PathFacts): ToolResult {
     : code === "ENOENT"
       ? fail("ENOENT", "Parent directory does not exist.", facts)
       : fail("EIO", "Parent directory cannot be created.", facts);
-}
-
-function detectLineEnding(content: string): WriteLineEnding {
-  let hasLf = false;
-  let hasCrlf = false;
-  for (let index = 0; index < content.length; index += 1) {
-    if (content[index] !== "\n") {
-      continue;
-    }
-    if (index > 0 && content[index - 1] === "\r") {
-      hasCrlf = true;
-    } else {
-      hasLf = true;
-    }
-  }
-  return !hasLf && !hasCrlf
-    ? "none"
-    : hasLf && hasCrlf
-      ? "mixed"
-      : hasCrlf
-        ? "crlf"
-        : "lf";
-}
-
-function isWellFormedUnicode(content: string): boolean {
-  for (let index = 0; index < content.length; index += 1) {
-    const codeUnit = content.charCodeAt(index);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const next = content.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) {
-        return false;
-      }
-      index += 1;
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
 }
 
 export async function executeWrite(

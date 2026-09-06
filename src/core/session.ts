@@ -19,9 +19,11 @@ import type {
   ReasoningEffort,
 } from "./provider.js";
 
+export type SessionFormatVersion = 1 | 2;
+
 export type SessionHeader = {
   type: "session";
-  version: 2;
+  version: SessionFormatVersion;
   id: string;
   createdAt: string;
   cwd: string;
@@ -146,7 +148,16 @@ function failure<T = void>(
   };
 }
 
-function isCompletionMessage(value: unknown): value is CompletionMessage {
+function isSupportedSessionFormatVersion(
+  value: unknown,
+): value is SessionFormatVersion {
+  return value === 1 || value === 2;
+}
+
+function isCompletionMessage(
+  value: unknown,
+  version: SessionFormatVersion = 2,
+): value is CompletionMessage {
   if (!isRecord(value)) {
     return false;
   }
@@ -178,7 +189,10 @@ function isCompletionMessage(value: unknown): value is CompletionMessage {
     return true;
   }
   if (value.role === "tool") {
-    return typeof value.toolCallId === "string" && isToolResult(value.content);
+    return (
+      typeof value.toolCallId === "string" &&
+      (version === 1 ? isJsonValue(value.content) : isToolResult(value.content))
+    );
   }
   return false;
 }
@@ -190,22 +204,28 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   );
 }
 
+function isSessionHeaderShape(value: unknown): value is Omit<
+  SessionHeader,
+  "version"
+> & { version: unknown } {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["type", "version", "id", "createdAt", "cwd"]) &&
+    value.type === "session" &&
+    typeof value.id === "string" &&
+    UUID_PATTERN.test(value.id) &&
+    typeof value.createdAt === "string" &&
+    !Number.isNaN(Date.parse(value.createdAt)) &&
+    typeof value.cwd === "string" &&
+    isAbsolute(value.cwd)
+  );
+}
+
 function isSessionHeader(value: unknown): value is SessionHeader {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, ["type", "version", "id", "createdAt", "cwd"]) ||
-    value.type !== "session" ||
-    value.version !== 2 ||
-    typeof value.id !== "string" ||
-    !UUID_PATTERN.test(value.id) ||
-    typeof value.createdAt !== "string" ||
-    Number.isNaN(Date.parse(value.createdAt)) ||
-    typeof value.cwd !== "string" ||
-    !isAbsolute(value.cwd)
-  ) {
-    return false;
-  }
-  return true;
+  return (
+    isSessionHeaderShape(value) &&
+    isSupportedSessionFormatVersion(value.version)
+  );
 }
 
 function isProviderUsage(value: unknown): value is ProviderUsage {
@@ -229,12 +249,18 @@ function isProviderUsage(value: unknown): value is ProviderUsage {
   );
 }
 
-function isSessionRecord(value: unknown): value is SessionRecord {
+function isSessionRecord(
+  value: unknown,
+  version: SessionFormatVersion = 2,
+): value is SessionRecord {
   if (!isRecord(value) || typeof value.type !== "string") {
     return false;
   }
   if (value.type === "message") {
-    return hasExactKeys(value, ["type", "message"]) && isCompletionMessage(value.message);
+    return (
+      hasExactKeys(value, ["type", "message"]) &&
+      isCompletionMessage(value.message, version)
+    );
   }
   if (value.type === "compaction") {
     return (
@@ -350,6 +376,16 @@ function parseSessionText(
   if (!header.ok) {
     return header;
   }
+  if (
+    isSessionHeaderShape(header.value) &&
+    !isSupportedSessionFormatVersion(header.value.version)
+  ) {
+    return failure(
+      "SUSAN_SESSION_SCHEMA",
+      "Unsupported Session Format Version",
+      filePath,
+    );
+  }
   if (!isSessionHeader(header.value)) {
     return failure("SUSAN_SESSION_SCHEMA", "Invalid session header", filePath);
   }
@@ -364,7 +400,7 @@ function parseSessionText(
       }
       return parsed;
     }
-    if (!isSessionRecord(parsed.value)) {
+    if (!isSessionRecord(parsed.value, header.value.version)) {
       return failure(
         "SUSAN_SESSION_SCHEMA",
         `Invalid session record on line ${index + 1}`,

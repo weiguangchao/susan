@@ -1,11 +1,13 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   buildSystemPrompt,
   createHarness,
   createReadTool,
+  createSessionStore,
 } from "../src/index.js";
 import type {
   CompletionMessage,
@@ -23,6 +25,12 @@ import type {
   SessionUsageRecord,
   SessionTranscript,
 } from "../src/index.js";
+
+const SESSION_FIXTURES_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "session",
+);
 
 async function waitFor(
   predicate: () => boolean,
@@ -97,6 +105,29 @@ function fakeSessionStore(
       throw new Error("not used by Harness");
     },
   };
+}
+
+async function transcriptFromFixture(
+  name: string,
+): Promise<SessionTranscript> {
+  const root = await mkdtemp(join(tmpdir(), "susan-harness-session-"));
+  const sessionsDirectory = join(root, "sessions");
+  await mkdir(sessionsDirectory, { mode: 0o700 });
+  const raw = await readFile(join(SESSION_FIXTURES_DIR, name), "utf8");
+  const header = JSON.parse(raw.split("\n")[0]!) as { id: string };
+  await writeFile(
+    join(sessionsDirectory, `20260101T000000Z-${header.id}.jsonl`),
+    raw,
+    { mode: 0o600 },
+  );
+  const loaded = await createSessionStore({ sessionsDirectory }).loadSession(
+    header.id,
+  );
+  await rm(root, { force: true, recursive: true });
+  if (!loaded.ok) {
+    throw new Error(loaded.error.message);
+  }
+  return loaded.value;
 }
 
 function fakeProvider(
@@ -265,7 +296,7 @@ describe("Harness", () => {
         {
           role: "assistant",
           toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "/tmp" } },
+            { id: "call-1", name: "read", arguments: { path: "/tmp" } },
           ],
         },
       ]),
@@ -982,6 +1013,279 @@ describe("Harness", () => {
     expect(appended).toEqual([
       { role: "assistant", content: "Resumed" },
     ]);
+  });
+
+  it("enters compatibility stop for a pending legacy read_file Tool Call", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    let executions = 0;
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "should not run" },
+                finishReason: "stop",
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore(appended),
+      session: await transcriptFromFixture("pending-legacy-read-file.jsonl"),
+      model: "model",
+      reasoningEffort: "high",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools: [
+        {
+          name: "read",
+          description: "read",
+          parameters: {},
+          async execute() {
+            executions += 1;
+            return { ok: true, result: { content: "x" } };
+          },
+        },
+      ],
+    });
+
+    expect(requests).toEqual([]);
+    expect(harness.getSnapshot()).toMatchObject({
+      status: "compatibility",
+      pending: { reason: "compatibility" },
+    });
+    expect(await harness.dispatch({ type: "retry" })).toMatchObject({
+      ok: false,
+      error: {
+        code: "HARNESS_INVALID_COMMAND",
+        message: "Legacy Tool Call cannot be replayed.",
+      },
+    });
+    expect(requests).toEqual([]);
+    expect(executions).toBe(0);
+    expect(appended).toEqual([]);
+  });
+
+  it("applies the same compatibility stop to an old awaiting-approval exit", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    let executions = 0;
+    const harness = createHarness({
+      provider: fakeProvider([], requests),
+      sessionStore: fakeSessionStore(appended),
+      session: await transcriptFromFixture("awaiting-approval-exit.jsonl"),
+      model: "model",
+      reasoningEffort: "high",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools: [
+        {
+          name: "read",
+          description: "read",
+          parameters: {},
+          async execute() {
+            executions += 1;
+            return { ok: true, result: { content: "secret" } };
+          },
+        },
+      ],
+    });
+
+    expect(harness.getSnapshot()).toMatchObject({
+      status: "compatibility",
+      pending: { reason: "compatibility" },
+    });
+    expect(await harness.dispatch({ type: "retry" })).toMatchObject({
+      ok: false,
+      error: { message: "Legacy Tool Call cannot be replayed." },
+    });
+    expect(requests).toEqual([]);
+    expect(executions).toBe(0);
+    expect(appended).toEqual([]);
+  });
+
+  it("keeps a restored new read Pending Agent Loop retryable without contacting the Provider", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    let executions = 0;
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Done reading." },
+                finishReason: "stop",
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore(appended),
+      session: await transcriptFromFixture("pending-read.jsonl"),
+      model: "model",
+      reasoningEffort: "high",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools: [
+        {
+          name: "read",
+          description: "read",
+          parameters: {},
+          async execute() {
+            executions += 1;
+            return { ok: true, result: { content: "# Agents\n" } };
+          },
+        },
+      ],
+    });
+
+    expect(requests).toEqual([]);
+    expect(harness.getSnapshot()).toMatchObject({
+      status: "pending",
+      pending: { reason: "restored" },
+    });
+    expect(await harness.dispatch({ type: "retry" })).toEqual({ ok: true });
+    expect(executions).toBe(1);
+    expect(requests).toHaveLength(1);
+    expect(appended.filter((message) => message.role === "tool")).toEqual([
+      {
+        role: "tool",
+        toolCallId: "call-1",
+        content: { ok: true, result: { content: "# Agents\n" } },
+      },
+    ]);
+  });
+
+  it("lets a compatibility stop accept a new instruction without replaying the legacy Tool Call", async () => {
+    const requests: ProviderRequest[] = [];
+    const appended: CompletionMessage[] = [];
+    let executions = 0;
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Understood." },
+                finishReason: "stop",
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore(appended),
+      session: await transcriptFromFixture("pending-legacy-read-file.jsonl"),
+      model: "model",
+      reasoningEffort: "high",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools: [
+        {
+          name: "read",
+          description: "read",
+          parameters: {},
+          async execute() {
+            executions += 1;
+            return { ok: true, result: { content: "x" } };
+          },
+        },
+      ],
+    });
+
+    expect(await harness.dispatch({ type: "submit", content: "Continue without that file." })).toEqual({
+      ok: true,
+    });
+    expect(executions).toBe(0);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages).toEqual(
+      expect.arrayContaining([
+        { role: "user", content: "Read AGENTS.md" },
+        expect.objectContaining({
+          role: "assistant",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "AGENTS.md" } },
+          ],
+        }),
+        { role: "user", content: "Continue without that file." },
+      ]),
+    );
+    expect(appended).toEqual([
+      { role: "user", content: "Continue without that file." },
+      { role: "assistant", content: "Understood." },
+    ]);
+  });
+
+  it("restores completed legacy read_file records into the next Model Context", async () => {
+    const requests: ProviderRequest[] = [];
+    const harness = createHarness({
+      provider: fakeProvider(
+        [
+          [
+            {
+              type: "response-complete",
+              response: {
+                assistant: { role: "assistant", content: "Still here." },
+                finishReason: "stop",
+              },
+            },
+          ],
+        ],
+        requests,
+      ),
+      sessionStore: fakeSessionStore([]),
+      session: await transcriptFromFixture("completed-legacy-read-file.jsonl"),
+      model: "model",
+      reasoningEffort: "high",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 1_000,
+      tools: [],
+    });
+
+    expect(requests).toEqual([]);
+    expect(harness.getSnapshot()).toMatchObject({
+      status: "idle",
+      pending: null,
+    });
+    expect(await harness.dispatch({ type: "submit", content: "Summarize that." })).toEqual({
+      ok: true,
+    });
+    expect(requests[0]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
+            { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
+          ],
+        }),
+        {
+          role: "tool",
+          toolCallId: "call-1",
+          content: {
+            ok: false,
+            error: {
+              code: "ENOENT",
+              message: "File not found",
+              path: "/workspace/missing.txt",
+            },
+          },
+        },
+        {
+          role: "tool",
+          toolCallId: "call-2",
+          content: { ok: true, result: { content: "# Agents\n" } },
+        },
+      ]),
+    );
   });
 
   it("interrupts active streaming and preserves only the last stable boundary", async () => {

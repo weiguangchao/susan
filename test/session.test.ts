@@ -9,7 +9,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSessionStore } from "../src/index.js";
 import type {
@@ -17,6 +18,12 @@ import type {
   SessionCompactionRecord,
   ProviderUsage,
 } from "../src/index.js";
+
+const SESSION_FIXTURES_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "session",
+);
 
 describe("session store", () => {
   let root: string;
@@ -28,6 +35,24 @@ describe("session store", () => {
   afterEach(async () => {
     await rm(root, { force: true, recursive: true });
   });
+
+  async function installSessionFixture(name: string) {
+    const sessionsDirectory = join(root, "sessions");
+    await mkdir(sessionsDirectory, { mode: 0o700 });
+    const raw = await readFile(join(SESSION_FIXTURES_DIR, name), "utf8");
+    const header = JSON.parse(raw.split("\n")[0]!) as { id: string };
+    const filePath = join(
+      sessionsDirectory,
+      `20260101T000000Z-${header.id}.jsonl`,
+    );
+    await writeFile(filePath, raw, { mode: 0o600 });
+    return {
+      store: createSessionStore({ sessionsDirectory }),
+      filePath,
+      raw,
+      sessionId: header.id,
+    };
+  }
 
   it("creates a versioned JSONL session with safe permissions", async () => {
     const sessionsDirectory = join(root, "sessions");
@@ -453,6 +478,85 @@ describe("session store", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: "SUSAN_SESSION_PERMISSION" },
+    });
+  });
+
+  it("loads completed legacy read_file records from a Session Format Version 1 fixture without rewriting it", async () => {
+    const { store, filePath, raw, sessionId } = await installSessionFixture(
+      "completed-legacy-read-file.jsonl",
+    );
+
+    const loaded = await store.loadSession(sessionId);
+
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      return;
+    }
+    expect(loaded.value.header.version).toBe(1);
+    expect(loaded.value.messages).toEqual([
+      { role: "user", content: "Read the missing file and AGENTS.md" },
+      {
+        role: "assistant",
+        content: "I will read both.",
+        toolCalls: [
+          { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
+          { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "call-1",
+        content: {
+          ok: false,
+          error: {
+            code: "ENOENT",
+            message: "File not found",
+            path: "/workspace/missing.txt",
+          },
+        },
+      },
+      {
+        role: "tool",
+        toolCallId: "call-2",
+        content: { ok: true, result: { content: "# Agents\n" } },
+      },
+      { role: "assistant", content: "AGENTS.md describes the workflow." },
+    ]);
+    expect(await readFile(filePath, "utf8")).toBe(raw);
+  });
+
+  it.each([
+    ["pending-legacy-read-file.jsonl", 1],
+    ["awaiting-approval-exit.jsonl", 1],
+    ["pending-read.jsonl", 2],
+  ] as const)(
+    "loads the %s fixture without rewriting historical JSONL",
+    async (name, version) => {
+      const { store, filePath, raw, sessionId } =
+        await installSessionFixture(name);
+
+      const loaded = await store.loadSession(sessionId);
+
+      expect(loaded.ok).toBe(true);
+      if (!loaded.ok) {
+        return;
+      }
+      expect(loaded.value.header.version).toBe(version);
+      expect(await readFile(filePath, "utf8")).toBe(raw);
+    },
+  );
+
+  it("rejects an unknown future Session Format Version fixture", async () => {
+    const { store, sessionId } = await installSessionFixture(
+      "future-session-format.jsonl",
+    );
+
+    expect(await store.loadSession(sessionId)).toMatchObject({
+      ok: false,
+      error: {
+        code: "SUSAN_SESSION_SCHEMA",
+        message: "Unsupported Session Format Version",
+      },
     });
   });
 });

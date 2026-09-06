@@ -1,0 +1,3 @@
+{"type":"session","version":1,"id":"22222222-2222-4222-8222-222222222222","createdAt":"2026-01-02T00:00:00.000Z","cwd":"/workspace"}
+{"type":"message","message":{"role":"user","content":"Read AGENTS.md"}}
+{"type":"message","message":{"role":"assistant","content":"I will read it.","toolCalls":[{"id":"call-1","name":"read_file","arguments":{"path":"AGENTS.md"}}]}}

@@ -4,7 +4,8 @@ import type {
   HarnessStatus,
   PendingAgentLoop,
 } from "../core/harness.js";
-import type { ToolResult } from "../core/tool-result.js";
+import { isRecord } from "../core/json.js";
+import { isToolResult, type ToolResult } from "../core/tool-result.js";
 import type {
   ProviderFailure,
   ReasoningEffort,
@@ -150,7 +151,7 @@ export function createTuiState(
   return {
     status: snapshot.status,
     messages: snapshot.messages.flatMap(messageToTuiMessages),
-    tools: [],
+    tools: toolsFromMessages(snapshot.messages),
     stream: null,
     retry: null,
     failure: null,
@@ -266,6 +267,26 @@ export function resolveInputIntent(
       return { type: "backspace" };
     }
     return { type: "insert", text: key.input };
+  }
+
+  if (state.status === "compatibility") {
+    if (state.input === "") {
+      if (key.input === "r") {
+        return {
+          type: "notice",
+          message: "旧 Tool Call 不可重放，请提交新的指令",
+        };
+      }
+      if (key.input === "n") {
+        return { type: "new-session" };
+      }
+      if (key.return) {
+        return {
+          type: "notice",
+          message: "旧 Tool Call 不可重放，请提交新的指令",
+        };
+      }
+    }
   }
 
   if (state.status === "pending") {
@@ -792,6 +813,59 @@ function reduceHarnessEvent(
   }
 }
 
+function toolResultFromContent(content: unknown): ToolResult | undefined {
+  if (isToolResult(content)) {
+    return content;
+  }
+  if (
+    isRecord(content) &&
+    content.ok === false &&
+    isRecord(content.error) &&
+    typeof content.error.code === "string" &&
+    typeof content.error.message === "string"
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: content.error.code,
+        message: content.error.message,
+      },
+    };
+  }
+  return undefined;
+}
+
+function toolsFromMessages(
+  messages: HarnessSnapshot["messages"],
+): readonly TuiToolCard[] {
+  const cards: TuiToolCard[] = [];
+  for (const [index, message] of messages.entries()) {
+    if (message.role !== "assistant" || message.toolCalls === undefined) {
+      continue;
+    }
+    const results = new Map(
+      messages
+        .slice(index + 1)
+        .filter((entry) => entry.role === "tool")
+        .map((entry) => [entry.toolCallId, entry.content]),
+    );
+    for (const toolCall of message.toolCalls) {
+      const result = toolResultFromContent(results.get(toolCall.id));
+      cards.push(
+        result === undefined
+          ? toolCall.name === "read_file"
+            ? {
+                ...toolCard(toolCall, "interrupted"),
+                summary: "旧 Tool Call 不可重放",
+              }
+            : toolCard(toolCall, "requested")
+          : completedToolCard(toolCall, result),
+      );
+    }
+  }
+  return cards;
+}
+
 function messageToTuiMessages(message: HarnessSnapshot["messages"][number]): TuiMessage[] {
   if (message.role === "user") {
     return [{ kind: "user", text: message.content }];
@@ -825,6 +899,9 @@ function finalizeStream(state: TuiState): readonly TuiMessage[] {
 }
 
 function pendingNotice(pending: PendingAgentLoop): string {
+  if (pending.reason === "compatibility") {
+    return "旧 Tool Call 不可重放，请提交新的指令";
+  }
   if (pending.reason === "restored") {
     return "上次响应未完成（Pending Agent Loop）";
   }
@@ -876,7 +953,7 @@ function completedToolCard(
 
   const value = result.result;
   if (
-    toolCall.name === "read" &&
+    (toolCall.name === "read" || toolCall.name === "read_file") &&
     typeof value === "object" &&
     value !== null &&
     typeof (value as Record<string, unknown>).content === "string"

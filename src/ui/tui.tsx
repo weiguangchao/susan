@@ -275,7 +275,12 @@ export function TuiApp({
 
   return (
     <Box flexDirection="column" height={rows} width={columns}>
-      {state.pending !== null && <PendingBanner notice={state.notice} />}
+      {state.pending !== null && (
+        <PendingBanner
+          notice={state.notice}
+          allowRetry={state.pending.reason !== "compatibility"}
+        />
+      )}
       <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingLeft={1}>
         {visibleMessages.map((message, index) => (
           <MessageView key={`message-${index}`} message={message} />
@@ -324,11 +329,18 @@ function isKeyboardProtocolResponse(input: string): boolean {
   return /^\x1b\[\?\d+u$/.test(input) || /^\[\?\d+u$/.test(input);
 }
 
-function PendingBanner({ notice }: { readonly notice: string | null }) {
+function PendingBanner({
+  notice,
+  allowRetry,
+}: {
+  readonly notice: string | null;
+  readonly allowRetry: boolean;
+}) {
   return (
     <Box paddingLeft={1}>
       <Text color="yellow">
-        ⚠ {notice ?? "上次响应未完成（Pending Agent Loop）"} · r 重试 · n 新对话
+        ⚠ {notice ?? "上次响应未完成（Pending Agent Loop）"} ·{" "}
+        {allowRetry ? "r 重试 · n 新对话" : "n 新对话"}
       </Text>
     </Box>
   );

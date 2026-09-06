@@ -152,6 +152,7 @@ export {
 } from "./core/provider.js";
 export type {
   SessionCompactionRecord,
+  SessionFormatVersion,
   SessionHeader,
   SessionMessageRecord,
   SessionRecord,

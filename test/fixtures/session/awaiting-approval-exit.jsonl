@@ -1,0 +1,3 @@
+{"type":"session","version":1,"id":"33333333-3333-4333-8333-333333333333","createdAt":"2026-01-03T00:00:00.000Z","cwd":"/workspace"}
+{"type":"message","message":{"role":"user","content":"Read secrets.env"}}
+{"type":"message","message":{"role":"assistant","content":"I need to read that file.","toolCalls":[{"id":"call-1","name":"read_file","arguments":{"path":"secrets.env"}}]}}

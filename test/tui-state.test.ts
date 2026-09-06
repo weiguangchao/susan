@@ -812,4 +812,106 @@ describe("TUI state", () => {
       isEmptySession({ messages: [{ role: "user", content: "hello" }] }),
     ).toBe(false);
   });
+
+  it("presents a compatibility stop and refuses retry", () => {
+    const state = initialState({
+      status: "compatibility",
+      pending: { reason: "compatibility" },
+      messages: [
+        { role: "user", content: "Read AGENTS.md" },
+        {
+          role: "assistant",
+          content: "I will read it.",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "AGENTS.md" } },
+          ],
+        },
+      ],
+    });
+
+    expect(state.notice).toBe("旧 Tool Call 不可重放，请提交新的指令");
+    expect(state.tools).toEqual([
+      {
+        id: "call-1",
+        name: "read_file",
+        detail: "AGENTS.md",
+        status: "interrupted",
+        summary: "旧 Tool Call 不可重放",
+      },
+    ]);
+    expect(resolveInputIntent(state, { input: "r" })).toEqual({
+      type: "notice",
+      message: "旧 Tool Call 不可重放，请提交新的指令",
+    });
+    expect(resolveInputIntent(state, { input: "n" })).toEqual({
+      type: "new-session",
+    });
+    expect(
+      resolveInputIntent(
+        {
+          ...state,
+          input: "继续",
+          inputCursor: { row: 0, column: 2 },
+        },
+        { input: "\r", return: true },
+      ),
+    ).toEqual({ type: "submit", content: "继续" });
+  });
+
+  it("restores completed legacy read_file records into TUI messages and Tool cards", () => {
+    const state = initialState({
+      messages: [
+        { role: "user", content: "Read the missing file and AGENTS.md" },
+        {
+          role: "assistant",
+          content: "I will read both.",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
+            { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
+          ],
+        },
+        {
+          role: "tool",
+          toolCallId: "call-1",
+          content: {
+            ok: false,
+            error: {
+              code: "ENOENT",
+              message: "File not found",
+              path: "/workspace/missing.txt",
+            },
+          },
+        },
+        {
+          role: "tool",
+          toolCallId: "call-2",
+          content: { ok: true, result: { content: "# Agents\n" } },
+        },
+        { role: "assistant", content: "AGENTS.md describes the workflow." },
+      ],
+    });
+
+    expect(state.messages).toEqual([
+      { kind: "user", text: "Read the missing file and AGENTS.md" },
+      { kind: "assistant", text: "I will read both." },
+      { kind: "assistant", text: "AGENTS.md describes the workflow." },
+    ]);
+    expect(state.tools).toEqual([
+      {
+        id: "call-1",
+        name: "read_file",
+        detail: "missing.txt",
+        status: "failed",
+        summary: "ENOENT · File not found",
+      },
+      {
+        id: "call-2",
+        name: "read_file",
+        detail: "AGENTS.md",
+        status: "completed",
+        summary: "已读 2 行 · 9 B",
+        preview: ["# Agents", ""],
+      },
+    ]);
+  });
 });

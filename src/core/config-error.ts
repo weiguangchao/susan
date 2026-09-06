@@ -18,7 +18,6 @@ const MINIMAL_CONFIG_EXAMPLE = `{
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-v4-flash",
   "defaultReasoningEffort": "high",
-  "approval": "ask",
   "providers": {
     "deepseek": {
       "type": "openai-completion",

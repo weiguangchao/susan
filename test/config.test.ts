@@ -8,14 +8,20 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   loadConfig,
-  parseApprovalFlags,
   updateConfigActiveModel,
 } from "../src/index.js";
 import type { JsonObject } from "../src/index.js";
+
+const MIGRATION_FIXTURES_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "migration",
+);
 
 describe("config loading", () => {
   let configRoot: string;
@@ -44,6 +50,14 @@ describe("config loading", () => {
     return configPath;
   }
 
+  async function writeFixtureConfig(filename: string): Promise<string> {
+    const fixturePath = join(MIGRATION_FIXTURES_DIR, filename);
+    const value = JSON.parse(
+      await readFile(fixturePath, "utf8"),
+    ) as JsonObject;
+    return writeConfig(value);
+  }
+
   it("merges empty defaults in memory without writing the config file", async () => {
     const value = {
       defaultProvider: "deepseek",
@@ -68,7 +82,6 @@ describe("config loading", () => {
       config: {
         defaultProvider: "deepseek",
         defaultModel: undefined,
-        approval: "ask",
         provider: {
           type: "openai-completion",
           apiKey: "sk-test",
@@ -189,13 +202,11 @@ describe("config loading", () => {
 
     const result = await loadConfig({
       configPath,
-      approval: "yolo",
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.config.defaultProvider).toBe("work");
-      expect(result.config.approval).toBe("yolo");
       expect(result.config.provider?.apiKey).toBe("sk-work");
       expect(result.config.provider?.baseURL.href).toBe(
         "https://gateway.example/v1",
@@ -227,7 +238,6 @@ describe("config loading", () => {
     const configPath = await writeConfig({
       version: 2,
       unknownField: true,
-      approval: "always",
       providers: {
         work: {
           type: "not-a-provider",
@@ -246,10 +256,41 @@ describe("config loading", () => {
       const paths = result.error.issues.map((issue) => issue.path);
       expect(paths).toContain("unknownField");
       expect(paths).toContain("version");
-      expect(paths).toContain("approval");
       expect(paths).toContain("providers.work.type");
       expect(paths).toContain("providers.work.baseURL");
       expect(paths).toContain("providers.work.baseUrl");
+    }
+  });
+
+  it("rejects the legacy approval field with a removal-oriented schema error", async () => {
+    const configPath = await writeFixtureConfig(
+      "legacy-approval-config.json",
+    );
+
+    const result = await loadConfig({ configPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("SUSAN_CONFIG_SCHEMA");
+      expect(result.error.issues).toEqual([
+        {
+          path: "approval",
+          code: "unsupported_field",
+          message: "The approval field is not supported and must be removed",
+        },
+      ]);
+    }
+  });
+
+  it("loads the yolo-only migration fixture without approval", async () => {
+    const configPath = await writeFixtureConfig("yolo-only-config.json");
+
+    const result = await loadConfig({ configPath });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.defaultProvider).toBe("deepseek");
+      expect("approval" in result.config).toBe(false);
     }
   });
 
@@ -396,7 +437,6 @@ describe("config loading", () => {
   it("persists an active model selection by merging the latest Config atomically", async () => {
     const configPath = await writeConfig({
       defaultProvider: "deepseek",
-      approval: "yolo",
       providers: {
         deepseek: {
           type: "openai-completion",
@@ -426,7 +466,6 @@ describe("config loading", () => {
       defaultProvider: "backup",
       defaultModel: "backup-model",
       defaultReasoningEffort: "high",
-      approval: "yolo",
     });
     expect(JSON.stringify(persisted)).not.toContain(original);
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
@@ -499,6 +538,8 @@ describe("config loading", () => {
     const blankResult = await loadConfig({ configPath: blankConfigPath });
     await writeFile(blankConfigPath, "{", "utf8");
     const parseResult = await loadConfig({ configPath: blankConfigPath });
+    await writeFile(blankConfigPath, "null", "utf8");
+    const nullResult = await loadConfig({ configPath: blankConfigPath });
 
     expect(missingResult).toMatchObject({
       ok: false,
@@ -511,6 +552,10 @@ describe("config loading", () => {
     expect(parseResult).toMatchObject({
       ok: false,
       error: { code: "SUSAN_CONFIG_PARSE" },
+    });
+    expect(nullResult).toMatchObject({
+      ok: false,
+      error: { code: "SUSAN_CONFIG_SCHEMA" },
     });
   });
 
@@ -557,32 +602,5 @@ describe("config loading", () => {
     });
 
     expect((await stat(configConfigPath)).mode & 0o777).toBe(0o640);
-  });
-});
-
-describe("approval flags", () => {
-  it("parses approval flags and rejects their conflict", () => {
-    expect(parseApprovalFlags(["--approval", "yolo"])).toEqual({
-      ok: true,
-      approval: "yolo",
-    });
-    expect(parseApprovalFlags(["--approval=ask"])).toEqual({
-      ok: true,
-      approval: "ask",
-    });
-    expect(parseApprovalFlags(["--yolo"])).toEqual({
-      ok: true,
-      approval: "yolo",
-    });
-
-    const conflict = parseApprovalFlags(["--approval", "ask", "--yolo"]);
-    expect(conflict).toEqual({
-      ok: false,
-      issue: {
-        path: "--approval/--yolo",
-        code: "flag_conflict",
-        message: "--approval and --yolo cannot be used together",
-      },
-    });
   });
 });

@@ -1,6 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
-  ApprovalPolicy,
   Config,
   ConfigError,
   ConfigIssue,
@@ -19,7 +18,6 @@ describe("shared type contracts", () => {
     const config = {
       defaultProvider: "deepseek",
       defaultModel: "deepseek-v4-flash",
-      approval: "ask",
       providers: {
         deepseek: {
           type: "openai-completion",
@@ -29,9 +27,9 @@ describe("shared type contracts", () => {
       },
     } satisfies Config;
     const issue = {
-      path: "approval",
-      code: "invalid_enum",
-      message: "approval must be ask or yolo",
+      path: "defaultModel",
+      code: "model_missing",
+      message: "defaultModel must belong to the default provider Model Catalog",
     } satisfies ConfigIssue;
     const error = {
       code: "SUSAN_CONFIG_SCHEMA",
@@ -39,7 +37,6 @@ describe("shared type contracts", () => {
       issues: [issue],
     } satisfies ConfigError;
 
-    expectTypeOf<ApprovalPolicy>().toEqualTypeOf<"ask" | "yolo">();
     expectTypeOf<ProviderType>().toEqualTypeOf<
       "anthropic" | "openai-completion" | "responses"
     >();

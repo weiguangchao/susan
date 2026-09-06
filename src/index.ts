@@ -7,7 +7,6 @@ export {
   resolveConfig,
   updateConfigActiveModel,
 } from "./config.js";
-export { parseApprovalFlags } from "./core/config.js";
 export { parseCli, formatCliError, CLI_USAGE } from "./core/cli.js";
 export { resolveSessionLaunch } from "./core/launch.js";
 export { formatConfigError } from "./core/config-error.js";
@@ -39,8 +38,6 @@ export type {
 } from "./core/picker.js";
 
 export type {
-  ApprovalPolicy,
-  ApprovalFlagsResult,
   Config,
   ConfigLoadOptions,
   ConfigError,

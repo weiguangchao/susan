@@ -24,8 +24,6 @@ import {
   REASONING_EFFORT_VALUES,
 } from "./provider.js";
 
-export type ApprovalPolicy = "ask" | "yolo";
-
 const providerTypeSchema = z.enum([
   "anthropic",
   "openai-completion",
@@ -83,7 +81,6 @@ const configSchema = z.strictObject({
   defaultProvider: providerAliasSchema.optional(),
   defaultModel: z.string().min(1).optional(),
   defaultReasoningEffort: reasoningEffortSchema.optional(),
-  approval: z.enum(["ask", "yolo"]).default("ask"),
   providers: z
     .record(providerAliasSchema, providerEntrySchema)
     .default({}),
@@ -131,7 +128,6 @@ export type ResolvedConfig = {
   defaultProvider?: string;
   defaultModel?: string;
   defaultReasoningEffort?: ReasoningEffort;
-  approval: ApprovalPolicy;
   providers: Readonly<Record<string, ResolvedProviderEntry>>;
   provider?: ResolvedProviderConfig;
   activeModel?: ActiveModelConfiguration;
@@ -165,12 +161,7 @@ export type ConfigResult =
 
 export type ConfigLoadOptions = {
   readonly configPath?: string;
-  readonly approval?: ApprovalPolicy;
 };
-
-export type ApprovalFlagsResult =
-  | { readonly ok: true; readonly approval?: ApprovalPolicy }
-  | { readonly ok: false; readonly issue: ConfigIssue };
 
 type ConfigFileResult =
   | { readonly ok: true; readonly config: Config }
@@ -347,12 +338,29 @@ async function readConfigFile(configPath: string): Promise<ConfigFileResult> {
   };
 }
 
+function hasApprovalField(config: Config): boolean {
+  return (
+    typeof config === "object" &&
+    config !== null &&
+    Object.prototype.hasOwnProperty.call(config, "approval")
+  );
+}
+
 export function resolveConfig(
   providerAdapters: ReadonlyMap<ProviderType, ProviderAdapter>,
   config: Config,
-  flags: { readonly approval?: ApprovalPolicy } = {},
   configPath: string = DEFAULT_CONFIG_PATH,
 ): ConfigResult {
+  if (hasApprovalField(config)) {
+    return configError(configPath, "SUSAN_CONFIG_SCHEMA", [
+      {
+        path: "approval",
+        code: "unsupported_field",
+        message: "The approval field is not supported and must be removed",
+      },
+    ]);
+  }
+
   const parsedResult = configSchema.safeParse(config);
 
   if (!parsedResult.success) {
@@ -503,7 +511,6 @@ export function resolveConfig(
       defaultProvider: parsed.defaultProvider,
       defaultModel: parsed.defaultModel,
       defaultReasoningEffort: parsed.defaultReasoningEffort,
-      approval: flags.approval ?? parsed.approval,
       providers: resolvedProviders,
       ...(resolvedProvider === undefined ? {} : { provider: resolvedProvider }),
       ...(activeModel === undefined ? {} : { activeModel }),
@@ -534,7 +541,6 @@ export async function loadConfig(
   return resolveConfig(
     providerAdapters,
     fileResult.config,
-    { approval: options.approval },
     configPath,
   );
 }
@@ -564,7 +570,7 @@ export async function updateConfigActiveModel(
     defaultModel: selection.model,
     defaultReasoningEffort: selection.reasoningEffort,
   };
-  const resolved = resolveConfig(providerAdapters, merged, {}, configPath);
+  const resolved = resolveConfig(providerAdapters, merged, configPath);
   if (!resolved.ok) {
     return resolved;
   }
@@ -589,62 +595,4 @@ export async function updateConfigActiveModel(
   }
 
   return resolved;
-}
-
-export function parseApprovalFlags(
-  args: readonly string[],
-): ApprovalFlagsResult {
-  let approval: ApprovalPolicy | undefined;
-  let yolo = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    if (arg === "--yolo") {
-      yolo = true;
-    } else if (arg === "--approval") {
-      const value = args[index + 1];
-      if (value !== "ask" && value !== "yolo") {
-        return {
-          ok: false,
-          issue: invalidApprovalFlagIssue(),
-        };
-      }
-      approval = value;
-      index += 1;
-    } else if (arg.startsWith("--approval=")) {
-      const value = arg.slice("--approval=".length);
-      if (value !== "ask" && value !== "yolo") {
-        return {
-          ok: false,
-          issue: invalidApprovalFlagIssue(),
-        };
-      }
-      approval = value;
-    }
-
-    if (approval !== undefined && yolo) {
-      return {
-        ok: false,
-        issue: {
-          path: "--approval/--yolo",
-          code: "flag_conflict",
-          message: "--approval and --yolo cannot be used together",
-        },
-      };
-    }
-  }
-
-  return {
-    ok: true,
-    approval: yolo ? "yolo" : approval,
-  };
-}
-
-function invalidApprovalFlagIssue(): ConfigIssue {
-  return {
-    path: "--approval",
-    code: "invalid_enum",
-    message: "--approval must be ask or yolo",
-  };
 }

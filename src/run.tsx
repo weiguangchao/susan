@@ -5,7 +5,7 @@ import {
   loadConfig,
   updateConfigActiveModel,
 } from "./config.js";
-import type { ApprovalPolicy, ConfigError, ResolvedConfig } from "./core/config.js";
+import type { ConfigError, ResolvedConfig } from "./core/config.js";
 import { formatCliError, parseCli, type ResumeMode } from "./core/cli.js";
 import { formatConfigError } from "./core/config-error.js";
 import { createHarness, type Harness } from "./core/harness.js";
@@ -50,7 +50,6 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const loadedConfig = await loadResolvedConfig(
-    parsed.flags.approval,
     parsed.flags.configPath,
   );
   if (!loadedConfig.ok) {
@@ -97,10 +96,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
         if (activeModel === undefined) {
           return { ok: false, message: "模型配置未完整" };
         }
-        config = {
-          ...updated.config,
-          approval: config.approval,
-        };
+        config = updated.config;
         return {
           ok: true,
           command: {
@@ -141,11 +137,10 @@ type ConfigStart =
   | { readonly ok: false; readonly exitCode: number };
 
 async function loadResolvedConfig(
-  approval: ApprovalPolicy | undefined,
   configPath: string | undefined,
 ): Promise<ConfigStart> {
   while (true) {
-    const loaded = await loadConfig({ approval, configPath });
+    const loaded = await loadConfig({ configPath });
     if (loaded.ok) {
       return { ok: true, config: loaded.config };
     }

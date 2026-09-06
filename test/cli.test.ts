@@ -6,7 +6,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLI_USAGE,
   createSessionPickerState,
@@ -18,6 +18,7 @@ import {
   resolveSessionLaunch,
   resolveSessionPickerIntent,
 } from "../src/index.js";
+import { runCli } from "../src/run.js";
 
 describe("CLI flags", () => {
   it("starts a new Session with no resume flags", () => {
@@ -29,28 +30,20 @@ describe("CLI flags", () => {
     });
   });
 
-  it("applies --yolo and --approval to Resolved Config", () => {
-    expect(parseCli(["--yolo"])).toEqual({
-      ok: true,
-      flags: {
-        approval: "yolo",
-        resume: { kind: "none" },
-      },
-    });
-    expect(parseCli(["--approval", "ask"])).toEqual({
-      ok: true,
-      flags: {
-        approval: "ask",
-        resume: { kind: "none" },
-      },
-    });
-    expect(parseCli(["--approval=yolo"])).toEqual({
-      ok: true,
-      flags: {
-        approval: "yolo",
-        resume: { kind: "none" },
-      },
-    });
+  it("rejects the removed approval flags as unknown arguments", () => {
+    for (const args of [
+      ["--yolo"],
+      ["--approval", "ask"],
+      ["--approval=yolo"],
+    ]) {
+      expect(parseCli(args)).toEqual({
+        ok: false,
+        error: {
+          code: "SUSAN_CLI_USAGE",
+          message: `Unknown argument: ${args[0]}`,
+        },
+      });
+    }
   });
 
   it("accepts a custom Config file path", () => {
@@ -61,10 +54,9 @@ describe("CLI flags", () => {
         resume: { kind: "none" },
       },
     });
-    expect(parseCli(["--config=/tmp/susan-config.json", "--yolo"])).toEqual({
+    expect(parseCli(["--config=/tmp/susan-config.json"])).toEqual({
       ok: true,
       flags: {
-        approval: "yolo",
         configPath: "/tmp/susan-config.json",
         resume: { kind: "none" },
       },
@@ -95,30 +87,18 @@ describe("CLI flags", () => {
         resume: { kind: "last" },
       },
     });
-    expect(parseCli(["--yolo", "--resume", "--last"])).toEqual({
+    expect(
+      parseCli(["--config=/tmp/susan-config.json", "--resume", "--last"]),
+    ).toEqual({
       ok: true,
       flags: {
-        approval: "yolo",
+        configPath: "/tmp/susan-config.json",
         resume: { kind: "last" },
       },
     });
   });
 
   it("rejects conflicting or unknown CLI flags", () => {
-    expect(parseCli(["--approval", "ask", "--yolo"])).toEqual({
-      ok: false,
-      error: {
-        code: "SUSAN_CLI_USAGE",
-        message: "--approval and --yolo cannot be used together",
-      },
-    });
-    expect(parseCli(["--approval", "maybe"])).toEqual({
-      ok: false,
-      error: {
-        code: "SUSAN_CLI_USAGE",
-        message: "--approval must be ask or yolo",
-      },
-    });
     expect(parseCli(["--last"])).toEqual({
       ok: false,
       error: {
@@ -171,6 +151,31 @@ describe("CLI flags", () => {
     const text = formatCliError(parsed.error);
     expect(text).toContain("susan: Unknown argument: --unknown");
     expect(text).toContain(CLI_USAGE);
+  });
+
+  it("returns nonzero and prints usage for every removed approval flag form", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    let captured = "";
+
+    try {
+      for (const args of [
+        ["--yolo"],
+        ["--approval", "ask"],
+        ["--approval=yolo"],
+      ]) {
+        expect(await runCli(args)).toBe(1);
+      }
+    } finally {
+      captured = stderr.mock.calls
+        .map((call) => String(call[0]))
+        .join("");
+      stderr.mockRestore();
+    }
+
+    expect(captured).toContain("Unknown argument");
+    expect(captured).toContain(CLI_USAGE);
   });
 });
 
@@ -299,7 +304,7 @@ describe("config error presentation", () => {
     expect(view.issues[0]?.message).toBe("Config file does not exist");
     expect(view.example).toContain('"defaultProvider": "deepseek"');
     expect(view.example).toContain('"defaultModel": "deepseek-v4-flash"');
-    expect(view.example).toContain('"approval": "ask"');
+    expect(view.example).not.toContain('"approval"');
     expect(view.example).toContain('"type": "openai-completion"');
     expect(view.example).toContain('"apiKey": "sk-..."');
     expect(view.example).toContain('"baseURL": "https://api.deepseek.com"');

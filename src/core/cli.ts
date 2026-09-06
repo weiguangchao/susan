@@ -1,5 +1,3 @@
-import { parseApprovalFlags, type ApprovalPolicy } from "./config.js";
-
 export type ResumeMode =
   | { readonly kind: "none" }
   | { readonly kind: "picker" }
@@ -7,7 +5,6 @@ export type ResumeMode =
   | { readonly kind: "id"; readonly id: string };
 
 export type CliFlags = {
-  readonly approval?: ApprovalPolicy;
   readonly configPath?: string;
   readonly resume: ResumeMode;
 };
@@ -22,7 +19,7 @@ export type CliParseResult =
   | { readonly ok: false; readonly error: CliError };
 
 export const CLI_USAGE = `Usage:
-  susan [--config <path>] [--approval ask|yolo | --yolo] [--resume | --resume <id> | --resume --last]`;
+  susan [--config <path>] [--resume | --resume <id> | --resume --last]`;
 
 function usageError(message: string): CliParseResult {
   return {
@@ -43,7 +40,6 @@ export function formatCliError(error: CliError): string {
 }
 
 export function parseCli(args: readonly string[]): CliParseResult {
-  const approvalArgs: string[] = [];
   let resumeSeen = false;
   let resumeId: string | undefined;
   let resumeLast = false;
@@ -52,10 +48,6 @@ export function parseCli(args: readonly string[]): CliParseResult {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
-    if (arg === "--yolo") {
-      approvalArgs.push(arg);
-      continue;
-    }
     if (arg === "--config") {
       const value = args[index + 1];
       if (value === undefined || isFlag(value)) {
@@ -77,19 +69,6 @@ export function parseCli(args: readonly string[]): CliParseResult {
         return usageError("--config can only be specified once");
       }
       configPath = value;
-      continue;
-    }
-    if (arg === "--approval") {
-      approvalArgs.push(arg);
-      const value = args[index + 1];
-      if (value !== undefined) {
-        approvalArgs.push(value);
-        index += 1;
-      }
-      continue;
-    }
-    if (arg.startsWith("--approval=")) {
-      approvalArgs.push(arg);
       continue;
     }
     if (arg === "--resume") {
@@ -114,11 +93,6 @@ export function parseCli(args: readonly string[]): CliParseResult {
     return usageError(`Unknown argument: ${arg}`);
   }
 
-  const approvalResult = parseApprovalFlags(approvalArgs);
-  if (!approvalResult.ok) {
-    return usageError(approvalResult.issue.message);
-  }
-
   if (resumeLast && !resumeSeen) {
     return usageError("--last requires --resume");
   }
@@ -140,9 +114,6 @@ export function parseCli(args: readonly string[]): CliParseResult {
   return {
     ok: true,
     flags: {
-      ...(approvalResult.approval === undefined
-        ? {}
-        : { approval: approvalResult.approval }),
       ...(configPath === undefined ? {} : { configPath }),
       resume,
     },

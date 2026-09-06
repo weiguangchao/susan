@@ -4,8 +4,12 @@
   "providers": {
     "deepseek": {
       "type": "openai-completion",
-      "apiKey": "sk-...",
-      "baseURL": "https://api.deepseek.com"
+      "apiKey": "sk-test",
+      "models": [
+        {
+          "id": "deepseek-v4-flash"
+        }
+      ]
     }
   }
 }

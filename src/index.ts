@@ -86,6 +86,17 @@ export type {
   ToolResultMeta,
   ToolTruncationReason,
 } from "./core/tool-result.js";
+export { observeReplacementTarget, replaceFile } from "./core/file-replacement.js";
+export type {
+  FileReplacementBaseline,
+  FileReplacementError,
+  FileReplacementErrorCode,
+  FileReplacementHooks,
+  FileReplacementIdentity,
+  FileReplacementOptions,
+  FileReplacementResult,
+  FileReplacementSuccess,
+} from "./core/file-replacement.js";
 export { createSessionPathResolver } from "./core/path-resolver.js";
 export type {
   CwdRelation,

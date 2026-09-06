@@ -154,6 +154,22 @@ export type {
   ReadFileTruncationReason,
 } from "./core/read-file.js";
 export {
+  BASH_COMMAND_MAX_BYTES,
+  BASH_DEFAULT_TIMEOUT_MS,
+  BASH_KILL_GRACE_MS,
+  BASH_MAX_TIMEOUT_MS,
+  BASH_MIN_TIMEOUT_MS,
+  createBashTool,
+  executeBash,
+} from "./core/bash.js";
+export type {
+  BashErrorCode,
+  BashTermination,
+  BashTerminationScope,
+  BashTool,
+  BashToolOptions,
+} from "./core/bash.js";
+export {
   CANONICAL_SYSTEM_PROMPT,
   buildSystemPrompt,
   createHarness,

@@ -253,6 +253,18 @@ export type {
   GrepToolOptions,
 } from "./core/grep.js";
 export {
+  FIND_DEFAULT_LIMIT,
+  FIND_DEFAULT_TIMEOUT_MS,
+  FIND_MAX_LIMIT,
+  createFindTool,
+  executeFind,
+} from "./core/find.js";
+export type {
+  FindErrorCode,
+  FindTool,
+  FindToolOptions,
+} from "./core/find.js";
+export {
   CANONICAL_SYSTEM_PROMPT,
   buildSystemPrompt,
   createHarness,

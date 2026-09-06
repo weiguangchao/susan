@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   createTuiState,
   createModelPickerState,
@@ -10,7 +10,12 @@ import {
   resolveModelPickerIntent,
   resolveSubmission,
 } from "../src/index.js";
-import type { ProviderToolCall } from "../src/index.js";
+import type {
+  ProviderToolCall,
+  TuiInputIntent,
+  TuiState,
+  TuiToolStatus,
+} from "../src/index.js";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
@@ -36,6 +41,16 @@ function initialState(
 }
 
 describe("TUI state", () => {
+  it("does not expose approval concepts in its public contracts", () => {
+    expectTypeOf<
+      Extract<TuiToolStatus, "waiting-approval" | "denied">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<TuiInputIntent["type"], "approve-approval" | "deny-approval">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<Extract<keyof TuiState, "approval">>().toEqualTypeOf<never>();
+  });
+
   it("supports Ctrl+J multiline input and Enter submission", () => {
     let state = initialState();
     state = reduceTuiState(state, {
@@ -725,6 +740,118 @@ describe("TUI state", () => {
       id: toolCall.id,
       status: "running",
       summary: "执行中",
+    });
+  });
+
+  it("advances a Tool from requested through running to completed under Yolo", () => {
+    let state = initialState({ status: "running" });
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: {
+        type: "tool-call-delta",
+        index: 0,
+        id: toolCall.id,
+        name: toolCall.name,
+        argumentsDelta: '{"path":"/tmp/example.txt"}',
+      },
+    });
+    expect(state.tools[0]).toMatchObject({
+      status: "requested",
+      summary: "等待执行",
+    });
+    expect(state).not.toHaveProperty("approval");
+
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: { type: "tool-started", toolCall },
+    });
+    expect(state.tools[0]).toMatchObject({
+      status: "running",
+      summary: "执行中",
+    });
+
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall,
+        result: {
+          ok: true,
+          result: {
+            resolvedPath: "/tmp/example.txt",
+            realTargetPath: "/tmp/example.txt",
+            cwdRelation: "inside",
+            content: "line one\nline two",
+            range: { startLine: 1, endLine: 2 },
+            totalLines: 2,
+            sizeBytes: 17,
+            bom: false,
+            lineEnding: "lf",
+          },
+        },
+      },
+    });
+    expect(state.tools[0]).toMatchObject({
+      status: "completed",
+      summary: "已读 2 行 · 17 B",
+    });
+  });
+
+  it("advances a Tool from requested through running to failed under Yolo", () => {
+    let state = initialState({ status: "running" });
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: {
+        type: "tool-call-delta",
+        index: 0,
+        id: toolCall.id,
+        name: toolCall.name,
+        argumentsDelta: '{"path":"/tmp/missing.txt"}',
+      },
+    });
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: { type: "tool-started", toolCall },
+    });
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall,
+        result: {
+          ok: false,
+          error: { code: "ENOENT", message: "文件不存在" },
+        },
+      },
+    });
+
+    expect(state.tools[0]).toMatchObject({
+      status: "failed",
+      summary: "ENOENT · 文件不存在",
+    });
+    expect(state.tools[0]?.status).not.toBe("denied");
+  });
+
+  it("does not treat Enter or Escape as approval shortcuts while a Tool is requested", () => {
+    const state = reduceTuiState(initialState({ status: "running" }), {
+      type: "harness-event",
+      event: {
+        type: "tool-call-delta",
+        index: 0,
+        id: toolCall.id,
+        name: toolCall.name,
+        argumentsDelta: "{}",
+      },
+    });
+
+    expect(
+      resolveInputIntent(state, { input: "\r", return: true }),
+    ).toEqual({ type: "notice", message: "生成中 · Ctrl+C 可中断" });
+    expect(resolveInputIntent(state, { input: "", escape: true }).type).toBe(
+      "insert",
+    );
+    expect(resolveInputIntent(state, { input: "c", ctrl: true })).toEqual({
+      type: "interrupt",
     });
   });
 

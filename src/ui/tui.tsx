@@ -379,7 +379,7 @@ function MessageView({ message }: { readonly message: TuiMessage }) {
   return <Text color="red">⚠ {message.text}</Text>;
 }
 
-function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
+export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
   const color =
     tool.status === "completed"
       ? "green"

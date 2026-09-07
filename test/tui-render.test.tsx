@@ -176,12 +176,10 @@ describe("TUI activity slot", () => {
       status: "running",
       notice: "notice",
     })).toBe(" ⚠ Provider 请求失败 · PROVIDER_HTTP · failed");
-    expect(renderActivity({ input: "/m", status: "running", notice: "notice" })).toBe(
-      " ▍ 生成中",
-    );
+    expect(renderActivity({ input: "/m", status: "running", notice: "notice" })).toBe("");
     expect(renderActivity({ input: "/m", notice: "notice" })).toBe(" › /model 模型");
     expect(renderActivity({ notice: "notice" })).toBe(" ⓘ notice");
-    expect(renderActivity()).toBe(" 空闲");
+    expect(renderActivity()).toBe("");
   });
 
   it("lets a Pending Slash Query replace its notice", () => {
@@ -218,7 +216,7 @@ describe("TUI activity slot", () => {
     emit({ type: "session-usage-updated", sessionTotalTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("▍ 生成中");
+    expect(latestVisibleFrame(frames)).toContain("Working...");
     expect(latestVisibleFrame(frames)).toContain("❯ /m");
     expect(latestVisibleFrame(frames)).not.toContain("› /model 模型");
 
@@ -240,7 +238,7 @@ describe("TUI activity slot", () => {
       modelPickerActive: true,
     };
 
-    expect(renderActivity(state)).toBe(" 空闲");
+    expect(renderActivity(state)).toBe("");
     expect(state.input).toBe("/z");
     expect(renderActivity({ ...state, modelPickerActive: false })).toBe(" 无匹配");
   });

@@ -76,6 +76,9 @@ export function TuiApp({
   const stateRef = useRef(state);
   const modelPickerStateRef = useRef(modelPickerState);
   const now = useNow(state.retry !== null);
+  const inputWorking =
+    state.status === "running" && state.retry === null && state.failure === null;
+  const activityPhase = useActivityPhase(inputWorking);
 
   stateRef.current = state;
   modelPickerStateRef.current = modelPickerState;
@@ -302,6 +305,8 @@ export function TuiApp({
           columns={columns}
           screenRows={rows}
           maxRows={maxInputRows}
+          working={inputWorking}
+          activityPhase={activityPhase}
         />
       )}
       <StatusBar state={state} />
@@ -326,6 +331,18 @@ function useNow(active: boolean): number {
     return () => clearInterval(timer);
   }, [active]);
   return now;
+}
+
+function useActivityPhase(active: boolean): number {
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const timer = setInterval(() => setPhase((current) => current + 1), 180);
+    return () => clearInterval(timer);
+  }, [active]);
+  return phase;
 }
 
 function isKeyboardProtocolResponse(input: string): boolean {
@@ -490,11 +507,7 @@ export function ActivityLine({
     );
   }
   if (state.status === "running") {
-    return (
-      <Box paddingLeft={1}>
-        <Text color="yellow">▍ 生成中</Text>
-      </Box>
-    );
+    return null;
   }
   const slashCommandMenu = resolveSlashCommandMenu(state);
   if (slashCommandMenu.visible) {
@@ -507,11 +520,7 @@ export function ActivityLine({
       </Box>
     );
   }
-  return (
-    <Box paddingLeft={1} flexShrink={0}>
-      <Text dimColor>空闲</Text>
-    </Box>
-  );
+  return null;
 }
 
 export function SlashCommandMenuView({
@@ -564,12 +573,16 @@ function ImeInputLine({
   columns,
   screenRows,
   maxRows,
+  working,
+  activityPhase,
 }: {
   readonly input: string;
   readonly cursor: TuiState["inputCursor"];
   readonly columns: number;
   readonly screenRows: number;
   readonly maxRows: number;
+  readonly working: boolean;
+  readonly activityPhase: number;
 }) {
   const { stdout } = useStdout();
   const { setCursorPosition } = useCursor();
@@ -597,6 +610,8 @@ function ImeInputLine({
       cursor={cursor}
       columns={columns}
       maxRows={maxRows}
+      working={working}
+      activityPhase={activityPhase}
     />
   );
 }
@@ -606,40 +621,104 @@ export function InputLine({
   cursor,
   columns = 80,
   maxRows = 10,
+  working = false,
+  activityPhase = 0,
 }: {
   readonly input: string;
   readonly cursor: TuiState["inputCursor"];
   readonly columns?: number;
   readonly maxRows?: number;
+  readonly working?: boolean;
+  readonly activityPhase?: number;
 }) {
   const boxWidth = inputBoxWidth(columns);
   const contentWidth = inputContentWidth(columns);
   const rows = layoutInput(input, cursor, contentWidth, maxRows);
   return (
-    <Box
-      borderStyle="round"
-      width={boxWidth}
-      height={rows.length + 2}
-      overflow="hidden"
-      flexDirection="column"
-      flexShrink={0}
-    >
+    <Box flexDirection="column" flexShrink={0}>
+      <InputTopBorder
+        width={boxWidth}
+        working={working}
+        phase={activityPhase}
+      />
       <Box
-        flexDirection="column"
-        width={Math.max(1, boxWidth - 2)}
-        height={rows.length}
+        borderStyle="round"
+        borderTop={false}
+        width={boxWidth}
+        height={rows.length + 1}
         overflow="hidden"
-        paddingLeft={1}
-        paddingRight={1}
+        flexDirection="column"
+        flexShrink={0}
       >
-        {rows.map((row, index) => (
-          <Text key={`input-${index}`} wrap="truncate-end">
-            {index === 0 ? "❯ " : "  "}
-            {row.text}
-          </Text>
-        ))}
+        <Box
+          flexDirection="column"
+          width={Math.max(1, boxWidth - 2)}
+          height={rows.length}
+          overflow="hidden"
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          {rows.map((row, index) => (
+            <Text key={`input-${index}`} wrap="truncate-end">
+              {index === 0 ? "❯ " : "  "}
+              {row.text}
+            </Text>
+          ))}
+        </Box>
       </Box>
     </Box>
+  );
+}
+
+const WORKING_LABEL = "Working...";
+const WORKING_OFFSET = 4;
+const WORKING_PALETTE = [
+  "#42646c",
+  "#568894",
+  "#73b9ca",
+  "#bdf5ff",
+  "#73b9ca",
+  "#568894",
+] as const;
+
+export function workingColorAt(index: number, phase: number): string {
+  const colorIndex =
+    ((index - phase) % WORKING_PALETTE.length + WORKING_PALETTE.length) %
+    WORKING_PALETTE.length;
+  return WORKING_PALETTE[colorIndex]!;
+}
+
+function InputTopBorder({
+  width,
+  working,
+  phase,
+}: {
+  readonly width: number;
+  readonly working: boolean;
+  readonly phase: number;
+}) {
+  const innerWidth = Math.max(0, width - 2);
+  if (!working) {
+    return <Text>╭{"─".repeat(innerWidth)}╮</Text>;
+  }
+  const occupiedWidth = WORKING_OFFSET + WORKING_LABEL.length + 2;
+  return (
+    <Text>
+      ╭{"─".repeat(WORKING_OFFSET)}{" "}
+      <Text bold>
+        {[...WORKING_LABEL].map((character, index) => {
+          return (
+            <Text
+              key={`${index}-${character}`}
+              color={workingColorAt(index, phase)}
+            >
+              {character}
+            </Text>
+          );
+        })}
+      </Text>{" "}
+      {"─".repeat(Math.max(0, innerWidth - occupiedWidth))}╮
+    </Text>
   );
 }
 

@@ -3,7 +3,12 @@ import stringWidth from "string-width";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { createTuiState, resolveSlashCommandMenu } from "../src/index.js";
-import { ActivityLine, InputLine, SlashCommandMenuView } from "../src/ui/tui.js";
+import {
+  ActivityLine,
+  InputLine,
+  SlashCommandMenuView,
+  workingColorAt,
+} from "../src/ui/tui.js";
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -156,7 +161,7 @@ describe("TUI input", () => {
     }
   });
 
-  it("shows only the idle fallback when the menu is not visible", () => {
+  it("does not render an idle fallback when the menu is not visible", () => {
     const state = createTuiState({
       status: "idle",
       sessionId: "session-1",
@@ -172,7 +177,7 @@ describe("TUI input", () => {
       renderToString(<ActivityLine state={state} now={0} />, { columns: 80 }),
     );
 
-    expect(output).toBe(" 空闲");
+    expect(output).toBe("");
     expect(output).not.toContain("/exit");
     expect(output).not.toContain("命令");
   });
@@ -183,15 +188,48 @@ describe("TUI input", () => {
       cursor: { row: 1, column: 6 },
       columns: 30,
       maxRows: 5,
-    }) as ReactElement<{ children: ReactNode; borderStyle?: string }>;
-    const viewport = Children.only(frame.props.children) as ReactElement<{
+    }) as ReactElement<{ children: ReactNode }>;
+    const body = Children.toArray(frame.props.children)[1] as ReactElement<{
+      borderStyle?: string;
+      borderTop?: boolean;
+      children: ReactNode;
+    }>;
+    const viewport = Children.only(body.props.children) as ReactElement<{
       overflow?: string;
       children: ReactNode;
     }>;
 
-    expect(frame.props.borderStyle).toBe("round");
+    expect(body.props.borderStyle).toBe("round");
+    expect(body.props.borderTop).toBe(false);
     expect(viewport.props.overflow).toBe("hidden");
     expect(Children.count(viewport.props.children)).toBe(2);
+  });
+
+  it("embeds a stationary left-to-right colour wave in the input border", () => {
+    const renderAt = (activityPhase: number) =>
+      renderToString(
+        <InputLine
+          input=""
+          cursor={{ row: 0, column: 0 }}
+          columns={40}
+          working
+          activityPhase={activityPhase}
+        />,
+        { columns: 40 },
+      );
+    const firstPhase = renderAt(0);
+    const nextPhase = renderAt(1);
+    const idle = renderToString(
+      <InputLine input="" cursor={{ row: 0, column: 0 }} columns={40} />,
+      { columns: 40 },
+    );
+
+    expect(stripAnsi(firstPhase)).toBe(stripAnsi(nextPhase));
+    expect(stripAnsi(firstPhase)).toContain("╭──── Working... ");
+    expect(workingColorAt(0, 0)).not.toBe(workingColorAt(0, 1));
+    expect(workingColorAt(0, 0)).toBe(workingColorAt(1, 1));
+    expect(workingColorAt(0, 60)).toBe(workingColorAt(0, 0));
+    expect(stripAnsi(idle)).not.toContain("Working...");
   });
 
   it("renders the cursor without moving the surrounding characters", () => {

@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts --config .",
     "prototype": "tsx prototype/tui-prototype.tsx",
+    "prototype:slash-menu": "tsx prototype/slash-menu-list-prototype.tsx",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

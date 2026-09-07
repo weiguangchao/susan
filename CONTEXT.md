@@ -196,6 +196,26 @@ _Avoid_: effective config, merged config
 当前 Harness 请求使用的 provider、model 与 Reasoning Effort；三者完整时才可发起请求，提交或重试时若任一项缺失则打开 `/model` 选择器。`/model` 只在 Agent Loop 空闲或 Pending 时切换。
 _Avoid_: session model, transient model, per-message model
 
+**Slash Command**:
+TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/exit`、`/new`、`/model`，没有隐藏别名。
+_Avoid_: command, slash, 斜杠指令, `/clear`
+
+**Slash Command Label**:
+规范名旁的短展示名；不是身份，也不用于过滤候选。
+_Avoid_: description, shortLabel, 命令说明
+
+**Slash Query**:
+整段输入为单行、以 ASCII `/` 开头、且不含空白时的输入形状；与光标位置无关。它是 Slash Command Menu 可见的必要条件，不是充分条件。
+_Avoid_: slash prefix, filter text, command query
+
+**Slash Command Menu**:
+由 Slash Query 派生的 Slash Command 候选列表，不是带开关的独立模式。可见当且仅当输入为 Slash Query，且 Agent Loop 未在进行，且 `/model` 选择器未打开；可见时输入框里的 Slash Query 就是过滤条件，不显示时 Slash Query 仍留在输入框。它是列出 Slash Command 目录的唯一 TUI 表面：可见时独占输入框上方的活动槽；该槽空闲且菜单未显示时只显示「空闲」，不列出命令。
+_Avoid_: command palette, hint bar, 操作台, 命令选择界面, CommandHintLine
+
+**Selected Slash Command**:
+Slash Command Menu 可见且过滤后候选非空时，当前被选中的那一项 Slash Command；菜单未显示或候选为空时不存在。
+_Avoid_: highlighted row, focused command, active index
+
 **Config Error**:
 Config 读取 / 解析 / strict schema / 权限 / provider 选择失败时产生的结构化错误，带 code 与字段 path。
 _Avoid_: validation exception, config warning

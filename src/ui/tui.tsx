@@ -733,8 +733,7 @@ function StatusBar({ state }: { readonly state: TuiState }) {
       flexShrink={0}
     >
       <Text dimColor>
-        {formatTokenCount(state.sessionTotalTokens)} /{" "}
-        {percentage.toFixed(1)}%
+        {formatTokenCount(state.sessionTotalTokens)}/{percentage.toFixed(1)}%
       </Text>
       <Text dimColor>
         {state.model ?? "未设置"} · {state.reasoningEffort ?? "未设置"}

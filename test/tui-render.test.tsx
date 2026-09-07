@@ -135,6 +135,33 @@ const provider = {
   type: "openai-completion",
 } as ProviderClient;
 
+describe("TUI status bar", () => {
+  it("renders token usage without spaces around the slash", async () => {
+    const { harness } = createEventHarness(
+      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+    );
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("25k/19.7%");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+});
+
 describe("TUI activity slot", () => {
   function renderActivity(
     overrides: Partial<ReturnType<typeof createTuiState>> = {},

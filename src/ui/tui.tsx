@@ -73,6 +73,7 @@ export function TuiApp({
   );
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const { rows, columns } = useTerminalDimensions(stdout);
   const stateRef = useRef(state);
   const modelPickerStateRef = useRef(modelPickerState);
   const now = useNow(state.retry !== null);
@@ -215,9 +216,6 @@ export function TuiApp({
     [applyModelSelection, dispatch, harness],
   );
 
-  const rows = stdout?.rows && stdout.rows > 0 ? stdout.rows : 24;
-  const columns =
-    stdout?.columns && stdout.columns > 0 ? stdout.columns : 80;
   const inputWidth = inputContentWidth(columns);
   const maxInputRows = Math.max(
     1,
@@ -312,6 +310,45 @@ export function TuiApp({
       <StatusBar state={state} />
     </Box>
   );
+}
+
+type TerminalDimensions = {
+  readonly rows: number;
+  readonly columns: number;
+};
+
+function readTerminalDimensions(stdout: NodeJS.WriteStream): TerminalDimensions {
+  return {
+    rows: stdout.rows > 0 ? stdout.rows : 24,
+    columns: stdout.columns > 0 ? stdout.columns : 80,
+  };
+}
+
+function useTerminalDimensions(
+  stdout: NodeJS.WriteStream,
+): TerminalDimensions {
+  const [dimensions, setDimensions] = useState(() =>
+    readTerminalDimensions(stdout),
+  );
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      const next = readTerminalDimensions(stdout);
+      setDimensions((current) =>
+        current.rows === next.rows && current.columns === next.columns
+          ? current
+          : next,
+      );
+    };
+
+    updateDimensions();
+    stdout.on("resize", updateDimensions);
+    return () => {
+      stdout.off("resize", updateDimensions);
+    };
+  }, [stdout]);
+
+  return dimensions;
 }
 
 function createHarnessState(
@@ -733,7 +770,7 @@ function StatusBar({ state }: { readonly state: TuiState }) {
       flexShrink={0}
     >
       <Text dimColor>
-        {formatTokenCount(state.sessionTotalTokens)}/{percentage.toFixed(1)}%
+        {percentage.toFixed(1)}%/{formatTokenCount(state.sessionTotalTokens)}
       </Text>
       <Text dimColor>
         {state.model ?? "未设置"} · {state.reasoningEffort ?? "未设置"}

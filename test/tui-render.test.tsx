@@ -136,7 +136,7 @@ const provider = {
 } as ProviderClient;
 
 describe("TUI status bar", () => {
-  it("renders token usage without spaces around the slash", async () => {
+  it("renders the percentage before token usage without slash spaces", async () => {
     const { harness } = createEventHarness(
       idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
     );
@@ -155,7 +155,7 @@ describe("TUI status bar", () => {
     );
 
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("25k/19.7%");
+    expect(latestVisibleFrame(frames)).toContain("19.7%/25k");
 
     instance.unmount();
     await instance.waitUntilExit();

@@ -64,6 +64,16 @@ function terminalOutput(onWrite: (chunk: string) => void): NodeJS.WriteStream {
   return output as unknown as NodeJS.WriteStream;
 }
 
+function tallTerminalOutput(
+  onWrite: (chunk: string) => void,
+): NodeJS.WriteStream {
+  const output = terminalOutput(onWrite) as NodeJS.WriteStream & {
+    rows: number;
+  };
+  output.rows = 40;
+  return output;
+}
+
 function latestVisibleFrame(frames: readonly string[]): string {
   return frames.findLast((frame) => frame.trim() !== "") ?? "";
 }
@@ -156,6 +166,84 @@ describe("TUI status bar", () => {
 
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).toContain("19.7%/25k");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+});
+
+describe("TUI completed output history", () => {
+  it("keeps every completed message available when later output has been appended", async () => {
+    const { harness } = createEventHarness(
+      idleSnapshot({
+        messages: Array.from({ length: 21 }, (_, index) => ({
+          role: "user" as const,
+          content: `history-${index}`,
+        })),
+      }),
+    );
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = tallTerminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    const completedOutput = frames.join("");
+    expect(completedOutput).toContain("history-0");
+    expect(completedOutput).toContain("history-20");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+
+  it("keeps every completed Tool record available after more than eight calls", async () => {
+    const toolCalls = Array.from({ length: 9 }, (_, index) => ({
+      id: `history-tool-${index}`,
+      name: "bash",
+      arguments: { command: `command-${index}` },
+    }));
+    const { harness } = createEventHarness(
+      idleSnapshot({
+        messages: [
+          { role: "assistant", toolCalls },
+          ...toolCalls.map((toolCall, index) => ({
+            role: "tool" as const,
+            toolCallId: toolCall.id,
+            content: {
+              ok: false as const,
+              error: { code: "EEXIT", message: `failure-${index}` },
+            },
+          })),
+        ],
+      }),
+    );
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = tallTerminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    const completedOutput = frames.join("");
+    expect(completedOutput).toContain("command-0");
+    expect(completedOutput).toContain("command-8");
 
     instance.unmount();
     await instance.waitUntilExit();
@@ -378,6 +466,7 @@ describe("TUI Tool rendering", () => {
     expect(running).toContain("执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
 
+    frames.length = 0;
     emit({
       type: "tool-completed",
       toolCall,
@@ -398,7 +487,7 @@ describe("TUI Tool rendering", () => {
     });
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    const completed = latestVisibleFrame(frames);
+    const completed = frames.join("");
     expect(completed).toContain("已读 2 行 · 17 B");
     expect(approvalPromptFragments(completed)).toEqual([]);
     expect(commands).toEqual([]);
@@ -456,6 +545,7 @@ describe("TUI Tool rendering", () => {
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).toContain("执行中");
 
+    frames.length = 0;
     emit({
       type: "tool-completed",
       toolCall,
@@ -466,7 +556,7 @@ describe("TUI Tool rendering", () => {
     });
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    const failed = latestVisibleFrame(frames);
+    const failed = frames.join("");
     expect(failed).toContain("ENOENT · 文件不存在");
     expect(approvalPromptFragments(failed)).toEqual([]);
 

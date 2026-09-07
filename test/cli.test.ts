@@ -20,7 +20,27 @@ import {
   resolveSessionLaunch,
   resolveSessionPickerIntent,
 } from "../src/index.js";
-import { runCli } from "../src/run.js";
+import {
+  CLEAR_TERMINAL_SEQUENCE,
+  clearTerminal,
+  runCli,
+} from "../src/run.js";
+
+describe("CLI terminal startup", () => {
+  it("clears the screen and scrollback exactly once before Ink takes over", () => {
+    const writes: string[] = [];
+
+    clearTerminal({
+      write(value) {
+        writes.push(value);
+        return true;
+      },
+    });
+
+    expect(writes).toEqual([CLEAR_TERMINAL_SEQUENCE]);
+    expect(CLEAR_TERMINAL_SEQUENCE).toBe("\u001B[2J\u001B[3J\u001B[H");
+  });
+});
 
 describe("CLI flags", () => {
   it("starts a new Session with no resume flags", () => {

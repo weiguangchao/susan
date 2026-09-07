@@ -587,6 +587,13 @@ describe("Harness", () => {
 
     expect(executionOrder).toEqual(["first", "second"]);
     expect(events.map((event) => event.type)).toContain("tool-started");
+    expect(events).toContainEqual({
+      type: "tool-batch-completed",
+      toolCalls: [
+        { id: "call-1", name: "first", arguments: { value: 1 } },
+        { id: "call-2", name: "second", arguments: { value: 2 } },
+      ],
+    });
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messages.slice(-3)).toEqual([
       {

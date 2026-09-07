@@ -109,6 +109,10 @@ export type HarnessEvent =
       readonly toolCall: ProviderToolCall;
       readonly result: ToolResult;
     }
+  | {
+      readonly type: "tool-batch-completed";
+      readonly toolCalls: readonly ProviderToolCall[];
+    }
   | { readonly type: "tool-round-limit-reached"; readonly limit: 20 }
   | {
       readonly type: "context-compacted";
@@ -959,6 +963,7 @@ export function createHarness(options: HarnessOptions): Harness {
         return appendedResult;
       }
     }
+    emit({ type: "tool-batch-completed", toolCalls });
     return { ok: true };
   };
 

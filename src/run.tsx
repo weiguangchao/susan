@@ -30,6 +30,13 @@ import { SessionPickerApp } from "./ui/session-picker.js";
 import { TuiApp } from "./ui/tui.js";
 
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
+export const CLEAR_TERMINAL_SEQUENCE = "\u001B[2J\u001B[3J\u001B[H";
+
+export function clearTerminal(
+  stdout: { readonly write: (value: string) => unknown } = process.stdout,
+): void {
+  stdout.write(CLEAR_TERMINAL_SEQUENCE);
+}
 
 type SessionStart =
   | { readonly ok: true; readonly session: SessionTranscript }
@@ -84,6 +91,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
+  clearTerminal();
   const instance = render(
     <TuiApp
       harness={harness}
@@ -116,6 +124,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
         };
       }}
     />,
+    { incrementalRendering: true },
   );
   await instance.waitUntilExit();
   return 0;

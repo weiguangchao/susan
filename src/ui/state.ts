@@ -32,6 +32,18 @@ export type TuiMessage =
   | { readonly kind: "interrupted"; readonly text: string }
   | { readonly kind: "error"; readonly text: string };
 
+export type TuiCompletedOutput =
+  | {
+      readonly id: string;
+      readonly kind: "message";
+      readonly message: TuiMessage;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "tool-batch";
+      readonly tools: readonly TuiToolCard[];
+    };
+
 export type TuiRetry = {
   readonly reason: string;
   readonly retry: 1 | 2;
@@ -45,6 +57,7 @@ export type TuiState = {
   readonly status: HarnessStatus;
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
+  readonly completedOutput: readonly TuiCompletedOutput[];
   readonly stream: {
     readonly text: string;
     readonly reasoning: string;
@@ -137,11 +150,17 @@ export function createTuiState(
     snapshot.messages.flatMap((message) =>
       message.role === "user" ? [message.content] : [],
     );
+  const messages = snapshot.messages.flatMap(messageToTuiMessages);
+  const tools = toolsFromMessages(snapshot.messages, snapshot.cwd);
   return {
     cwd: snapshot.cwd,
     status: snapshot.status,
-    messages: snapshot.messages.flatMap(messageToTuiMessages),
-    tools: toolsFromMessages(snapshot.messages, snapshot.cwd),
+    messages,
+    tools,
+    completedOutput: completedOutputFromMessages(
+      snapshot.messages,
+      tools,
+    ),
     stream: null,
     retry: null,
     failure: null,
@@ -645,14 +664,16 @@ function applyInputIntent(
     }
     case "submit": {
       const inputHistory = [...state.inputHistory, intent.content];
+      const message = { kind: "user" as const, text: intent.content };
       return {
         ...state,
         ...clearedDraftState(state),
         status: "running",
-        messages: [
-          ...state.messages,
-          { kind: "user", text: intent.content },
-        ],
+        messages: [...state.messages, message],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          [message],
+        ),
         inputHistory,
         inputHistoryIndex: inputHistory.length,
         notice: null,
@@ -751,20 +772,45 @@ function reduceHarnessEvent(
               ),
       };
     }
-    case "tool-started":
+    case "tool-started": {
+      const completedMessages = streamMessages(state.stream);
       return {
         ...state,
+        messages: [...state.messages, ...completedMessages],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          completedMessages,
+        ),
+        stream: null,
         tools: updateTool(
           state.tools,
           event.toolCall.id,
           createToolCard(event.toolCall, "running", state.cwd),
         ),
       };
+    }
     case "tool-completed": {
       const card = createCompletedToolCard(event.toolCall, event.result, state.cwd);
+      const completedMessages = streamMessages(state.stream);
       return {
         ...state,
+        messages: [...state.messages, ...completedMessages],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          completedMessages,
+        ),
+        stream: null,
         tools: updateTool(state.tools, event.toolCall.id, card),
+      };
+    }
+    case "tool-batch-completed": {
+      const ids = new Set(event.toolCalls.map((toolCall) => toolCall.id));
+      return {
+        ...state,
+        completedOutput: appendCompletedToolBatch(
+          state.completedOutput,
+          state.tools.filter((tool) => ids.has(tool.id) && isTerminalTool(tool)),
+        ),
       };
     }
     case "tool-round-limit-reached":
@@ -780,11 +826,17 @@ function reduceHarnessEvent(
         sessionTotalTokens: event.sessionTotalTokens,
         contextWindow: event.contextWindow,
       };
-    case "compaction-failed":
+    case "compaction-failed": {
+      const message = { kind: "error" as const, text: event.message };
       return {
         ...state,
-        messages: [...state.messages, { kind: "error", text: event.message }],
+        messages: [...state.messages, message],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          [message],
+        ),
       };
+    }
     case "provider-retrying":
       return {
         ...state,
@@ -797,10 +849,15 @@ function reduceHarnessEvent(
         },
         notice: null,
       };
-    case "agent-loop-completed":
+    case "agent-loop-completed": {
+      const completedMessages = streamMessages(state.stream);
       return {
         ...state,
-        messages: finalizeStream(state),
+        messages: [...state.messages, ...completedMessages],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          completedMessages,
+        ),
         stream: null,
         retry: null,
         failure: null,
@@ -808,6 +865,7 @@ function reduceHarnessEvent(
         status: "idle",
         notice: null,
       };
+    }
     case "provider-failed":
       return {
         ...state,
@@ -816,39 +874,56 @@ function reduceHarnessEvent(
         pending: { reason: "provider-failure", failure: event.failure },
         status: "pending",
       };
-    case "interrupted-response":
+    case "interrupted-response": {
+      const message = {
+        kind: "interrupted" as const,
+        text: event.response.content ?? event.response.reasoning ?? "",
+      };
       return {
         ...state,
-        messages: [
-          ...state.messages,
-          {
-            kind: "interrupted",
-            text: event.response.content ?? event.response.reasoning ?? "",
-          },
-        ],
+        messages: [...state.messages, message],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          [message],
+        ),
         stream: null,
         retry: null,
         failure: event.failure,
         pending: { reason: "interrupted", failure: event.failure },
         status: "pending",
       };
-    case "agent-loop-interrupted":
+    }
+    case "agent-loop-interrupted": {
+      const interruptedTools = state.tools.map((tool) =>
+        tool.status === "running"
+          ? { ...tool, status: "interrupted" as const, summary: "已中断" }
+          : tool,
+      );
       return {
         ...state,
         stream: null,
         retry: null,
-        tools: state.tools.map((tool) =>
-          tool.status === "running" ? { ...tool, status: "interrupted", summary: "已中断" } : tool,
+        tools: interruptedTools,
+        completedOutput: appendCompletedToolBatch(
+          state.completedOutput,
+          interruptedTools.filter(isTerminalTool),
         ),
         pending: { reason: "user-interrupt" },
         status: "pending",
         notice: "Agent Loop 已中断",
       };
-    case "harness-failed":
+    }
+    case "harness-failed": {
+      const message = { kind: "error" as const, text: event.error.message };
       return {
         ...state,
-        messages: [...state.messages, { kind: "error", text: event.error.message }],
+        messages: [...state.messages, message],
+        completedOutput: appendCompletedMessages(
+          state.completedOutput,
+          [message],
+        ),
       };
+    }
     default:
       return state;
   }
@@ -925,19 +1000,101 @@ function messageToTuiMessages(message: HarnessSnapshot["messages"][number]): Tui
   return [];
 }
 
-function finalizeStream(state: TuiState): readonly TuiMessage[] {
-  if (state.stream === null) {
-    return state.messages;
+function streamMessages(
+  stream: TuiState["stream"],
+): readonly TuiMessage[] {
+  if (stream === null) {
+    return [];
   }
   return [
-    ...state.messages,
-    ...(state.stream.reasoning === ""
+    ...(stream.reasoning === ""
       ? []
-      : [{ kind: "reasoning" as const, text: state.stream.reasoning }]),
-    ...(state.stream.text === ""
+      : [{ kind: "reasoning" as const, text: stream.reasoning }]),
+    ...(stream.text === ""
       ? []
-      : [{ kind: "assistant" as const, text: state.stream.text }]),
+      : [{ kind: "assistant" as const, text: stream.text }]),
   ];
+}
+
+function completedOutputFromMessages(
+  messages: HarnessSnapshot["messages"],
+  tools: readonly TuiToolCard[],
+): readonly TuiCompletedOutput[] {
+  const toolById = new Map(tools.map((tool) => [tool.id, tool]));
+  const output: TuiCompletedOutput[] = [];
+  for (const [messageIndex, message] of messages.entries()) {
+    for (const [partIndex, tuiMessage] of messageToTuiMessages(
+      message,
+    ).entries()) {
+      output.push({
+        id: `message:${messageIndex}:${partIndex}`,
+        kind: "message",
+        message: tuiMessage,
+      });
+    }
+    if (message.role !== "assistant") {
+      continue;
+    }
+    const batch = (message.toolCalls ?? [])
+      .map((toolCall) => toolById.get(toolCall.id))
+      .filter(
+        (tool): tool is TuiToolCard =>
+          tool !== undefined && isTerminalTool(tool),
+      );
+    if (batch.length > 0) {
+      output.push({
+        id: `tool-batch:${messageIndex}`,
+        kind: "tool-batch",
+        tools: batch,
+      });
+    }
+  }
+  return output;
+}
+
+function appendCompletedMessages(
+  output: readonly TuiCompletedOutput[],
+  messages: readonly TuiMessage[],
+): readonly TuiCompletedOutput[] {
+  return [
+    ...output,
+    ...messages.map((message, index) => ({
+      id: `message:live:${output.length + index}`,
+      kind: "message" as const,
+      message,
+    })),
+  ];
+}
+
+function appendCompletedToolBatch(
+  output: readonly TuiCompletedOutput[],
+  tools: readonly TuiToolCard[],
+): readonly TuiCompletedOutput[] {
+  const completedIds = new Set(
+    output.flatMap((item) =>
+      item.kind === "tool-batch" ? item.tools.map((tool) => tool.id) : [],
+    ),
+  );
+  const pendingTools = tools.filter((tool) => !completedIds.has(tool.id));
+  if (pendingTools.length === 0) {
+    return output;
+  }
+  return [
+    ...output,
+    {
+      id: `tool-batch:live:${output.length}`,
+      kind: "tool-batch",
+      tools: pendingTools,
+    },
+  ];
+}
+
+function isTerminalTool(tool: TuiToolCard): boolean {
+  return (
+    tool.status === "completed" ||
+    tool.status === "failed" ||
+    tool.status === "interrupted"
+  );
 }
 
 function pendingNotice(pending: PendingAgentLoop): string {

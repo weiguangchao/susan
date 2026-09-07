@@ -667,6 +667,10 @@ describe("TUI state", () => {
     });
     state = reduceTuiState(state, {
       type: "harness-event",
+      event: { type: "tool-batch-completed", toolCalls: [toolCall] },
+    });
+    state = reduceTuiState(state, {
+      type: "harness-event",
       event: { type: "agent-loop-completed" },
     });
 
@@ -677,6 +681,18 @@ describe("TUI state", () => {
     });
     expect(state.tools[0]).toMatchObject({ status: "completed" });
     expect(state.tools[0]?.invocationLabel).toBe("/tmp/example.txt");
+    expect(state.completedOutput).toEqual([
+      {
+        id: "message:live:0",
+        kind: "message",
+        message: { kind: "assistant", text: "Hello" },
+      },
+      {
+        id: "tool-batch:live:1",
+        kind: "tool-batch",
+        tools: [state.tools[0]],
+      },
+    ]);
   });
 
   it("keeps typed Tool failures distinct from successful Tool calls", () => {

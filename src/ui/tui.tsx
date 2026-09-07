@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Box, Text, useApp, useCursor, useInput, useStdout } from "ink";
+import { Box, Static, Text, useApp, useCursor, useInput, useStdout } from "ink";
 import type {
   Harness,
   HarnessCommand,
@@ -28,6 +28,7 @@ import {
   resolveInputIntent,
   resolveSlashCommandMenu,
   type SlashCommandMenu,
+  type TuiCompletedOutput,
   type TuiInputIntent,
   type TuiMessage,
   type TuiState,
@@ -278,37 +279,48 @@ export function TuiApp({
     void executeIntent(intent);
   });
 
-  const visibleMessages = state.messages.slice(-20);
-  const visibleTools = state.tools.slice(-8);
+  const completedToolIds = new Set(
+    state.completedOutput.flatMap((item) =>
+      item.kind === "tool-batch" ? item.tools.map((tool) => tool.id) : [],
+    ),
+  );
+  const activeTools = state.tools.filter(
+    (tool) => !completedToolIds.has(tool.id),
+  );
 
   return (
-    <Box flexDirection="column" height={rows} width={columns}>
-      {state.pending !== null && (
-        <PendingBanner
-          notice={state.notice}
-          allowRetry={state.pending.reason !== "compatibility"}
-        />
-      )}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingLeft={1}>
-        <SessionContentView messages={visibleMessages} tools={visibleTools} />
-        {state.stream !== null && <StreamView state={state} />}
+    <>
+      <Static items={[...state.completedOutput]}>
+        {(item) => <CompletedOutputView key={item.id} item={item} />}
+      </Static>
+      <Box flexDirection="column" height={rows} width={columns}>
+        {state.pending !== null && (
+          <PendingBanner
+            notice={state.notice}
+            allowRetry={state.pending.reason !== "compatibility"}
+          />
+        )}
+        <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingLeft={1}>
+          <ToolLedgerView tools={activeTools} />
+          {state.stream !== null && <StreamView state={state} />}
+        </Box>
+        <ActivityLine state={state} now={now} />
+        {state.modelPickerActive ? (
+          <ModelPickerView state={modelPickerState} />
+        ) : (
+          <ImeInputLine
+            input={state.input}
+            cursor={state.inputCursor}
+            columns={columns}
+            screenRows={rows}
+            maxRows={maxInputRows}
+            working={inputWorking}
+            activityPhase={activityPhase}
+          />
+        )}
+        <StatusBar state={state} />
       </Box>
-      <ActivityLine state={state} now={now} />
-      {state.modelPickerActive ? (
-        <ModelPickerView state={modelPickerState} />
-      ) : (
-        <ImeInputLine
-          input={state.input}
-          cursor={state.inputCursor}
-          columns={columns}
-          screenRows={rows}
-          maxRows={maxInputRows}
-          working={inputWorking}
-          activityPhase={activityPhase}
-        />
-      )}
-      <StatusBar state={state} />
-    </Box>
+    </>
   );
 }
 
@@ -434,6 +446,22 @@ function MessageView({ message }: { readonly message: TuiMessage }) {
     );
   }
   return <Text color="red">⚠ {message.text}</Text>;
+}
+
+function CompletedOutputView({
+  item,
+}: {
+  readonly item: TuiCompletedOutput;
+}) {
+  return (
+    <Box flexDirection="column" paddingLeft={1}>
+      {item.kind === "message" ? (
+        <MessageView message={item.message} />
+      ) : (
+        <ToolLedgerView tools={item.tools} />
+      )}
+    </Box>
+  );
 }
 
 export function SessionContentView({

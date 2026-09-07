@@ -26,7 +26,8 @@ import {
   isEmptySession,
   reduceTuiState,
   resolveInputIntent,
-  slashCommands,
+  resolveSlashCommandMenu,
+  type SlashCommandMenu,
   type TuiInputIntent,
   type TuiMessage,
   type TuiState,
@@ -458,7 +459,7 @@ function StreamView({ state }: { readonly state: TuiState }) {
   );
 }
 
-function ActivityLine({
+export function ActivityLine({
   state,
   now,
 }: {
@@ -495,6 +496,10 @@ function ActivityLine({
       </Box>
     );
   }
+  const slashCommandMenu = resolveSlashCommandMenu(state);
+  if (slashCommandMenu.visible) {
+    return <SlashCommandMenuView menu={slashCommandMenu} />;
+  }
   if (state.notice !== null) {
     return (
       <Box paddingLeft={1}>
@@ -502,28 +507,50 @@ function ActivityLine({
       </Box>
     );
   }
-  return <CommandHintLine input={state.input} />;
+  return (
+    <Box paddingLeft={1} flexShrink={0}>
+      <Text dimColor>空闲</Text>
+    </Box>
+  );
 }
 
-export function CommandHintLine({ input }: { readonly input: string }) {
+export function SlashCommandMenuView({
+  menu,
+}: {
+  readonly menu: SlashCommandMenu;
+}) {
+  if (menu.candidates.length === 0) {
+    return (
+      <Box paddingLeft={1} flexShrink={0}>
+        <Text dimColor wrap="truncate-end">无匹配</Text>
+      </Box>
+    );
+  }
+
+  const query = menu.query ?? "/";
+  const matchLength = query === "/" ? 0 : query.length;
   return (
-    <Box paddingLeft={1} paddingRight={1} flexShrink={0}>
-      <Text dimColor>空闲  ·  命令 </Text>
-      {slashCommands.map((command, index) => {
-        const active =
-          input.startsWith("/") && command.name.startsWith(input);
-        return (
-          <Text key={command.name}>
-            <Text color={active ? "cyanBright" : undefined} bold={active}>
-              {command.name}
-            </Text>
-            <Text dimColor> {command.label}</Text>
-            {index < slashCommands.length - 1 ? (
-              <Text dimColor>  ·  </Text>
-            ) : null}
+    <Box flexDirection="column" flexShrink={0}>
+      {menu.candidates.map((command, index) => (
+        <Box key={command.name} paddingLeft={1} paddingRight={1}>
+          <Text wrap="truncate-end">
+            <Text color={index === menu.selectedIndex ? "cyanBright" : undefined}>
+              {index === menu.selectedIndex ? "›" : " "}
+            </Text>{" "}
+            {matchLength === 0 ? (
+              command.name
+            ) : (
+              <>
+                <Text color="cyanBright" bold>
+                  {command.name.slice(0, matchLength)}
+                </Text>
+                {command.name.slice(matchLength)}
+              </>
+            )}{" "}
+            <Text dimColor>{command.label}</Text>
           </Text>
-        );
-      })}
+        </Box>
+      ))}
     </Box>
   );
 }

@@ -2,7 +2,8 @@ import { renderToString } from "ink";
 import stringWidth from "string-width";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { CommandHintLine, InputLine } from "../src/ui/tui.js";
+import { createTuiState, resolveSlashCommandMenu } from "../src/index.js";
+import { ActivityLine, InputLine, SlashCommandMenuView } from "../src/ui/tui.js";
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
@@ -39,14 +40,141 @@ describe("TUI input", () => {
   "explorer.confirmDragAndDrop": false,
 }`;
 
-  it("shows the available slash commands above an idle input", () => {
-    const output = stripAnsi(
-      renderToString(<CommandHintLine input="" />, { columns: 80 }),
+  function menuState(input: string, selectedIndex = 0) {
+    const state = {
+      ...createTuiState({
+        status: "idle",
+        sessionId: "session-1",
+        cwd: "/workspace",
+        messages: [],
+        pending: null,
+        model: "gpt-5-codex",
+        reasoningEffort: "high",
+        contextWindow: 418_000,
+        sessionTotalTokens: 0,
+      }),
+      input,
+      slashCommandSelectedIndex: selectedIndex,
+    };
+    return resolveSlashCommandMenu(state);
+  }
+
+  it("renders the full Slash Command directory for / with one selected marker", () => {
+    const output = renderToString(<SlashCommandMenuView menu={menuState("/")} />, {
+      columns: 80,
+    });
+
+    expect(stripAnsi(output)).toBe(" › /exit 退出\n   /model 模型\n   /new 新对话");
+    const view = SlashCommandMenuView({ menu: menuState("/") }) as ReactElement<{
+      children: ReactNode;
+    }>;
+    const firstRow = Children.toArray(view.props.children)[0] as ReactElement<{
+      children: ReactElement<{ children: ReactNode }>;
+    }>;
+    const lineParts = Children.toArray(firstRow.props.children.props.children);
+    expect((lineParts[0] as ReactElement<{ color?: string }>).props.color).toBe("cyanBright");
+    expect(lineParts).toContain("/exit");
+  });
+
+  it("highlights only the canonical-name prefix for /m and keeps labels dim", () => {
+    const output = renderToString(<SlashCommandMenuView menu={menuState("/m")} />, {
+      columns: 80,
+    });
+
+    expect(stripAnsi(output)).toBe(" › /model 模型");
+    const view = SlashCommandMenuView({ menu: menuState("/m") }) as ReactElement<{
+      children: ReactNode;
+    }>;
+    const row = Children.toArray(view.props.children)[0] as ReactElement<{
+      children: ReactElement<{ children: ReactNode }>;
+    }>;
+    const lineParts = Children.toArray(row.props.children.props.children);
+    const highlightedName = Children.toArray(
+      (lineParts[2] as ReactElement<{ children: ReactNode }>).props.children,
+    )[0] as ReactElement<{ bold?: boolean; color?: string; children: ReactNode }>;
+    const label = lineParts[4] as ReactElement<{ dimColor?: boolean }>;
+    expect(highlightedName.props).toMatchObject({
+      bold: true,
+      color: "cyanBright",
+      children: "/m",
+    });
+    expect(label.props.dimColor).toBe(true);
+  });
+
+  it("highlights the whole canonical name for an exact match", () => {
+    const output = renderToString(
+      <SlashCommandMenuView menu={menuState("/model")} />,
+      { columns: 80 },
     );
 
-    expect(output).toBe(
-      " 空闲  ·  命令 /exit 退出  ·  /new 新对话  ·  /model 模型",
+    expect(stripAnsi(output)).toBe(" › /model 模型");
+    const view = SlashCommandMenuView({ menu: menuState("/model") }) as ReactElement<{
+      children: ReactNode;
+    }>;
+    const row = Children.toArray(view.props.children)[0] as ReactElement<{
+      children: ReactElement<{ children: ReactNode }>;
+    }>;
+    const lineParts = Children.toArray(row.props.children.props.children);
+    const highlightedName = Children.toArray(
+      (lineParts[2] as ReactElement<{ children: ReactNode }>).props.children,
+    )[0] as ReactElement<{ children: ReactNode }>;
+    expect(highlightedName.props.children).toBe("/model");
+    expect(lineParts[2]).not.toHaveProperty("props.children.1", "model");
+  });
+
+  it("moves the selected marker without inverse row styling", () => {
+    const output = renderToString(<SlashCommandMenuView menu={menuState("/", 1)} />, {
+      columns: 80,
+    });
+
+    expect(stripAnsi(output)).toBe("   /exit 退出\n › /model 模型\n   /new 新对话");
+    expect(output).not.toContain("\u001B[7m");
+  });
+
+  it("renders a one-line empty state when no Slash Command matches", () => {
+    const output = renderToString(<SlashCommandMenuView menu={menuState("/z")} />, {
+      columns: 80,
+    });
+
+    expect(stripAnsi(output)).toBe(" 无匹配");
+    const view = SlashCommandMenuView({ menu: menuState("/z") }) as ReactElement<{
+      children: ReactElement<{ dimColor?: boolean }>;
+    }>;
+    expect(view.props.children.props.dimColor).toBe(true);
+  });
+
+  it("truncates every Slash Command row in a narrow terminal", () => {
+    const output = stripAnsi(
+      renderToString(<SlashCommandMenuView menu={menuState("/")} />, {
+        columns: 10,
+      }),
     );
+
+    expect(output.split("\n")).toHaveLength(3);
+    for (const line of output.split("\n")) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(10);
+    }
+  });
+
+  it("shows only the idle fallback when the menu is not visible", () => {
+    const state = createTuiState({
+      status: "idle",
+      sessionId: "session-1",
+      cwd: "/workspace",
+      messages: [],
+      pending: null,
+      model: "gpt-5-codex",
+      reasoningEffort: "high",
+      contextWindow: 418_000,
+      sessionTotalTokens: 0,
+    });
+    const output = stripAnsi(
+      renderToString(<ActivityLine state={state} now={0} />, { columns: 80 }),
+    );
+
+    expect(output).toBe(" 空闲");
+    expect(output).not.toContain("/exit");
+    expect(output).not.toContain("命令");
   });
 
   it("separates the border frame from the input viewport", () => {

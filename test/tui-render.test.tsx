@@ -10,8 +10,8 @@ import type {
   ProviderToolCall,
   TuiToolCard,
 } from "../src/index.js";
-import { TuiApp } from "../src/index.js";
-import { ToolLineView } from "../src/ui/tui.js";
+import { createTuiState, TuiApp } from "../src/index.js";
+import { ActivityLine, ToolLineView } from "../src/ui/tui.js";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
@@ -134,6 +134,117 @@ const modelCatalog = {
 const provider = {
   type: "openai-completion",
 } as ProviderClient;
+
+describe("TUI activity slot", () => {
+  function renderActivity(
+    overrides: Partial<ReturnType<typeof createTuiState>> = {},
+  ): string {
+    const state = {
+      ...createTuiState(idleSnapshot()),
+      ...overrides,
+    };
+    return stripAnsi(
+      renderToString(<ActivityLine state={state} now={1_000} />, { columns: 80 }),
+    );
+  }
+
+  it("uses retry, Provider Failure, running, menu, notice, then idle priority", () => {
+    expect(renderActivity({
+      input: "/m",
+      retry: {
+        reason: "Too many requests",
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 2_000,
+        startedAt: 0,
+      },
+      failure: {
+        code: "PROVIDER_HTTP",
+        message: "failed",
+        hadSemanticOutput: false,
+      },
+      status: "running",
+      notice: "notice",
+    })).toContain("秒后重试");
+    expect(renderActivity({
+      input: "/m",
+      failure: {
+        code: "PROVIDER_HTTP",
+        message: "failed",
+        hadSemanticOutput: false,
+      },
+      status: "running",
+      notice: "notice",
+    })).toBe(" ⚠ Provider 请求失败 · PROVIDER_HTTP · failed");
+    expect(renderActivity({ input: "/m", status: "running", notice: "notice" })).toBe(
+      " ▍ 生成中",
+    );
+    expect(renderActivity({ input: "/m", notice: "notice" })).toBe(" › /model 模型");
+    expect(renderActivity({ notice: "notice" })).toBe(" ⓘ notice");
+    expect(renderActivity()).toBe(" 空闲");
+  });
+
+  it("lets a Pending Slash Query replace its notice", () => {
+    expect(renderActivity({
+      status: "pending",
+      pending: { reason: "restored" },
+      input: "/m",
+      notice: "上次响应未完成（Pending Agent Loop）",
+    })).toBe(" › /model 模型");
+  });
+
+  it("suppresses a running menu without clearing the Slash Query", async () => {
+    const { harness, emit } = createEventHarness();
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    stdin.push("/m");
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("› /model 模型");
+
+    emit({ type: "session-usage-updated", sessionTotalTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("▍ 生成中");
+    expect(latestVisibleFrame(frames)).toContain("❯ /m");
+    expect(latestVisibleFrame(frames)).not.toContain("› /model 模型");
+
+    emit({ type: "agent-loop-completed" }, idleSnapshot());
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("› /model 模型");
+    expect(latestVisibleFrame(frames)).toContain("❯ /m");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+
+  it("lets the model picker suppress a menu without clearing its query", () => {
+    const state = {
+      ...createTuiState(idleSnapshot()),
+      input: "/z",
+      inputCursor: { row: 0, column: 2 },
+      modelPickerActive: true,
+    };
+
+    expect(renderActivity(state)).toBe(" 空闲");
+    expect(state.input).toBe("/z");
+    expect(renderActivity({ ...state, modelPickerActive: false })).toBe(" 无匹配");
+  });
+});
 
 describe("TUI Tool rendering", () => {
   it("renders Yolo Tool statuses without an approval prompt", () => {

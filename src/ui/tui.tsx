@@ -139,6 +139,7 @@ export function TuiApp({
         intent.type === "move-cursor-to-line-end" ||
         intent.type === "history-previous" ||
         intent.type === "history-next" ||
+        intent.type === "move-slash-command-selection" ||
         intent.type === "notice" ||
         intent.type === "clear-input" ||
         intent.type === "dismiss-failure"

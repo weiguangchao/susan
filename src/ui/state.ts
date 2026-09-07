@@ -9,6 +9,10 @@ import { isToolResult, type ToolResult } from "../core/tool-result.js";
 import type { ProviderFailure, ReasoningEffort } from "../core/provider.js";
 import { moveInputCursorVertically } from "./input-layout.js";
 import {
+  resolveSlashCommandMenu,
+  slashCommands,
+} from "./slash-command-menu.js";
+import {
   createCompletedToolCard,
   createToolCard,
   formatToolCallDetail,
@@ -17,7 +21,9 @@ import {
 } from "./tool-ledger.js";
 
 export { formatToolCallDetail } from "./tool-ledger.js";
+export { resolveSlashCommandMenu, slashCommands } from "./slash-command-menu.js";
 export type { TuiToolCard, TuiToolStatus } from "./tool-ledger.js";
+export type { SlashCommand, SlashCommandMenu } from "./slash-command-menu.js";
 
 export type TuiMessage =
   | { readonly kind: "user"; readonly text: string }
@@ -56,6 +62,7 @@ export type TuiState = {
   readonly inputHistory: readonly string[];
   readonly inputHistoryIndex: number;
   readonly inputHistoryActive: boolean;
+  readonly slashCommandSelectedIndex: number;
   readonly modelPickerActive: boolean;
 };
 
@@ -90,6 +97,7 @@ export type TuiInputIntent =
   | { readonly type: "move-cursor-to-line-end" }
   | { readonly type: "history-previous" }
   | { readonly type: "history-next" }
+  | { readonly type: "move-slash-command-selection"; readonly delta: -1 | 1 }
   | { readonly type: "submit"; readonly content: string }
   | { readonly type: "clear-input" }
   | { readonly type: "clear" }
@@ -107,16 +115,6 @@ export type TuiSubmissionIntent =
   | { readonly type: "clear" }
   | { readonly type: "model-picker" }
   | { readonly type: "submit"; readonly content: string };
-
-export const slashCommands = [
-  { name: "/exit", label: "退出", intent: "exit" },
-  { name: "/new", label: "新对话", intent: "clear" },
-  { name: "/model", label: "模型", intent: "model-picker" },
-] as const satisfies readonly {
-  readonly name: string;
-  readonly label: string;
-  readonly intent: Exclude<TuiSubmissionIntent, { readonly type: "submit" }>["type"];
-}[];
 
 export type TuiAction =
   | { readonly type: "harness-event"; readonly event: HarnessEvent }
@@ -163,6 +161,7 @@ export function createTuiState(
     inputHistory,
     inputHistoryIndex: inputHistory.length,
     inputHistoryActive: false,
+    slashCommandSelectedIndex: 0,
     modelPickerActive: false,
   };
 }
@@ -177,9 +176,6 @@ export function normalizeSubmission(value: string): string {
 
 export function resolveSubmission(value: string): TuiSubmissionIntent {
   const content = normalizeSubmission(value);
-  if (content === "/clear") {
-    return { type: "clear" };
-  }
   const command = slashCommands.find((candidate) => candidate.name === content);
   if (command !== undefined) {
     return { type: command.intent };
@@ -222,7 +218,11 @@ export function resolveInputIntent(
   if (key.ctrl && key.input === "e") {
     return { type: "move-cursor-to-line-end" };
   }
+  const slashCommandMenu = resolveSlashCommandMenu(state);
   if (key.upArrow) {
+    if (slashCommandMenu.visible) {
+      return { type: "move-slash-command-selection", delta: -1 };
+    }
     if (
       (state.input === "" || state.inputHistoryActive) &&
       state.inputHistoryIndex > 0
@@ -232,6 +232,9 @@ export function resolveInputIntent(
     return { type: "move-cursor-up", inputWidth: key.inputWidth };
   }
   if (key.downArrow) {
+    if (slashCommandMenu.visible) {
+      return { type: "move-slash-command-selection", delta: 1 };
+    }
     if (
       (state.input === "" || state.inputHistoryActive) &&
       state.inputHistoryIndex < state.inputHistory.length
@@ -247,7 +250,7 @@ export function resolveInputIntent(
     return { type: "move-cursor-right" };
   }
 
-  if (key.escape && state.failure !== null) {
+  if (key.escape && (slashCommandMenu.visible || state.failure !== null)) {
     return { type: "dismiss-failure" };
   }
 
@@ -305,8 +308,12 @@ export function resolveInputIntent(
       return { type: "backspace" };
     }
     if (key.return) {
-      if (resolveSubmission(state.input).type === "model-picker") {
-        return { type: "model-picker" };
+      if (slashCommandMenu.selected !== null) {
+        return { type: slashCommandMenu.selected.intent };
+      }
+      const submission = resolveSubmission(state.input);
+      if (submission.type !== "submit") {
+        return submission;
       }
       return {
         type: "notice",
@@ -320,6 +327,9 @@ export function resolveInputIntent(
     return { type: "backspace" };
   }
   if (key.return) {
+    if (slashCommandMenu.selected !== null) {
+      return { type: slashCommandMenu.selected.intent };
+    }
     const submission = resolveSubmission(state.input);
     if (submission.type === "submit" && submission.content.length === 0) {
       return { type: "none" };
@@ -368,10 +378,7 @@ export function reduceTuiState(
     case "clear-input":
       return {
         ...state,
-        input: "",
-        inputCursor: { row: 0, column: 0 },
-        inputHistoryIndex: state.inputHistory.length,
-        inputHistoryActive: false,
+        ...clearedDraftState(state),
         notice: null,
       };
     case "close-model-picker":
@@ -406,9 +413,10 @@ function insertInput(state: TuiState, text: string): TuiState {
       column:
         insertedLines.length === 1
           ? column + insertedLastLineLength
-        : insertedLastLineLength,
+          : insertedLastLineLength,
     },
     inputHistoryActive: false,
+    slashCommandSelectedIndex: 0,
     notice: null,
   };
 }
@@ -430,9 +438,10 @@ function backspaceInput(state: TuiState): TuiState {
       (lines[row] ?? "").slice(column);
     return {
       ...state,
-    input: lines.join("\n"),
-    inputCursor: { row, column: column - 1 },
-    inputHistoryActive: false,
+      input: lines.join("\n"),
+      inputCursor: { row, column: column - 1 },
+      inputHistoryActive: false,
+      slashCommandSelectedIndex: 0,
       notice: null,
     };
   }
@@ -445,6 +454,7 @@ function backspaceInput(state: TuiState): TuiState {
     input: lines.join("\n"),
     inputCursor: { row: row - 1, column: previousLine.length },
     inputHistoryActive: false,
+    slashCommandSelectedIndex: 0,
     notice: null,
   };
 }
@@ -527,6 +537,16 @@ function cursorAtEnd(input: string): TuiInputCursor {
   return { row, column: lines[row]?.length ?? 0 };
 }
 
+function clearedDraftState(state: TuiState) {
+  return {
+    input: "",
+    inputCursor: { row: 0, column: 0 },
+    inputHistoryIndex: state.inputHistory.length,
+    inputHistoryActive: false,
+    slashCommandSelectedIndex: 0,
+  } as const;
+}
+
 function applyInputIntent(
   state: TuiState,
   intent: TuiInputIntent,
@@ -586,6 +606,7 @@ function applyInputIntent(
         inputCursor: cursorAtEnd(input),
         inputHistoryIndex: index,
         inputHistoryActive: true,
+        slashCommandSelectedIndex: 0,
         notice: null,
       };
     }
@@ -604,6 +625,21 @@ function applyInputIntent(
         inputCursor: cursorAtEnd(input),
         inputHistoryIndex: index,
         inputHistoryActive: index !== state.inputHistory.length,
+        slashCommandSelectedIndex: 0,
+        notice: null,
+      };
+    }
+    case "move-slash-command-selection": {
+      const menu = resolveSlashCommandMenu(state);
+      if (menu.selectedIndex === null) {
+        return state;
+      }
+      return {
+        ...state,
+        slashCommandSelectedIndex: Math.max(
+          0,
+          Math.min(menu.candidates.length - 1, menu.selectedIndex + intent.delta),
+        ),
         notice: null,
       };
     }
@@ -611,16 +647,14 @@ function applyInputIntent(
       const inputHistory = [...state.inputHistory, intent.content];
       return {
         ...state,
+        ...clearedDraftState(state),
         status: "running",
         messages: [
           ...state.messages,
           { kind: "user", text: intent.content },
         ],
-        input: "",
-        inputCursor: { row: 0, column: 0 },
         inputHistory,
         inputHistoryIndex: inputHistory.length,
-        inputHistoryActive: false,
         notice: null,
         failure: null,
       };
@@ -628,25 +662,24 @@ function applyInputIntent(
     case "clear-input":
       return {
         ...state,
-        input: "",
-        inputCursor: { row: 0, column: 0 },
-        inputHistoryIndex: state.inputHistory.length,
-        inputHistoryActive: false,
+        ...clearedDraftState(state),
         notice: "已清空输入",
       };
     case "notice":
       return { ...state, notice: intent.message };
-    case "model-picker":
+    case "model-picker": {
+      const selectedFromMenu = resolveSlashCommandMenu(state).selected?.intent === "model-picker";
+      const clearInput =
+        selectedFromMenu || normalizeSubmission(state.input) === "/model";
       return {
         ...state,
+        ...(clearInput
+          ? clearedDraftState(state)
+          : { slashCommandSelectedIndex: 0 }),
         modelPickerActive: true,
-        input: normalizeSubmission(state.input) === "/model" ? "" : state.input,
-        inputCursor:
-          normalizeSubmission(state.input) === "/model"
-            ? { row: 0, column: 0 }
-            : state.inputCursor,
         notice: null,
       };
+    }
     case "retry":
       return {
         ...state,
@@ -655,8 +688,18 @@ function applyInputIntent(
         failure: null,
         notice: null,
       };
-    case "dismiss-failure":
-      return { ...state, failure: null, notice: "已放弃重试 · Pending Agent Loop 保留" };
+    case "dismiss-failure": {
+      const clearInput = resolveSlashCommandMenu(state).visible;
+      return {
+        ...state,
+        ...(clearInput ? clearedDraftState(state) : {}),
+        failure: null,
+        notice:
+          state.failure === null
+            ? null
+            : "已放弃重试 · Pending Agent Loop 保留",
+      };
+    }
     default:
       return state;
   }

@@ -8,6 +8,7 @@ import {
   reduceTuiState,
   resolveInputIntent,
   resolveModelPickerIntent,
+  resolveSlashCommandMenu,
   resolveSubmission,
 } from "../src/index.js";
 import type {
@@ -918,15 +919,215 @@ describe("TUI state", () => {
     expect(state.pending).toEqual({ reason: "provider-failure" });
   });
 
-  it("resolves slash commands before submitting to the Harness", () => {
+  it("derives the Slash Command Menu from the whole input and runtime state", () => {
+    expect(resolveSlashCommandMenu({
+      input: "/",
+      status: "idle",
+      modelPickerActive: false,
+      selectedIndex: 0,
+    })).toMatchObject({
+      visible: true,
+      query: "/",
+      candidates: [
+        { name: "/exit", label: "退出" },
+        { name: "/model", label: "模型" },
+        { name: "/new", label: "新对话" },
+      ],
+      selected: { name: "/exit" },
+    });
+    expect(resolveSlashCommandMenu({
+      input: "/m",
+      status: "pending",
+      modelPickerActive: false,
+      selectedIndex: 0,
+    })).toMatchObject({
+      visible: true,
+      candidates: [{ name: "/model" }],
+      selected: { name: "/model" },
+    });
+    expect(resolveSlashCommandMenu({
+      input: "/M",
+      status: "idle",
+      modelPickerActive: false,
+      selectedIndex: 0,
+    })).toMatchObject({ visible: true, candidates: [], selected: null });
+
+    for (const input of ["", " /", "/model please", "/model\n", "／model"]) {
+      expect(resolveSlashCommandMenu({
+        input,
+        status: "idle",
+        modelPickerActive: false,
+        selectedIndex: 0,
+      }).visible).toBe(false);
+    }
+    expect(resolveSlashCommandMenu({
+      input: "/m",
+      status: "running",
+      modelPickerActive: false,
+      selectedIndex: 0,
+    }).visible).toBe(false);
+    expect(resolveSlashCommandMenu({
+      input: "/m",
+      status: "idle",
+      modelPickerActive: true,
+      selectedIndex: 0,
+    }).visible).toBe(false);
+  });
+
+  it("resets, clamps, and applies Slash Command Menu selection", () => {
+    let state = reduceTuiState(initialState(), {
+      type: "input-key",
+      key: { input: "/" },
+    });
+    expect(state.slashCommandSelectedIndex).toBe(0);
+    expect(resolveInputIntent(state, { input: "", downArrow: true })).toEqual({
+      type: "move-slash-command-selection",
+      delta: 1,
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.slashCommandSelectedIndex).toBe(2);
+    expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
+      type: "clear",
+    });
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "m" },
+    });
+    expect(state.slashCommandSelectedIndex).toBe(0);
+    expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
+      type: "model-picker",
+    });
+  });
+
+  it("lets history produce a Slash Query before the menu takes over arrows", () => {
+    let state = initialState({
+      messages: [{ role: "user", content: "/" }],
+    });
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", upArrow: true },
+    });
+    expect(state.input).toBe("/");
+    expect(state.slashCommandSelectedIndex).toBe(0);
+
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.input).toBe("/");
+    expect(state.slashCommandSelectedIndex).toBe(1);
+    expect(state.inputHistoryIndex).toBe(0);
+  });
+
+  it("clears a Slash Query and Provider Failure with the same Escape", () => {
+    let state = initialState({ status: "pending", pending: { reason: "provider-failure" } });
+    state = {
+      ...state,
+      input: "/m",
+      inputCursor: { row: 0, column: 2 },
+      failure: {
+        code: "PROVIDER_HTTP",
+        message: "failed",
+        hadSemanticOutput: false,
+      },
+    };
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", escape: true },
+    });
+    expect(state.input).toBe("");
+    expect(state.failure).toBeNull();
+  });
+
+  it("uses exact canonical Slash Commands and submits aliases or prose", () => {
     expect(resolveSubmission("/exit")).toEqual({ type: "exit" });
-    expect(resolveSubmission("/clear")).toEqual({ type: "clear" });
     expect(resolveSubmission("/new")).toEqual({ type: "clear" });
+    expect(resolveSubmission("/model")).toEqual({ type: "model-picker" });
     expect(resolveSubmission("/exit ")).toEqual({ type: "exit" });
+    expect(resolveSubmission("/clear")).toEqual({
+      type: "submit",
+      content: "/clear",
+    });
+    expect(resolveSubmission("/unknown")).toEqual({
+      type: "submit",
+      content: "/unknown",
+    });
+    expect(resolveSubmission("/unknown please help")).toEqual({
+      type: "submit",
+      content: "/unknown please help",
+    });
     expect(resolveSubmission(" hello\nworld ")).toEqual({
       type: "submit",
       content: "hello\nworld",
     });
+  });
+
+  it("submits an empty-candidate Slash Query when idle but blocks it when Pending", () => {
+    const idle = {
+      ...initialState(),
+      input: "/z",
+      inputCursor: { row: 0, column: 2 },
+    };
+    expect(resolveInputIntent(idle, { input: "\r", return: true })).toEqual({
+      type: "submit",
+      content: "/z",
+    });
+
+    const pending = {
+      ...idle,
+      status: "pending" as const,
+      pending: { reason: "restored" as const },
+    };
+    expect(resolveInputIntent(pending, { input: "\r", return: true })).toEqual({
+      type: "notice",
+      message: "Pending Agent Loop · 清空输入后 r 重试 / n 新对话",
+    });
+  });
+
+  it("executes every selected Slash Command while Pending", () => {
+    for (const [query, expected] of [
+      ["/", { type: "exit" }],
+      ["/m", { type: "model-picker" }],
+      ["/n", { type: "clear" }],
+    ] as const) {
+      const state = {
+        ...initialState({ status: "pending", pending: { reason: "restored" } }),
+        input: query,
+        inputCursor: { row: 0, column: query.length },
+      };
+      expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual(expected);
+    }
+  });
+
+  it("suppresses the menu while running without changing its query", () => {
+    const state = {
+      ...initialState({ status: "running" }),
+      input: "/m",
+      inputCursor: { row: 0, column: 2 },
+    };
+    expect(resolveSlashCommandMenu(state).visible).toBe(false);
+    expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
+      type: "notice",
+      message: "生成中 · Ctrl+C 可中断",
+    });
+    const idle = reduceTuiState(state, {
+      type: "harness-event",
+      event: { type: "agent-loop-completed" },
+    });
+    expect(idle.input).toBe("/m");
+    expect(resolveSlashCommandMenu(idle).visible).toBe(true);
   });
 
   it("recognizes whether a Session has any persisted interaction", () => {

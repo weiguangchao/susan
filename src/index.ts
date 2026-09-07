@@ -288,7 +288,9 @@ export {
   normalizeSubmission,
   reduceTuiState,
   resolveInputIntent,
+  resolveSlashCommandMenu,
   resolveSubmission,
+  slashCommands,
 } from "./ui/state.js";
 export type {
   Harness,
@@ -309,6 +311,8 @@ export type {
   TuiInputIntent,
   TuiInputKey,
   TuiMessage,
+  SlashCommand,
+  SlashCommandMenu,
   TuiRetry,
   TuiState,
   TuiSubmissionIntent,

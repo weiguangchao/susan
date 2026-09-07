@@ -49,6 +49,79 @@ async function flushEffects(): Promise<void> {
 }
 
 describe("model picker application", () => {
+  it("clears an abbreviated menu query before opening and cancelling the model picker", async () => {
+    const snapshot: HarnessSnapshot = {
+      status: "idle",
+      sessionId: "session-1",
+      cwd: "/workspace",
+      messages: [],
+      pending: null,
+      model: "deepseek-v4-flash",
+      reasoningEffort: "minimal",
+      contextWindow: 128_000,
+      sessionTotalTokens: 0,
+    };
+    const dispatchedCommands: HarnessCommand[] = [];
+    const harness: Harness = {
+      async dispatch(command) {
+        dispatchedCommands.push(command);
+        return { ok: true };
+      },
+      getSnapshot: () => snapshot,
+      subscribe: () => () => {},
+    };
+    const stdin = terminalInput();
+    const frames: string[] = [];
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={{
+          defaultProviderAlias: "deepseek",
+          preferredModel: "deepseek-v4-flash",
+          preferredReasoningEffort: "minimal",
+          providers: [{
+            alias: "deepseek",
+            type: "openai-completion",
+            models: [{ id: "deepseek-v4-flash" }],
+          }],
+        }}
+        applyModelSelection={async () => ({
+          ok: false,
+          message: "not used",
+        })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    stdin.push("/m");
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("/m");
+    stdin.push("\r");
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(latestVisibleFrame(frames)).toContain("模型选择");
+    expect(latestVisibleFrame(frames)).not.toContain("❯ /m");
+    const framesBeforeCancel = frames.length;
+    stdin.push("\u001B");
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    const framesAfterCancel = frames.slice(framesBeforeCancel);
+    expect(framesAfterCancel.some((frame) => frame.includes("❯ /m"))).toBe(false);
+
+    stdin.push("\r");
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+    expect(dispatchedCommands).toEqual([]);
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+
   it("updates the status bar after applying a new Reasoning Effort", async () => {
     let snapshot: HarnessSnapshot = {
       status: "idle",

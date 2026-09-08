@@ -16,10 +16,12 @@ import type {
 } from "../core/harness.js";
 import {
   createModelPickerState,
+  modelPickerRowCount,
   reduceModelPickerState,
   resolveModelPickerIntent,
   type ModelPickerCatalog,
   type ModelPickerSelection,
+  type ModelPickerState,
 } from "../core/model-picker.js";
 import {
   inputBoxWidth,
@@ -310,7 +312,7 @@ export function TuiApp({
   const footerRows = liveFooterRows({
     state,
     inputRows,
-    modelPickerActive: state.modelPickerActive,
+    modelPickerState,
   });
   const newStaticRows = freshSession
     ? 0
@@ -695,7 +697,6 @@ export function SlashCommandMenuView({
 const STEADY_UNDERLINE_CURSOR = "\u001B[4 q";
 const RESET_CURSOR_SHAPE = "\u001B[0 q";
 
-const MODEL_PICKER_ROWS = 7;
 const STATUS_ROWS = 1;
 const INPUT_BORDER_ROWS = 2;
 const PENDING_BANNER_ROWS = 1;
@@ -736,15 +737,15 @@ function completedItemRows(
 function liveFooterRows({
   state,
   inputRows,
-  modelPickerActive,
+  modelPickerState,
 }: {
   readonly state: TuiState;
   readonly inputRows: number;
-  readonly modelPickerActive: boolean;
+  readonly modelPickerState: ModelPickerState;
 }): number {
   const pendingRows = state.pending === null ? 0 : PENDING_BANNER_ROWS;
-  const chromeRows = modelPickerActive
-    ? MODEL_PICKER_ROWS
+  const chromeRows = state.modelPickerActive
+    ? modelPickerRowCount(modelPickerState)
     : inputRows + INPUT_BORDER_ROWS;
   let activityRows = 0;
   if (state.retry !== null || state.failure !== null) {

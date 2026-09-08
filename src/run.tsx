@@ -322,6 +322,7 @@ function modelPickerCatalog(config: ResolvedConfig): ModelPickerCatalog {
     providers: Object.entries(config.providers).map(([alias, provider]) => ({
       alias,
       type: provider.type,
+      baseURL: provider.baseURL.host,
       models: provider.models ?? [],
     })),
   };

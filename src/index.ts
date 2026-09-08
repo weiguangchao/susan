@@ -19,7 +19,10 @@ export {
   resolveSessionPickerIntent,
 } from "./core/picker.js";
 export {
+  MODEL_PICKER_VIEWPORT,
   createModelPickerState,
+  modelPickerRowCount,
+  modelPickerWindow,
   reduceModelPickerState,
   resolveModelPickerIntent,
 } from "./core/model-picker.js";

@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   createTuiState,
   createModelPickerState,
+  modelPickerRowCount,
+  modelPickerWindow,
   formatToolCallDetail,
   isEmptySession,
   reduceModelPickerState,
@@ -254,6 +256,51 @@ describe("TUI state", () => {
     expect(state.providerIndex).toBe(1);
     expect(state.modelIndex).toBe(0);
     expect(state.reasoningEffort).toBe("medium");
+  });
+
+  it("windows a long model catalog around the selected index", () => {
+    expect(modelPickerWindow(null, 9)).toBe(0);
+    expect(modelPickerWindow(0, 9)).toBe(0);
+    expect(modelPickerWindow(4, 9)).toBe(0);
+    expect(modelPickerWindow(5, 9)).toBe(1);
+    expect(modelPickerWindow(8, 9)).toBe(4);
+    expect(modelPickerWindow(2, 4)).toBe(0);
+  });
+
+  it("counts compact picker rows from the visible window", () => {
+    const catalog = {
+      providers: [
+        {
+          alias: "deepseek",
+          type: "openai-completion" as const,
+          models: Array.from({ length: 9 }, (_, index) => ({
+            id: `model-${index}`,
+          })),
+        },
+      ],
+    };
+    const empty = createModelPickerState({ providers: [] });
+    const short = createModelPickerState({
+      providers: [
+        {
+          alias: "deepseek",
+          type: "openai-completion" as const,
+          models: [{ id: "deepseek-v4-flash" }],
+        },
+      ],
+    });
+    let long = createModelPickerState(catalog);
+    long = reduceModelPickerState(long, { type: "move-model", delta: 1 });
+
+    expect(modelPickerRowCount(empty)).toBe(4);
+    expect(modelPickerRowCount(short)).toBe(7);
+    expect(modelPickerRowCount(long)).toBe(12);
+
+    for (let index = 0; index < 5; index += 1) {
+      long = reduceModelPickerState(long, { type: "move-model", delta: 1 });
+    }
+    expect(long.modelIndex).toBe(5);
+    expect(modelPickerRowCount(long)).toBe(13);
   });
 
   it("treats Shift+Space as an ordinary space", () => {

@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+patchedDependencies:
+  ink@7.1.1: patches/ink@7.1.1.patch

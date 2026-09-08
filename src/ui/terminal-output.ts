@@ -1,5 +1,3 @@
-const INK_FULL_CLEAR = "\u001B[2J\u001B[3J\u001B[H";
-const HOME_AND_ERASE_DOWN = "\u001B[1;1H\u001B[J";
 const INK_CURSOR_SUFFIX = /\u001B\[(\d+)A(\u001B\[\d+G\u001B\[\?25h)$/;
 
 function correctFullscreenCursor(chunk: string): string {
@@ -16,9 +14,10 @@ type TuiOutput = NodeJS.WriteStream & {
   setLiveFrameRows(rows: number | undefined): void;
 };
 
-// Preserve scrollback during Ink's resize fallback. Near-full live frames
-// report their height as the viewport so Ink skips its extra trailing newline
-// and the status bar can sit on the last row.
+// Near-full live frames report their height as the viewport so Ink skips its
+// extra trailing newline and the status bar can sit on the last row. History
+// preservation is handled by patches/ink@7.1.1.patch at the redraw boundary;
+// rewriting clear-screen escapes alone would still replay all Static history.
 export function createTuiOutput(
   stdout: NodeJS.WriteStream,
 ): TuiOutput {
@@ -26,9 +25,7 @@ export function createTuiOutput(
   const write = ((chunk: string | Uint8Array, ...args: readonly unknown[]) => {
     const safeChunk =
       typeof chunk === "string"
-        ? correctFullscreenCursor(
-            chunk.replaceAll(INK_FULL_CLEAR, HOME_AND_ERASE_DOWN),
-          )
+        ? correctFullscreenCursor(chunk)
         : chunk;
     return Reflect.apply(stdout.write, stdout, [safeChunk, ...args]);
   }) as NodeJS.WriteStream["write"];

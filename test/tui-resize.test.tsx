@@ -116,6 +116,83 @@ async function flushEffects(): Promise<void> {
 }
 
 describe("TUI terminal resize", () => {
+  it.each([
+    { textLines: 1, rounds: 3 },
+    { textLines: 30, rounds: 3 },
+  ])("preserves one copy of input and completed output across $rounds Tool rounds of $textLines lines", async ({ textLines, rounds }) => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+      allowProposedApi: true, convertEol: true, scrollOnEraseInDisplay: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => {
+      pendingWrites.push(new Promise<void>((resolve) => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness({ status: "idle" });
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin, stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function flush() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+    }
+    const archivedLines = ["你 ▸ 介绍当前项目"];
+    function assertSingleInput(stage: string) {
+      const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+      for (const archived of archivedLines) {
+        expect(lines.filter(line => line.includes(archived)), `${stage}: ${archived}`).toHaveLength(1);
+      }
+    }
+    try {
+      await flush();
+      stdin.write("介绍当前项目");
+      await flush();
+      stdin.write("\r");
+      await flush();
+      assertSingleInput("submit");
+      for (let round = 0; round < rounds; round++) {
+        for (let line = 0; line < textLines; line++) {
+          emit({ type: "text-delta", textDelta: `项目说明 ${round}/${line} 内容\n` });
+          await flush();
+          assertSingleInput(`stream ${round}/${line}`);
+        }
+        const toolCall = { id: `call-${round}`, name: "read", arguments: { path: `file-${round}.md` } };
+        emit({ type: "tool-started", toolCall });
+        await flush();
+        archivedLines.push(...Array.from({ length: textLines }, (_, line) => `项目说明 ${round}/${line} `));
+        assertSingleInput(`tool start ${round}`);
+        emit({ type: "tool-completed", toolCall, result: { ok: false,
+          error: { code: "ENOENT", message: "fixture" } } });
+        await flush();
+        emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
+        await flush();
+        archivedLines.push(`file-${round}.md`);
+        assertSingleInput(`tool complete ${round}`);
+      }
+      emit({ type: "agent-loop-completed" });
+      await flush();
+      assertSingleInput("finished");
+      for (const [columns, rows] of [[80, 18], [100, 30]] as const) {
+        terminal.resize(columns, rows);
+        Object.assign(stdout, { columns, rows });
+        stdout.emit("resize");
+        await flush();
+        assertSingleInput(`resize ${columns}x${rows}`);
+      }
+      instance.unmount();
+      await instance.waitUntilExit();
+      await Promise.all(pendingWrites.splice(0));
+      assertSingleInput("unmount");
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      terminal.dispose();
+    }
+  });
+
   it("does not commit the status bar to scrollback when the terminal shrinks during streaming", async () => {
     const terminal = new Terminal({
       cols: 80,

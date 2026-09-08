@@ -1,0 +1,17 @@
+diff --git a/build/ink.js b/build/ink.js
+index 0082666b281ec2db77b875d6b8460bcc19a59ce7..11e656afba00ac94595c58dad47200d7c1dd1e24 100644
+--- a/build/ink.js
++++ b/build/ink.js
+@@ -765,7 +765,11 @@ export default class Ink {
+             if (sync) {
+                 this.options.stdout.write(bsu);
+             }
+-            this.options.stdout.write(ansiEscapes.clearTerminal + this.fullStaticOutput + outputToRender);
++            // Susan owns persistent history in the main terminal buffer. Repaint
++            // only the live frame and append new Static output; replaying
++            // fullStaticOutput duplicates history already in scrollback.
++            this.log.clear();
++            this.options.stdout.write(staticOutput + outputToRender);
+             this.lastOutput = output;
+             this.lastOutputToRender = outputToRender;
+             this.lastOutputHeight = outputHeight;

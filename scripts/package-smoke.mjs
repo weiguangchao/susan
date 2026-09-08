@@ -83,10 +83,14 @@ try {
   const packedFiles = report.files
     .map((entry) => entry.path)
     .sort((left, right) => left.localeCompare(right, "en"));
-  const expectedFiles = ["dist/cli.js", "package.json"];
-  if (JSON.stringify(packedFiles) !== JSON.stringify(expectedFiles)) {
+  const requiredFiles = ["dist/cli.js", "package.json"];
+  // Bundled Ink includes lazy DevTools/runtime chunks alongside the CLI.
+  if (
+    requiredFiles.some((file) => !packedFiles.includes(file)) ||
+    packedFiles.some((file) => file !== "package.json" && !/^dist\/[^/]+\.js$/.test(file))
+  ) {
     fail(
-      `unexpected npm pack files: ${JSON.stringify(packedFiles)}; expected ${JSON.stringify(expectedFiles)}`,
+      `unexpected npm pack files: ${JSON.stringify(packedFiles)}; expected package.json and built JavaScript including dist/cli.js`,
     );
   }
 

@@ -28,7 +28,7 @@ import {
 import { ConfigErrorApp } from "./ui/config-error.js";
 import { SessionPickerApp } from "./ui/session-picker.js";
 import { TuiApp } from "./ui/tui.js";
-import { createFullscreenTuiOutput } from "./ui/terminal-output.js";
+import { createTuiOutput } from "./ui/terminal-output.js";
 
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
 export const CLEAR_TERMINAL_SEQUENCE = "\u001B[2J\u001B[3J\u001B[H";
@@ -93,7 +93,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   }
 
   clearTerminal();
-  const inkStdout = createFullscreenTuiOutput(process.stdout);
+  const inkStdout = createTuiOutput(process.stdout);
   const instance = render(
     <TuiApp
       harness={harness}

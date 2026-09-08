@@ -8,7 +8,7 @@ import type {
   ProviderClient,
 } from "../src/index.js";
 import { TuiApp } from "../src/index.js";
-import { createFullscreenTuiOutput } from "../src/ui/terminal-output.js";
+import { createTuiOutput } from "../src/ui/terminal-output.js";
 
 const SHOW_CURSOR = "\u001B[?25h";
 const REVERSE_VIDEO = "\u001B[7m";
@@ -124,7 +124,7 @@ function parseVisualCursorPlacement(
   if (!Number.isInteger(moveUp) || !Number.isInteger(column) || column < 1) {
     return undefined;
   }
-  // Fullscreen Ink output has no trailing newline. The output adapter
+  // Fullscreen frames have no trailing newline. The output adapter
   // positions the cursor relative to the real last row (rows - 1).
   return { x: column - 1, y: rows - 1 - moveUp };
 }
@@ -167,7 +167,7 @@ async function renderIdleTui(): Promise<{
         },
       })}
     />,
-    { stdin, stdout: createFullscreenTuiOutput(stdout), interactive: true, patchConsole: false },
+    { stdin, stdout: createTuiOutput(stdout), interactive: true, patchConsole: false },
   );
 
   await instance.waitUntilRenderFlush();
@@ -189,6 +189,8 @@ describe("TUI IME cursor", () => {
     const statusRow = lines.findLastIndex((line) => /high|未设置/.test(line));
     const placement = parseVisualCursorPlacement(raw, TERMINAL_ROWS);
 
+    expect(statusRow, "empty startup places the footer on the last terminal row")
+      .toBe(TERMINAL_ROWS - 1);
     expect(inputRow).toBeGreaterThanOrEqual(0);
     expect(statusRow).toBe(lines.length - 1);
     expect(lines[statusRow]).toContain("high");

@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useCursor, useInput, useStdout } from "ink";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import {
+  Box,
+  Static,
+  Text,
+  useApp,
+  useCursor,
+  useInput,
+  useStdout,
+} from "ink";
+import stringWidth from "string-width";
 import type {
   Harness,
   HarnessCommand,
@@ -18,6 +27,7 @@ import {
   inputImeCursorPosition,
   layoutInput,
 } from "./input-layout.js";
+import { pinLiveFrameRows } from "./terminal-output.js";
 import { ModelPickerView } from "./model-picker.js";
 import {
   createTuiState,
@@ -288,19 +298,68 @@ export function TuiApp({
     (tool) => !completedToolIds.has(tool.id),
   );
 
+  const liveHeightRef = useRef<number | undefined>(undefined);
+  const emittedStaticCountRef = useRef(0);
+  const freshSession = state.completedOutput.length === 0;
+  const inputRows = layoutInput(
+    state.input,
+    state.inputCursor,
+    inputWidth,
+    maxInputRows,
+  ).length;
+  const footerRows = liveFooterRows({
+    state,
+    inputRows,
+    modelPickerActive: state.modelPickerActive,
+  });
+  const newStaticRows = freshSession
+    ? 0
+    : state.completedOutput
+        .slice(emittedStaticCountRef.current)
+        .reduce(
+          (sum, item) => sum + completedItemRows(item, Math.max(1, columns - 1)),
+          0,
+        );
+  const frameRows = Math.min(
+    rows,
+    Math.max(
+      footerRows,
+      freshSession
+        ? rows
+        : newStaticRows > 0
+          ? rows - newStaticRows
+          : (liveHeightRef.current ?? rows),
+    ),
+  );
+  pinLiveFrameRows(stdout, frameRows);
+  useLayoutEffect(() => {
+    emittedStaticCountRef.current = state.completedOutput.length;
+    liveHeightRef.current = freshSession ? undefined : frameRows;
+  }, [frameRows, freshSession, state.completedOutput.length]);
+
   return (
     <>
       <Static items={[...state.completedOutput]}>
         {(item) => <CompletedOutputView key={item.id} item={item} />}
       </Static>
-      <Box flexDirection="column" height={rows} width={columns}>
+      <Box
+        flexDirection="column"
+        height={frameRows}
+        width={columns}
+      >
         {state.pending !== null && (
           <PendingBanner
             notice={state.notice}
             allowRetry={state.pending.reason !== "compatibility"}
           />
         )}
-        <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingLeft={1}>
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          flexShrink={1}
+          overflow="hidden"
+          paddingLeft={1}
+        >
           <ToolLedgerView tools={activeTools} />
           {state.stream !== null && <StreamView state={state} />}
         </Box>
@@ -312,7 +371,7 @@ export function TuiApp({
             input={state.input}
             cursor={state.inputCursor}
             columns={columns}
-            screenRows={rows}
+            screenRows={frameRows}
             maxRows={maxInputRows}
             working={inputWorking}
             activityPhase={activityPhase}
@@ -330,8 +389,11 @@ type TerminalDimensions = {
 };
 
 function readTerminalDimensions(stdout: NodeJS.WriteStream): TerminalDimensions {
+  const output = stdout as NodeJS.WriteStream & { readonly terminalRows?: number };
+  const rows =
+    output.terminalRows ?? (stdout.rows > 0 ? stdout.rows : 24);
   return {
-    rows: stdout.rows > 0 ? stdout.rows : 24,
+    rows: rows > 0 ? rows : 24,
     columns: stdout.columns > 0 ? stdout.columns : 80,
   };
 }
@@ -454,7 +516,7 @@ function CompletedOutputView({
   readonly item: TuiCompletedOutput;
 }) {
   return (
-    <Box flexDirection="column" paddingLeft={1}>
+    <Box flexDirection="column" flexShrink={0} paddingLeft={1}>
       {item.kind === "message" ? (
         <MessageView message={item.message} />
       ) : (
@@ -631,6 +693,70 @@ export function SlashCommandMenuView({
 
 const STEADY_UNDERLINE_CURSOR = "\u001B[4 q";
 const RESET_CURSOR_SHAPE = "\u001B[0 q";
+
+const MODEL_PICKER_ROWS = 7;
+const STATUS_ROWS = 1;
+const INPUT_BORDER_ROWS = 2;
+const PENDING_BANNER_ROWS = 1;
+
+function wrappedRowCount(text: string, width: number): number {
+  const usableWidth = Math.max(1, width);
+  return text.split("\n").reduce((sum, line) => {
+    const lineWidth = stringWidth(line);
+    return sum + Math.max(1, Math.ceil(lineWidth / usableWidth) || 1);
+  }, 0);
+}
+
+function completedItemRows(
+  item: TuiCompletedOutput,
+  width: number,
+): number {
+  if (item.kind === "tool-batch") {
+    return item.tools.reduce(
+      (sum, tool) => sum + 1 + tool.supplementalLines.length,
+      0,
+    );
+  }
+  if (item.message.kind === "interrupted") {
+    return 2;
+  }
+  const prefix =
+    item.message.kind === "user"
+      ? "你 ▸ "
+      : item.message.kind === "reasoning"
+        ? "reasoning ▸ "
+        : item.message.kind === "error"
+          ? "⚠ "
+          : "susan ▸ ";
+  return wrappedRowCount(prefix + item.message.text, width);
+}
+
+function liveFooterRows({
+  state,
+  inputRows,
+  modelPickerActive,
+}: {
+  readonly state: TuiState;
+  readonly inputRows: number;
+  readonly modelPickerActive: boolean;
+}): number {
+  const pendingRows = state.pending === null ? 0 : PENDING_BANNER_ROWS;
+  const chromeRows = modelPickerActive
+    ? MODEL_PICKER_ROWS
+    : inputRows + INPUT_BORDER_ROWS;
+  let activityRows = 0;
+  if (state.retry !== null || state.failure !== null) {
+    activityRows = 1;
+  } else if (state.status !== "running") {
+    const menu = resolveSlashCommandMenu(state);
+    if (menu.visible) {
+      activityRows = Math.max(1, menu.candidates.length);
+    } else if (state.notice !== null) {
+      activityRows = 1;
+    }
+  }
+  return pendingRows + activityRows + chromeRows + STATUS_ROWS;
+}
 
 function ImeInputLine({
   input,

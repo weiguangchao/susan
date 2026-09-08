@@ -4,7 +4,7 @@ import { render } from "ink";
 import { describe, expect, it } from "vitest";
 import type { Harness, HarnessEvent, HarnessSnapshot } from "../src/index.js";
 import { TuiApp } from "../src/index.js";
-import { createFullscreenTuiOutput } from "../src/ui/terminal-output.js";
+import { createTuiOutput } from "../src/ui/terminal-output.js";
 
 function terminalInput(): NodeJS.ReadStream {
   const input = new PassThrough() as PassThrough & {
@@ -67,7 +67,8 @@ function streamingHarness(overrides: Partial<HarnessSnapshot> = {}): {
   const listeners = new Set<(event: HarnessEvent) => void>();
   return {
     harness: {
-      async dispatch() {
+      async dispatch(command) {
+        if (command.type === "submit") snapshot = { ...snapshot, status: "running" };
         return { ok: true };
       },
       getSnapshot: () => snapshot,
@@ -129,7 +130,7 @@ describe("TUI terminal resize", () => {
       );
     });
     const { harness, emit } = streamingHarness();
-    const inkStdout = createFullscreenTuiOutput(stdout);
+    const inkStdout = createTuiOutput(stdout);
     const instance = render(
       <TuiApp
         harness={harness}
@@ -182,12 +183,15 @@ describe("TUI terminal resize", () => {
   });
 
   it.each([
-    { lines: 25, rounds: 1, scroll: false },
-    { lines: 60, rounds: 2, scroll: true },
-  ])("keeps status out of streamed history ($lines lines, $rounds rounds, scroll=$scroll)", async ({ lines, rounds, scroll }) => {
+    { rows: 16, lines: 1, rounds: 1, scroll: false },
+    { rows: 24, lines: 1, rounds: 1, scroll: false },
+    { rows: 40, lines: 1, rounds: 1, scroll: false },
+    { rows: 24, lines: 25, rounds: 1, scroll: false },
+    { rows: 24, lines: 60, rounds: 2, scroll: true },
+  ])("keeps input and status after the response in normal terminal flow ($rows rows, $lines lines, $rounds rounds)", async ({ rows, lines, rounds, scroll }) => {
     const terminal = new Terminal({
       cols: 80,
-      rows: 24,
+      rows,
       scrollback: 1000,
       allowProposedApi: true,
       convertEol: true,
@@ -200,7 +204,9 @@ describe("TUI terminal resize", () => {
         new Promise<void>((resolve) => terminal.write(chunk, resolve)),
       );
     });
+    Object.assign(stdout, { rows });
     const { harness, emit } = streamingHarness({
+      status: "idle",
       model: "deepseek-v4-flash",
       reasoningEffort: "low",
       contextWindow: 128_000,
@@ -216,7 +222,7 @@ describe("TUI terminal resize", () => {
       />,
       {
         stdin,
-        stdout: createFullscreenTuiOutput(stdout),
+        stdout: createTuiOutput(stdout),
         interactive: true,
         patchConsole: false,
         incrementalRendering: true,
@@ -237,6 +243,21 @@ describe("TUI terminal resize", () => {
     const expectedLines: string[] = [];
     try {
       await flush();
+      const startup = bufferLines();
+      expect(startup[rows - 1], "startup footer sits on the last terminal row")
+        .toContain(modelLabel);
+      expect(startup[rows - 3]).toContain("❯");
+      expect(terminal.buffer.active.cursorY).toBe(rows - 3);
+      expect(terminal.buffer.active.baseY).toBe(0);
+      stdin.write("介绍这个项目");
+      await flush();
+      stdin.write("\r");
+      await flush();
+      expect(bufferLines().join("\n")).toContain("你 ▸ 介绍这个项目");
+      expect(terminal.buffer.active.cursorY, "first submit keeps the input at the bottom")
+        .toBe(rows - 3);
+      expect(bufferLines()[terminal.buffer.active.baseY]).toContain("你 ▸ 介绍这个项目");
+      expect(bufferLines()[terminal.buffer.active.baseY + rows - 1]).toContain(modelLabel);
       for (let round = 0; round < rounds; round++) {
         const textLines = Array.from({ length: lines }, (_, index) =>
           `项目介绍 ${round}/${index}：TypeScript 与 Ink 构建终端界面。`,
@@ -254,20 +275,34 @@ describe("TUI terminal resize", () => {
           expect(
             bufferLines().filter((line) => line.includes(modelLabel)),
           ).toHaveLength(1);
+          expect(terminal.buffer.active.cursorY, "streaming keeps the input at the bottom")
+            .toBe(rows - 3);
         }
         emit({ type: "agent-loop-completed" });
         await flush();
         const buffer = bufferLines();
-        expect(
-          buffer[terminal.buffer.active.baseY + terminal.rows - 1],
-        ).toContain(modelLabel);
+        const lastContentRow = buffer.findLastIndex((line) => line.includes(textLines.at(-1)!));
+        const inputTopRow = buffer.findLastIndex((line) => line.includes("╭"));
+        expect(lastContentRow).toBeGreaterThanOrEqual(0);
+        expect(inputTopRow).toBeGreaterThan(lastContentRow);
+        const visibleGap = inputTopRow - lastContentRow - 1;
+        if (lines > rows - 6) {
+          expect(visibleGap, "no screenful of blank rows after a long reply")
+            .toBeLessThanOrEqual(1);
+        } else {
+          expect(visibleGap, "short replies keep the footer pinned with a gap")
+            .toBeGreaterThan(1);
+        }
+        expect(inputTopRow - terminal.buffer.active.baseY)
+          .toBe(rows - 4);
+        expect(buffer[inputTopRow + 3]).toContain(modelLabel);
         const history = buffer.slice(0, terminal.buffer.active.baseY).join("\n");
         expect(history).not.toContain(modelLabel);
         expect(history).not.toContain(usageLabel);
         expect(buffer.filter((line) => line.includes(modelLabel))).toHaveLength(1);
         expect(buffer.filter((line) => line.includes(usageLabel))).toHaveLength(1);
         for (const line of expectedLines) {
-          expect(history.split(line)).toHaveLength(2);
+          expect(buffer.join("\n").split(line)).toHaveLength(2);
         }
         const cursorLine = terminal.buffer.active.getLine(
           terminal.buffer.active.baseY + terminal.buffer.active.cursorY,
@@ -276,13 +311,24 @@ describe("TUI terminal resize", () => {
         stdin.write("你好");
         await flush();
         expect(terminal.buffer.active.cursorX).toBe(4 + (round + 1) * 4);
-        expect(terminal.buffer.active.cursorY).toBe(terminal.rows - 3);
+        expect(terminal.buffer.active.cursorY).toBe(inputTopRow + 1 - terminal.buffer.active.baseY);
         stdin.write("\u001B[D");
         await flush();
         expect(terminal.buffer.active.cursorX).toBe(4 + (round + 1) * 4 - 2);
-        expect(terminal.buffer.active.cursorY).toBe(terminal.rows - 3);
+        expect(terminal.buffer.active.cursorY).toBe(inputTopRow + 1 - terminal.buffer.active.baseY);
         stdin.write("\u001B[C");
         await flush();
+        if (scroll) {
+          terminal.scrollToTop();
+          const visible = bufferLines().slice(
+            terminal.buffer.active.viewportY,
+            terminal.buffer.active.viewportY + rows,
+          );
+          expect(visible.join("\n"), "native scroll moves the footer out of view")
+            .not.toContain(modelLabel);
+          expect(visible.join("\n")).not.toContain("❯");
+          terminal.scrollToBottom();
+        }
       }
     } finally {
       instance.unmount();

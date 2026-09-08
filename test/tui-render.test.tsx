@@ -425,7 +425,7 @@ describe("TUI activity slot", () => {
     emit({ type: "session-usage-updated", sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("Working...");
+    expect(latestVisibleFrame(frames)).not.toContain("Working...");
     expect(latestVisibleFrame(frames)).toContain("❯ /m");
     expect(latestVisibleFrame(frames)).not.toContain("› /model 模型");
 
@@ -463,8 +463,8 @@ describe("TUI Tool rendering", () => {
       summary: "等待执行",
       supplementalLines: [],
     });
-    expect(requested).toContain("⏳ read · /tmp/example.txt offset=1 limit=2000");
-    expect(requested).toContain("等待执行");
+    expect(requested).toContain("read · /tmp/example.txt offset=1 limit=2000");
+    expect(requested).not.toContain("等待执行");
     expect(approvalPromptFragments(requested)).toEqual([]);
 
     const running = renderTool({
@@ -475,7 +475,7 @@ describe("TUI Tool rendering", () => {
       summary: "执行中",
       supplementalLines: [],
     });
-    expect(running).toContain("● read · /tmp/example.txt offset=1 limit=2000 · 执行中");
+    expect(running).toContain("read · /tmp/example.txt offset=1 limit=2000");
     expect(approvalPromptFragments(running)).toEqual([]);
 
     const completed = renderTool({
@@ -544,7 +544,7 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const requested = latestVisibleFrame(frames);
-    expect(requested).toContain("等待执行");
+    expect(requested).not.toContain("等待执行");
     expect(approvalPromptFragments(requested)).toEqual([]);
 
     stdin.push("\r");
@@ -557,7 +557,8 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const running = latestVisibleFrame(frames);
-    expect(running).toContain("执行中");
+    expect(running).toContain("read · /tmp/example.txt");
+    expect(running).not.toContain("执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
 
     frames.length = 0;
@@ -631,13 +632,13 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const requested = latestVisibleFrame(frames);
-    expect(requested).toContain("等待执行");
+    expect(requested).not.toContain("等待执行");
     expect(approvalPromptFragments(requested)).toEqual([]);
 
     emit({ type: "tool-started", toolCall });
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("执行中");
+    expect(latestVisibleFrame(frames)).toContain("read · /tmp/example.txt");
 
     frames.length = 0;
     emit({

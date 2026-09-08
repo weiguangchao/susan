@@ -7,7 +7,6 @@ import {
   ActivityLine,
   InputLine,
   SlashCommandMenuView,
-  workingColorAt,
 } from "../src/ui/tui.js";
 
 function stripAnsi(value: string): string {
@@ -209,31 +208,13 @@ describe("TUI input", () => {
     expect(Children.count(viewport.props.children)).toBe(2);
   });
 
-  it("embeds a stationary left-to-right colour wave in the input border", () => {
-    const renderAt = (activityPhase: number) =>
-      renderToString(
-        <InputLine
-          input=""
-          cursor={{ row: 0, column: 0 }}
-          columns={40}
-          working
-          activityPhase={activityPhase}
-        />,
-        { columns: 40 },
-      );
-    const firstPhase = renderAt(0);
-    const nextPhase = renderAt(1);
-    const idle = renderToString(
+  it("keeps the input border static", () => {
+    const output = stripAnsi(renderToString(
       <InputLine input="" cursor={{ row: 0, column: 0 }} columns={40} />,
       { columns: 40 },
-    );
-
-    expect(stripAnsi(firstPhase)).toBe(stripAnsi(nextPhase));
-    expect(stripAnsi(firstPhase)).toContain("╭──── Working... ");
-    expect(workingColorAt(0, 0)).not.toBe(workingColorAt(0, 1));
-    expect(workingColorAt(0, 0)).toBe(workingColorAt(1, 1));
-    expect(workingColorAt(0, 60)).toBe(workingColorAt(0, 0));
-    expect(stripAnsi(idle)).not.toContain("Working...");
+    ));
+    expect(output).toContain(`╭${"─".repeat(37)}╮`);
+    expect(output).not.toContain("Working...");
   });
 
   it("renders the cursor without moving the surrounding characters", () => {

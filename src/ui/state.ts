@@ -4,7 +4,7 @@ import type {
   HarnessStatus,
   PendingAgentLoop,
 } from "../core/harness.js";
-import { isRecord } from "../core/json.js";
+import { isJsonValue, isRecord } from "../core/json.js";
 import { isToolResult, type ToolResult } from "../core/tool-result.js";
 import type { ProviderFailure, ReasoningEffort } from "../core/provider.js";
 import { moveInputCursorVertically } from "./input-layout.js";
@@ -758,34 +758,29 @@ function reduceHarnessEvent(
     }
     case "tool-call-delta": {
       const placeholderId = `tool-call-${event.index}`;
-      if (event.id === undefined) {
-        if (!state.tools.some((tool) => tool.id === placeholderId)) {
-          return state;
+      const existing = state.tools.find(tool =>
+        tool.status === "requested" &&
+        ((event.id !== undefined && tool.id === event.id) ||
+          tool.id === placeholderId || tool.streamIndex === event.index));
+      const id = event.id ?? existing?.id ?? placeholderId;
+      const name = event.name ?? existing?.name ?? "tool";
+      const argumentsText = (existing?.argumentsText ?? "") + event.argumentsDelta;
+      let invocationLabel = existing?.invocationLabel ?? "";
+      try {
+        const arguments_: unknown = JSON.parse(argumentsText);
+        if (isRecord(arguments_) && isJsonValue(arguments_)) {
+          invocationLabel = formatToolCallDetail({ id, name, arguments: arguments_ }, undefined, state.cwd);
         }
-        return {
-          ...state,
-          tools: upsertTool(state.tools, {
-            id: placeholderId,
-            name: event.name ?? "tool",
-            invocationLabel: "",
-            status: "requested",
-            summary: "等待执行",
-            supplementalLines: [],
-          }),
-        };
+      } catch {
+        // Incomplete streamed JSON: keep the tool name until arguments are complete.
       }
-      const existing = state.tools.find(
-        (tool) => tool.id === event.id || tool.id === placeholderId,
-      );
       return {
         ...state,
         tools: placeToolAtIndex(state.tools, event.index, {
-          id: event.id,
-          name: event.name ?? existing?.name ?? "tool",
-          invocationLabel: existing?.invocationLabel ?? "",
+          id, name, invocationLabel, argumentsText, streamIndex: event.index,
           status: "requested",
           summary: "等待执行",
-          supplementalLines: existing?.supplementalLines ?? [],
+          supplementalLines: [],
         }),
       };
     }

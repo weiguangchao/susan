@@ -2,7 +2,8 @@ import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
 import type { ProviderToolCall } from "../src/index.js";
 import { createTuiState, reduceTuiState } from "../src/index.js";
-import { SessionContentView } from "../src/ui/tui.js";
+import { Children, type ReactElement } from "react";
+import { SessionContentView, ToolLineView } from "../src/ui/tui.js";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results.js";
 
 function initialState() {
@@ -22,6 +23,31 @@ function initialState() {
 }
 
 describe("TUI Tool execution ledger", () => {
+  it.each(canonicalToolFixtures)("animates active instructions and freezes results for $call.name", ({ call, result }) => {
+    let state = reduceTuiState(initialState(), { type: "harness-event", event: { type: "tool-started", toolCall: call } });
+    const card = state.tools[0]!;
+    for (const status of ["requested", "running"] as const) {
+      const first = ToolLineView({ tool: { ...card, status }, phase: 0 });
+      const next = ToolLineView({ tool: { ...card, status }, phase: 1 });
+      const characters = (element: ReactElement<{ children?: import("react").ReactNode }>) => Children.toArray(element.props.children) as ReactElement<{ color: string; children: string }>[];
+      expect(characters(first).map(c => c.props.children).join("")).toBe(`${call.name} · ${card.invocationLabel}`);
+      expect(characters(first)[0]!.props.color).not.toBe(characters(next)[0]!.props.color);
+      expect(characters(first)[0]!.props.color).toBe(characters(next)[1]!.props.color);
+    }
+    state = reduceTuiState(state, { type: "harness-event", event: { type: "tool-completed", toolCall: call, result } });
+    expect(ToolLineView({ tool: state.tools[0]!, phase: 0 })).toEqual(ToolLineView({ tool: state.tools[0]!, phase: 1 }));
+  });
+
+  it("assembles streamed arguments for waiting tool instructions", () => {
+    let state = initialState();
+    for (const event of [
+      { type: "tool-call-delta" as const, index: 0, id: "read-1", name: "read", argumentsDelta: '{"path":"src/' },
+      { type: "tool-call-delta" as const, index: 0, argumentsDelta: 'main.ts"}' },
+    ]) state = reduceTuiState(state, { type: "harness-event", event });
+    expect(state.tools).toHaveLength(1);
+    expect(state.tools[0]).toMatchObject({ status: "requested", name: "read", invocationLabel: "src/main.ts" });
+  });
+
   it("normalizes running path labels against the Session cwd", () => {
     let state = initialState();
     state = reduceTuiState(state, {

@@ -19,6 +19,8 @@ export type TuiToolCard = {
   readonly id: string;
   readonly name: string;
   readonly invocationLabel: string;
+  readonly streamIndex?: number;
+  readonly argumentsText?: string;
   readonly status: TuiToolStatus;
   readonly summary: string;
   readonly supplementalLines: readonly string[];

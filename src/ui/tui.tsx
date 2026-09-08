@@ -90,9 +90,6 @@ export function TuiApp({
   const stateRef = useRef(state);
   const modelPickerStateRef = useRef(modelPickerState);
   const now = useNow(state.retry !== null);
-  const inputWorking =
-    state.status === "running" && state.retry === null && state.failure === null;
-  const activityPhase = useActivityPhase(inputWorking);
 
   stateRef.current = state;
   modelPickerStateRef.current = modelPickerState;
@@ -376,8 +373,6 @@ export function TuiApp({
             columns={columns}
             screenRows={frameRows}
             maxRows={maxInputRows}
-            working={inputWorking}
-            activityPhase={activityPhase}
           />
         )}
         <StatusBar state={state} />
@@ -447,7 +442,7 @@ function useNow(active: boolean): number {
   return now;
 }
 
-function useActivityPhase(active: boolean): number {
+export function useActivityPhase(active: boolean): number {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     if (!active) {
@@ -546,7 +541,15 @@ export function SessionContentView({
   );
 }
 
-export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
+export function ToolLineView({ tool, phase = 0 }: { readonly tool: TuiToolCard; readonly phase?: number }) {
+  if (tool.status === "requested" || tool.status === "running") {
+    const label = tool.invocationLabel ? `${tool.name} · ${tool.invocationLabel}` : tool.name;
+    return <Text bold wrap="truncate-end">
+      {[...label].map((character, index) => (
+        <Text key={index} color={workingColorAt(index, phase)}>{character}</Text>
+      ))}
+    </Text>;
+  }
   const color =
     tool.status === "completed"
       ? "green"
@@ -560,9 +563,7 @@ export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
       : tool.status === "failed" ||
           tool.status === "interrupted"
         ? "✗"
-        : tool.status === "running"
-          ? "●"
-          : "⏳";
+        : "✗";
   return (
     <Text color={color} wrap="truncate-end">
       {marker} {tool.name} · {tool.invocationLabel}{tool.summary === "" ? "" : ` · ${tool.summary}`}
@@ -575,10 +576,11 @@ export function ToolLedgerView({
 }: {
   readonly tools: readonly TuiToolCard[];
 }) {
+  const phase = useActivityPhase(tools.some(tool => tool.status === "requested" || tool.status === "running"));
   return (
     <Box flexDirection="column" flexShrink={0}>
       {tools.map((tool) => (
-        <ToolLineView key={tool.id} tool={tool} />
+        <ToolLineView key={tool.id} tool={tool} phase={phase} />
       ))}
       {tools.flatMap((tool) =>
         tool.supplementalLines.map((line, index) => (
@@ -773,16 +775,12 @@ function ImeInputLine({
   columns,
   screenRows,
   maxRows,
-  working,
-  activityPhase,
 }: {
   readonly input: string;
   readonly cursor: TuiState["inputCursor"];
   readonly columns: number;
   readonly screenRows: number;
   readonly maxRows: number;
-  readonly working: boolean;
-  readonly activityPhase: number;
 }) {
   const { stdout } = useStdout();
   const { setCursorPosition } = useCursor();
@@ -810,8 +808,6 @@ function ImeInputLine({
       cursor={cursor}
       columns={columns}
       maxRows={maxRows}
-      working={working}
-      activityPhase={activityPhase}
     />
   );
 }
@@ -821,26 +817,18 @@ export function InputLine({
   cursor,
   columns = 80,
   maxRows = 10,
-  working = false,
-  activityPhase = 0,
 }: {
   readonly input: string;
   readonly cursor: TuiState["inputCursor"];
   readonly columns?: number;
   readonly maxRows?: number;
-  readonly working?: boolean;
-  readonly activityPhase?: number;
 }) {
   const boxWidth = inputBoxWidth(columns);
   const contentWidth = inputContentWidth(columns);
   const rows = layoutInput(input, cursor, contentWidth, maxRows);
   return (
     <Box flexDirection="column" flexShrink={0}>
-      <InputTopBorder
-        width={boxWidth}
-        working={working}
-        phase={activityPhase}
-      />
+      <Text>╭{"─".repeat(Math.max(0, boxWidth - 2))}╮</Text>
       <Box
         borderStyle="round"
         borderTop={false}
@@ -870,8 +858,6 @@ export function InputLine({
   );
 }
 
-const WORKING_LABEL = "Working...";
-const WORKING_OFFSET = 4;
 const WORKING_PALETTE = [
   "#42646c",
   "#568894",
@@ -888,41 +874,7 @@ export function workingColorAt(index: number, phase: number): string {
   return WORKING_PALETTE[colorIndex]!;
 }
 
-function InputTopBorder({
-  width,
-  working,
-  phase,
-}: {
-  readonly width: number;
-  readonly working: boolean;
-  readonly phase: number;
-}) {
-  const innerWidth = Math.max(0, width - 2);
-  if (!working) {
-    return <Text>╭{"─".repeat(innerWidth)}╮</Text>;
-  }
-  const occupiedWidth = WORKING_OFFSET + WORKING_LABEL.length + 2;
-  return (
-    <Text>
-      ╭{"─".repeat(WORKING_OFFSET)}{" "}
-      <Text bold>
-        {[...WORKING_LABEL].map((character, index) => {
-          return (
-            <Text
-              key={`${index}-${character}`}
-              color={workingColorAt(index, phase)}
-            >
-              {character}
-            </Text>
-          );
-        })}
-      </Text>{" "}
-      {"─".repeat(Math.max(0, innerWidth - occupiedWidth))}╮
-    </Text>
-  );
-}
-
-function StatusBar({ state }: { readonly state: TuiState }) {
+export function StatusBar({ state }: { readonly state: TuiState }) {
   const percentage = (state.sessionTotalTokens / state.contextWindow) * 100;
   const cacheVisible =
     state.sessionCachedInputTokens > 0 && state.sessionInputTokens > 0;

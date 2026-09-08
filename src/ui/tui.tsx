@@ -359,6 +359,7 @@ export function TuiApp({
           flexShrink={1}
           overflow="hidden"
           paddingLeft={1}
+          marginBottom={1}
         >
           <ToolLedgerView tools={activeTools} />
           {state.stream !== null && <StreamView state={state} />}
@@ -698,6 +699,7 @@ const MODEL_PICKER_ROWS = 7;
 const STATUS_ROWS = 1;
 const INPUT_BORDER_ROWS = 2;
 const PENDING_BANNER_ROWS = 1;
+const LIVE_GUTTER_ROWS = 1;
 
 function wrappedRowCount(text: string, width: number): number {
   const usableWidth = Math.max(1, width);
@@ -755,7 +757,13 @@ function liveFooterRows({
       activityRows = 1;
     }
   }
-  return pendingRows + activityRows + chromeRows + STATUS_ROWS;
+  return (
+    pendingRows +
+    activityRows +
+    LIVE_GUTTER_ROWS +
+    chromeRows +
+    STATUS_ROWS
+  );
 }
 
 function ImeInputLine({

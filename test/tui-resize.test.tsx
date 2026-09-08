@@ -288,7 +288,7 @@ describe("TUI terminal resize", () => {
         const visibleGap = inputTopRow - lastContentRow - 1;
         if (lines > rows - 6) {
           expect(visibleGap, "no screenful of blank rows after a long reply")
-            .toBeLessThanOrEqual(1);
+            .toBeLessThanOrEqual(2);
         } else {
           expect(visibleGap, "short replies keep the footer pinned with a gap")
             .toBeGreaterThan(1);

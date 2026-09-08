@@ -420,6 +420,7 @@ describe("Harness", () => {
                   inputTokens: 120,
                   outputTokens: 5,
                   totalTokens: 125,
+                  cachedInputTokens: 60,
                 },
               },
             },
@@ -434,6 +435,7 @@ describe("Harness", () => {
                   inputTokens: 180,
                   outputTokens: 30,
                   totalTokens: 210,
+                  cachedInputTokens: 90,
                 },
               },
             },
@@ -470,32 +472,38 @@ describe("Harness", () => {
     expect(usageEvents[0]).toEqual({
       type: "session-usage-updated",
       sessionTotalTokens: 125,
+      sessionInputTokens: 120,
+      sessionCachedInputTokens: 60,
       contextWindow: 100_000,
     });
     expect(usageEvents[1]).toEqual({
       type: "session-usage-updated",
       sessionTotalTokens: 335,
+      sessionInputTokens: 300,
+      sessionCachedInputTokens: 150,
       contextWindow: 100_000,
     });
     expect(appendedUsage).toEqual([
-      { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
-      { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+      { inputTokens: 120, outputTokens: 5, totalTokens: 125, cachedInputTokens: 60 },
+      { inputTokens: 180, outputTokens: 30, totalTokens: 210, cachedInputTokens: 90 },
     ]);
     expect(appendedUsageRecords).toEqual([
       {
         type: "usage",
-        usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+        usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125, cachedInputTokens: 60 },
         model: "model",
         reasoningEffort: "medium",
       },
       {
         type: "usage",
-        usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+        usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210, cachedInputTokens: 90 },
         model: "model",
         reasoningEffort: "medium",
       },
     ]);
     expect(harness.getSnapshot().sessionTotalTokens).toBe(335);
+    expect(harness.getSnapshot().sessionInputTokens).toBe(300);
+    expect(harness.getSnapshot().sessionCachedInputTokens).toBe(150);
   });
 
   it("restores the cumulative Provider usage from the Session Transcript", () => {
@@ -512,7 +520,12 @@ describe("Harness", () => {
           },
           {
             type: "usage",
-            usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+            usage: {
+              inputTokens: 180,
+              outputTokens: 30,
+              totalTokens: 210,
+              cachedInputTokens: 90,
+            },
           },
         ],
       },
@@ -524,6 +537,8 @@ describe("Harness", () => {
     });
 
     expect(restored.getSnapshot().sessionTotalTokens).toBe(330);
+    expect(restored.getSnapshot().sessionInputTokens).toBe(280);
+    expect(restored.getSnapshot().sessionCachedInputTokens).toBe(90);
   });
 
   it("executes every Yolo Tool Call serially before continuing the Agent Loop", async () => {

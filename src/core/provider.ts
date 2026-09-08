@@ -36,6 +36,7 @@ export type ProviderUsage = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cachedInputTokens?: number;
 };
 
 export type ProviderToolCall = {

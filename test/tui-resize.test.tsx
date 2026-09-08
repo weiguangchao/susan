@@ -44,6 +44,8 @@ function idleHarness(): Harness {
     reasoningEffort: "high",
     contextWindow: 418_000,
     sessionTotalTokens: 0,
+    sessionInputTokens: 0,
+    sessionCachedInputTokens: 0,
   };
   return {
     async dispatch() {
@@ -62,6 +64,8 @@ function streamingHarness(overrides: Partial<HarnessSnapshot> = {}): {
     ...idleHarness().getSnapshot(),
     status: "running",
     sessionTotalTokens: 12_345,
+    sessionInputTokens: 9_876,
+    sessionCachedInputTokens: 0,
     ...overrides,
   };
   const listeners = new Set<(event: HarnessEvent) => void>();
@@ -211,6 +215,8 @@ describe("TUI terminal resize", () => {
       reasoningEffort: "low",
       contextWindow: 128_000,
       sessionTotalTokens: 118_144,
+      sessionInputTokens: 100_000,
+      sessionCachedInputTokens: 0,
     });
     const instance = render(
       <TuiApp

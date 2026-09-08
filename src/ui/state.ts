@@ -69,6 +69,8 @@ export type TuiState = {
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
+  readonly sessionInputTokens: number;
+  readonly sessionCachedInputTokens: number;
   readonly notice: string | null;
   readonly input: string;
   readonly inputCursor: TuiInputCursor;
@@ -169,6 +171,8 @@ export function createTuiState(
     reasoningEffort: snapshot.reasoningEffort,
     contextWindow: snapshot.contextWindow,
     sessionTotalTokens: snapshot.sessionTotalTokens,
+    sessionInputTokens: snapshot.sessionInputTokens,
+    sessionCachedInputTokens: snapshot.sessionCachedInputTokens,
     notice:
       snapshot.pending !== null
         ? pendingNotice(snapshot.pending)
@@ -384,6 +388,8 @@ export function reduceTuiState(
         reasoningEffort: action.snapshot.reasoningEffort,
         contextWindow: action.snapshot.contextWindow,
         sessionTotalTokens: action.snapshot.sessionTotalTokens,
+        sessionInputTokens: action.snapshot.sessionInputTokens,
+        sessionCachedInputTokens: action.snapshot.sessionCachedInputTokens,
         ...(action.snapshot.pending === null
           ? {}
           : { notice: pendingNotice(action.snapshot.pending) }),
@@ -835,6 +841,8 @@ function reduceHarnessEvent(
       return {
         ...state,
         sessionTotalTokens: event.sessionTotalTokens,
+        sessionInputTokens: event.sessionInputTokens,
+        sessionCachedInputTokens: event.sessionCachedInputTokens,
         contextWindow: event.contextWindow,
       };
     case "compaction-failed": {

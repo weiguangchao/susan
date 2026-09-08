@@ -86,6 +86,8 @@ export type HarnessSnapshot = {
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly sessionTotalTokens: number;
+  readonly sessionInputTokens: number;
+  readonly sessionCachedInputTokens: number;
 };
 
 export type { ReasoningEffort };
@@ -122,6 +124,8 @@ export type HarnessEvent =
   | {
       readonly type: "session-usage-updated";
       readonly sessionTotalTokens: number;
+      readonly sessionInputTokens: number;
+      readonly sessionCachedInputTokens: number;
       readonly contextWindow: number;
     }
   | {
@@ -367,6 +371,18 @@ export function createHarness(options: HarnessOptions): Harness {
         : total,
     0,
   );
+  let sessionInputTokens = options.session.records.reduce(
+    (total, record) =>
+      record.type === "usage" ? total + record.usage.inputTokens : total,
+    0,
+  );
+  let sessionCachedInputTokens = options.session.records.reduce(
+    (total, record) =>
+      record.type === "usage"
+        ? total + (record.usage.cachedInputTokens ?? 0)
+        : total,
+    0,
+  );
   let pending = restoredPending(messages);
   let status: HarnessStatus =
     pending === null
@@ -455,9 +471,13 @@ export function createHarness(options: HarnessOptions): Harness {
       return failed;
     }
     sessionTotalTokens += usage.inputTokens + usage.outputTokens;
+    sessionInputTokens += usage.inputTokens;
+    sessionCachedInputTokens += usage.cachedInputTokens ?? 0;
     emit({
       type: "session-usage-updated",
       sessionTotalTokens,
+      sessionInputTokens,
+      sessionCachedInputTokens,
       contextWindow,
     });
     return { ok: true };
@@ -1221,6 +1241,8 @@ export function createHarness(options: HarnessOptions): Harness {
         reasoningEffort,
         contextWindow,
         sessionTotalTokens,
+        sessionInputTokens,
+        sessionCachedInputTokens,
       };
     },
 

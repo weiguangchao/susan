@@ -156,6 +156,14 @@ _Avoid_: row, entry
 一个 Session 内所有已完成 Provider 请求的 input + output token 累计值；每条 usage record 保存一次请求的上游 usage，用于恢复状态栏统计。
 _Avoid_: model context, context estimation
 
+**Cached Input Tokens**:
+一次 Provider 请求的 usage 中由上游上报的 prompt cache 命中 input tokens 数；仅采用 OpenAI 标准字段 `prompt_tokens_details.cached_tokens`，上游未上报时该值不存在。
+_Avoid_: cache tokens, prompt cache hit tokens, 缓存 tokens
+
+**Cache Hit Rate**:
+Session 内所有已完成 Provider 请求累计的 Cached Input Tokens 占累计 input tokens 的比例；累计 Cached Input Tokens 为零时不显示。
+_Avoid_: cache ratio, hit ratio, 缓存命中比
+
 **Session Transcript**:
 Session 中持久保留、可恢复与审计的完整事件记录。Compaction 不会删除其中的早期内容。
 _Avoid_: history, log

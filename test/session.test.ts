@@ -66,7 +66,7 @@ describe("session store", () => {
     }
     const { header, filePath, records } = result.value;
     expect(header.type).toBe("session");
-    expect(header.version).toBe(2);
+    expect(header.version).toBe(3);
     expect(header.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -227,6 +227,12 @@ describe("session store", () => {
     const usages: ProviderUsage[] = [
       { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+      {
+        inputTokens: 260,
+        outputTokens: 40,
+        totalTokens: 300,
+        cachedInputTokens: 150,
+      },
     ];
 
     for (const [index, usage] of usages.entries()) {
@@ -257,9 +263,34 @@ describe("session store", () => {
           model: "deepseek-v4-flash",
           reasoningEffort: "max",
         },
+        { type: "usage", usage: usages[2] },
       ]);
       expect(loaded.value.messages).toEqual([]);
     }
+  });
+
+  it("strips Cached Input Tokens when appending usage to a legacy format Session", async () => {
+    const { store, filePath, sessionId } = await installSessionFixture(
+      "pending-read.jsonl",
+    );
+    const usage: ProviderUsage = {
+      inputTokens: 120,
+      outputTokens: 5,
+      totalTokens: 125,
+      cachedInputTokens: 60,
+    };
+
+    expect(await store.appendUsage(sessionId, usage)).toEqual({
+      ok: true,
+      value: undefined,
+    });
+
+    const text = await readFile(filePath, "utf8");
+    const lastLine = text.trimEnd().split("\n").at(-1)!;
+    expect(JSON.parse(lastLine)).toEqual({
+      type: "usage",
+      usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+    });
   });
 
   it("recovers a torn final JSON line and continues appending safely", async () => {

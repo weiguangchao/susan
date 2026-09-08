@@ -62,6 +62,8 @@ function idleSnapshot(
     reasoningEffort: "high",
     contextWindow: 418_000,
     sessionTotalTokens: 0,
+    sessionInputTokens: 0,
+    sessionCachedInputTokens: 0,
     ...overrides,
   };
 }

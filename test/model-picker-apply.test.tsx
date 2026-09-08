@@ -60,6 +60,8 @@ describe("model picker application", () => {
       reasoningEffort: "minimal",
       contextWindow: 128_000,
       sessionTotalTokens: 0,
+      sessionInputTokens: 0,
+      sessionCachedInputTokens: 0,
     };
     const dispatchedCommands: HarnessCommand[] = [];
     const harness: Harness = {
@@ -133,6 +135,8 @@ describe("model picker application", () => {
       reasoningEffort: "minimal",
       contextWindow: 128_000,
       sessionTotalTokens: 0,
+      sessionInputTokens: 0,
+      sessionCachedInputTokens: 0,
     };
     const provider = {
       type: "openai-completion",

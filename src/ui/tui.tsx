@@ -923,6 +923,11 @@ function InputTopBorder({
 
 function StatusBar({ state }: { readonly state: TuiState }) {
   const percentage = (state.sessionTotalTokens / state.contextWindow) * 100;
+  const cacheVisible =
+    state.sessionCachedInputTokens > 0 && state.sessionInputTokens > 0;
+  const cacheHitRate = cacheVisible
+    ? (state.sessionCachedInputTokens / state.sessionInputTokens) * 100
+    : null;
 
   return (
     <Box
@@ -932,6 +937,7 @@ function StatusBar({ state }: { readonly state: TuiState }) {
       flexShrink={0}
     >
       <Text dimColor>
+        {cacheHitRate === null ? "" : `CH ${cacheHitRate.toFixed(1)}% `}
         {percentage.toFixed(1)}%/{formatTokenCount(state.sessionTotalTokens)}
       </Text>
       <Text dimColor>

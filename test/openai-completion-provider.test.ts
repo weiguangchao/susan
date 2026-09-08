@@ -347,7 +347,6 @@ describe("openai-completion provider adapter", () => {
       chunk({ content: "", reasoning_content: "" }, null),
       chunk({ content: "Hello" }, "stop"),
     ]);
-
     expect(events).toEqual([
       { type: "text-delta", textDelta: "Hello" },
       {
@@ -355,6 +354,67 @@ describe("openai-completion provider adapter", () => {
         response: {
           assistant: { role: "assistant", content: "Hello" },
           finishReason: "stop",
+        },
+      },
+    ]);
+  });
+
+  it("parses prompt cache hits from the usage payload", async () => {
+    const { events } = await streamEvents([
+      chunk({ content: "Hi" }, "stop"),
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 120,
+          completion_tokens: 5,
+          total_tokens: 125,
+          prompt_tokens_details: { cached_tokens: 60 },
+        },
+        _request_id: "request-1",
+      },
+    ]);
+
+    expect(events).toEqual([
+      { type: "text-delta", textDelta: "Hi" },
+      {
+        type: "response-complete",
+        response: {
+          assistant: { role: "assistant", content: "Hi" },
+          finishReason: "stop",
+          usage: {
+            inputTokens: 120,
+            outputTokens: 5,
+            totalTokens: 125,
+            cachedInputTokens: 60,
+          },
+          requestId: "request-1",
+        },
+      },
+    ]);
+  });
+
+  it("treats absent or null prompt cache details as no Cached Input Tokens", async () => {
+    const { events } = await streamEvents([
+      chunk({ content: "Hi" }, "stop"),
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 120,
+          completion_tokens: 5,
+          total_tokens: 125,
+          prompt_tokens_details: {},
+        },
+      },
+    ]);
+
+    expect(events).toEqual([
+      { type: "text-delta", textDelta: "Hi" },
+      {
+        type: "response-complete",
+        response: {
+          assistant: { role: "assistant", content: "Hi" },
+          finishReason: "stop",
+          usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
         },
       },
     ]);
@@ -448,7 +508,39 @@ describe("openai-completion provider adapter", () => {
       },
       {
         hadSemanticOutput: true,
-        chunks: [chunk({ content: "Partial" }, "unexpected")],
+        chunks: [
+          chunk({ content: "Partial" }, "unexpected"),
+        ],
+      },
+      {
+        hadSemanticOutput: true,
+        chunks: [
+          chunk({ content: "Done" }, "stop"),
+          {
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+              prompt_tokens_details: "not-a-record",
+            },
+          },
+        ],
+      },
+      {
+        hadSemanticOutput: true,
+        chunks: [
+          chunk({ content: "Done" }, "stop"),
+          {
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+              prompt_tokens_details: { cached_tokens: -1 },
+            },
+          },
+        ],
       },
     ];
 

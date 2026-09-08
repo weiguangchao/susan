@@ -95,6 +95,8 @@ function idleSnapshot(
     reasoningEffort: "high",
     contextWindow: 418_000,
     sessionTotalTokens: 0,
+    sessionInputTokens: 0,
+    sessionCachedInputTokens: 0,
     ...overrides,
   };
 }
@@ -165,7 +167,99 @@ describe("TUI status bar", () => {
     );
 
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("19.7%/25k");
+    const initial = latestVisibleFrame(frames);
+    expect(initial).toContain("19.7%/25k");
+    expect(initial).not.toContain("CH ");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+
+  it("renders the Cache Hit Rate prefix once cached usage accumulates", async () => {
+    const { harness, emit } = createEventHarness(
+      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+    );
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    emit(
+      {
+        type: "session-usage-updated",
+        sessionTotalTokens: 50_000,
+        sessionInputTokens: 40_000,
+        sessionCachedInputTokens: 10_320,
+        contextWindow: 127_000,
+      },
+      idleSnapshot({
+        status: "running",
+        sessionTotalTokens: 50_000,
+        sessionInputTokens: 40_000,
+        sessionCachedInputTokens: 10_320,
+        contextWindow: 127_000,
+      }),
+    );
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+
+    expect(latestVisibleFrame(frames)).toContain("CH 25.8% 39.4%/50k");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+
+  it("keeps the Cache Hit Rate prefix hidden while no cache has been reported", async () => {
+    const { harness, emit } = createEventHarness(
+      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+    );
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    emit(
+      {
+        type: "session-usage-updated",
+        sessionTotalTokens: 50_000,
+        sessionInputTokens: 40_000,
+        sessionCachedInputTokens: 0,
+        contextWindow: 127_000,
+      },
+      idleSnapshot({
+        status: "running",
+        sessionTotalTokens: 50_000,
+        sessionInputTokens: 40_000,
+        sessionCachedInputTokens: 0,
+        contextWindow: 127_000,
+      }),
+    );
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+
+    const frame = latestVisibleFrame(frames);
+    expect(frame).toContain("39.4%/50k");
+    expect(frame).not.toContain("CH ");
 
     instance.unmount();
     await instance.waitUntilExit();
@@ -328,7 +422,7 @@ describe("TUI activity slot", () => {
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).toContain("› /model 模型");
 
-    emit({ type: "session-usage-updated", sessionTotalTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
+    emit({ type: "session-usage-updated", sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
     await flushEffects();
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).toContain("Working...");

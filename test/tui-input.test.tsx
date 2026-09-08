@@ -57,6 +57,8 @@ describe("TUI input", () => {
         reasoningEffort: "high",
         contextWindow: 418_000,
         sessionTotalTokens: 0,
+        sessionInputTokens: 0,
+        sessionCachedInputTokens: 0,
       }),
       input,
       slashCommandSelectedIndex: selectedIndex,
@@ -172,6 +174,8 @@ describe("TUI input", () => {
       reasoningEffort: "high",
       contextWindow: 418_000,
       sessionTotalTokens: 0,
+      sessionInputTokens: 0,
+      sessionCachedInputTokens: 0,
     });
     const output = stripAnsi(
       renderToString(<ActivityLine state={state} now={0} />, { columns: 80 }),

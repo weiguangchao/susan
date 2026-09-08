@@ -19,7 +19,7 @@ import type {
   ReasoningEffort,
 } from "./provider.js";
 
-export type SessionFormatVersion = 1 | 2;
+export type SessionFormatVersion = 1 | 2 | 3;
 
 export type SessionHeader = {
   type: "session";
@@ -151,7 +151,7 @@ function failure<T = void>(
 function isSupportedSessionFormatVersion(
   value: unknown,
 ): value is SessionFormatVersion {
-  return value === 1 || value === 2;
+  return value === 1 || value === 2 || value === 3;
 }
 
 function isCompletionMessage(
@@ -228,24 +228,35 @@ function isSessionHeader(value: unknown): value is SessionHeader {
   );
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0
+  );
+}
+
 function isProviderUsage(value: unknown): value is ProviderUsage {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["inputTokens", "outputTokens", "totalTokens"])
+    Object.keys(value).some(
+      (key) =>
+        !["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"].includes(
+          key,
+        ),
+    ) ||
+    !Object.hasOwn(value, "inputTokens") ||
+    !Object.hasOwn(value, "outputTokens") ||
+    !Object.hasOwn(value, "totalTokens")
   ) {
     return false;
   }
-  const { inputTokens, outputTokens, totalTokens } = value;
+  const { inputTokens, outputTokens, totalTokens, cachedInputTokens } = value;
   return (
-    typeof inputTokens === "number" &&
-    Number.isInteger(inputTokens) &&
-    inputTokens >= 0 &&
-    typeof outputTokens === "number" &&
-    Number.isInteger(outputTokens) &&
-    outputTokens >= 0 &&
-    typeof totalTokens === "number" &&
-    Number.isInteger(totalTokens) &&
-    totalTokens >= 0
+    isNonNegativeInteger(inputTokens) &&
+    isNonNegativeInteger(outputTokens) &&
+    isNonNegativeInteger(totalTokens) &&
+    (cachedInputTokens === undefined || isNonNegativeInteger(cachedInputTokens))
   );
 }
 
@@ -525,7 +536,7 @@ export function createSessionStore(
       const createdAt = new Date().toISOString();
       const header: SessionHeader = {
         type: "session",
-        version: 2,
+        version: 3,
         id,
         createdAt,
         cwd: resolvedCwd,
@@ -703,17 +714,7 @@ export function createSessionStore(
       if (!UUID_PATTERN.test(sessionId)) {
         return failure("SUSAN_SESSION_SCHEMA", "sessionId must be a UUID");
       }
-      const record: SessionUsageRecord = {
-        type: "usage",
-        usage,
-        ...(modelConfiguration === undefined
-          ? {}
-          : {
-              model: modelConfiguration.model,
-              reasoningEffort: modelConfiguration.reasoningEffort,
-            }),
-      };
-      if (!isSessionRecord(record)) {
+      if (!isProviderUsage(usage)) {
         return failure(
           "SUSAN_SESSION_SCHEMA",
           "usage must contain valid Provider token totals",
@@ -749,6 +750,31 @@ export function createSessionStore(
         const parsed = parseSessionText(text.value, filePath);
         if (!parsed.ok) {
           return parsed;
+        }
+        const formatVersion = parsed.value.header.version;
+        const persistedUsage: ProviderUsage =
+          formatVersion >= 3 || usage.cachedInputTokens === undefined
+            ? usage
+            : {
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                totalTokens: usage.totalTokens,
+              };
+        const record: SessionUsageRecord = {
+          type: "usage",
+          usage: persistedUsage,
+          ...(modelConfiguration === undefined
+            ? {}
+            : {
+                model: modelConfiguration.model,
+                reasoningEffort: modelConfiguration.reasoningEffort,
+              }),
+        };
+        if (!isSessionRecord(record, formatVersion)) {
+          return failure(
+            "SUSAN_SESSION_SCHEMA",
+            "usage must contain valid Provider token totals",
+          );
         }
         const existing = text.value;
         if (!existing.endsWith("\n")) {

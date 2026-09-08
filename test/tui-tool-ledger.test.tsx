@@ -1,5 +1,6 @@
 import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
+import type { ProviderToolCall } from "../src/index.js";
 import { createTuiState, reduceTuiState } from "../src/index.js";
 import { SessionContentView } from "../src/ui/tui.js";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results.js";
@@ -104,6 +105,72 @@ describe("TUI Tool execution ledger", () => {
     expect(state.tools.map(({ id, name }) => ({ id, name }))).toEqual([
       { id: "first", name: "read" },
       { id: "second", name: "ls" },
+    ]);
+  });
+
+  it("does not leave nameless waiting cards after OpenAI-style argument follow-ups", () => {
+    let state = initialState();
+    const batch: ProviderToolCall[] = [
+      { id: "call-ls", name: "ls", arguments: { path: "." } },
+      { id: "call-read", name: "read", arguments: { path: "README.md" } },
+      { id: "call-find", name: "find", arguments: { path: ".", pattern: "**/*" } },
+    ];
+    for (const [index, call] of batch.entries()) {
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: {
+          type: "tool-call-delta",
+          index,
+          id: call.id,
+          name: call.name,
+          argumentsDelta: JSON.stringify(call.arguments).slice(0, 8),
+        },
+      });
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: {
+          type: "tool-call-delta",
+          index,
+          argumentsDelta: JSON.stringify(call.arguments).slice(8),
+        },
+      });
+    }
+
+    expect(state.tools).toHaveLength(3);
+    expect(state.tools.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: "call-ls", name: "ls" },
+      { id: "call-read", name: "read" },
+      { id: "call-find", name: "find" },
+    ]);
+
+    for (const call of batch) {
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: { type: "tool-started", toolCall: call },
+      });
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: {
+          type: "tool-completed",
+          toolCall: call,
+          result: { ok: true, result: { entries: [], content: "ok" } },
+        },
+      });
+    }
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: { type: "tool-batch-completed", toolCalls: batch },
+    });
+
+    expect(
+      state.tools.filter(
+        (tool) => tool.name === "tool" && tool.summary.includes("等待执行"),
+      ),
+    ).toEqual([]);
+    expect(state.tools.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: "call-ls", status: "completed" },
+      { id: "call-read", status: "completed" },
+      { id: "call-find", status: "completed" },
     ]);
   });
 

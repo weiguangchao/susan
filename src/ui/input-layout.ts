@@ -36,11 +36,6 @@ export type InputImeCursorPosition = {
 const INPUT_BORDER_LEFT = 1;
 const INPUT_PADDING_LEFT = 1;
 const INPUT_BORDER_BOTTOM = 1;
-// Ink's useCursor treats y=0 as the first output line, and suffixes
-// cursorUp from a virtual origin one line below the last painted line.
-// The last painted line has no trailing newline, so the real cursor is
-// already on that line. Add one to y so the suffix lands on the caret.
-const INK_CURSOR_ORIGIN_OFFSET = 1;
 
 export function inputImeCursorPosition(options: {
   readonly visualRows: readonly InputVisualRow[];
@@ -69,8 +64,7 @@ export function inputImeCursorPosition(options: {
       statusRows -
       INPUT_BORDER_BOTTOM -
       options.visualRows.length +
-      index +
-      INK_CURSOR_ORIGIN_OFFSET,
+      index,
   };
 }
 

@@ -98,7 +98,7 @@ describe("input layout", () => {
         visualRows,
         screenRows: 24,
       }),
-    ).toEqual({ x: 4, y: 22 });
+    ).toEqual({ x: 4, y: 21 });
   });
 
   it("advances the IME caret by terminal cell width for CJK text", () => {
@@ -109,7 +109,7 @@ describe("input layout", () => {
         visualRows,
         screenRows: 24,
       }),
-    ).toEqual({ x: 8, y: 22 });
+    ).toEqual({ x: 8, y: 21 });
   });
 
   it("keeps a wrapped IME caret on its visible row", () => {
@@ -120,6 +120,6 @@ describe("input layout", () => {
         visualRows,
         screenRows: 24,
       }),
-    ).toEqual({ x: 7, y: 21 });
+    ).toEqual({ x: 7, y: 20 });
   });
 });

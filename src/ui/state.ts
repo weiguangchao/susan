@@ -751,25 +751,36 @@ function reduceHarnessEvent(
       };
     }
     case "tool-call-delta": {
-      const id = event.id ?? `tool-call-${event.index}`;
-      const next = {
-        id,
-        name: event.name ?? "tool",
-        invocationLabel: "",
-        status: "requested" as const,
-        summary: "等待执行",
-        supplementalLines: [],
-      };
+      const placeholderId = `tool-call-${event.index}`;
+      if (event.id === undefined) {
+        if (!state.tools.some((tool) => tool.id === placeholderId)) {
+          return state;
+        }
+        return {
+          ...state,
+          tools: upsertTool(state.tools, {
+            id: placeholderId,
+            name: event.name ?? "tool",
+            invocationLabel: "",
+            status: "requested",
+            summary: "等待执行",
+            supplementalLines: [],
+          }),
+        };
+      }
+      const existing = state.tools.find(
+        (tool) => tool.id === event.id || tool.id === placeholderId,
+      );
       return {
         ...state,
-        tools:
-          event.id === undefined
-            ? upsertTool(state.tools, next)
-            : replaceToolPlaceholder(
-                state.tools,
-                `tool-call-${event.index}`,
-                next,
-              ),
+        tools: placeToolAtIndex(state.tools, event.index, {
+          id: event.id,
+          name: event.name ?? existing?.name ?? "tool",
+          invocationLabel: existing?.invocationLabel ?? "",
+          status: "requested",
+          summary: "等待执行",
+          supplementalLines: existing?.supplementalLines ?? [],
+        }),
       };
     }
     case "tool-started": {
@@ -1127,20 +1138,29 @@ function upsertTool(
   return updateTool(tools, next.id, next);
 }
 
-function replaceToolPlaceholder(
+function placeToolAtIndex(
   tools: readonly TuiToolCard[],
-  placeholderId: string,
+  index: number,
   next: TuiToolCard,
 ): readonly TuiToolCard[] {
-  if (!tools.some((tool) => tool.id === placeholderId)) {
-    return upsertTool(tools, next);
+  const placeholderId = `tool-call-${index}`;
+  const placeholderIndex = tools.findIndex((tool) => tool.id === placeholderId);
+  if (placeholderIndex !== -1) {
+    return tools.flatMap((tool) => {
+      if (tool.id === placeholderId) {
+        return [next];
+      }
+      return tool.id === next.id ? [] : [tool];
+    });
   }
-  return tools.flatMap((tool) => {
-    if (tool.id === placeholderId) {
-      return [next];
-    }
-    return tool.id === next.id ? [] : [tool];
-  });
+  const existingIndex = tools.findIndex((tool) => tool.id === next.id);
+  if (existingIndex !== -1) {
+    return tools.map((tool, toolIndex) =>
+      toolIndex === existingIndex ? next : tool,
+    );
+  }
+  const at = Math.min(index, tools.length);
+  return [...tools.slice(0, at), next, ...tools.slice(at)];
 }
 
 function updateTool(

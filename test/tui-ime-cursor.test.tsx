@@ -8,6 +8,7 @@ import type {
   ProviderClient,
 } from "../src/index.js";
 import { TuiApp } from "../src/index.js";
+import { createFullscreenTuiOutput } from "../src/ui/terminal-output.js";
 
 const SHOW_CURSOR = "\u001B[?25h";
 const REVERSE_VIDEO = "\u001B[7m";
@@ -123,8 +124,8 @@ function parseVisualCursorPlacement(
   if (!Number.isInteger(moveUp) || !Number.isInteger(column) || column < 1) {
     return undefined;
   }
-  // Ink paints the last line without a trailing newline, so the real cursor
-  // starts on that line (rows - 1) before cursorUp runs.
+  // Fullscreen Ink output has no trailing newline. The output adapter
+  // positions the cursor relative to the real last row (rows - 1).
   return { x: column - 1, y: rows - 1 - moveUp };
 }
 
@@ -166,7 +167,7 @@ async function renderIdleTui(): Promise<{
         },
       })}
     />,
-    { stdin, stdout, interactive: true, patchConsole: false },
+    { stdin, stdout: createFullscreenTuiOutput(stdout), interactive: true, patchConsole: false },
   );
 
   await instance.waitUntilRenderFlush();

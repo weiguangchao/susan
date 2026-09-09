@@ -8,10 +8,11 @@ import type {
   HarnessSnapshot,
   ProviderClient,
   ProviderToolCall,
+  TuiMessage,
   TuiToolCard,
 } from "../src/index.js";
 import { createTuiState, TuiApp } from "../src/index.js";
-import { ActivityLine, ToolLineView } from "../src/ui/tui.js";
+import { ActivityLine, SessionContentView, ToolLineView } from "../src/ui/tui.js";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
@@ -657,5 +658,40 @@ describe("TUI Tool rendering", () => {
 
     instance.unmount();
     await instance.waitUntilExit();
+  });
+});
+
+describe("TUI reasoning rendering", () => {
+  function renderSession(messages: readonly TuiMessage[]): string {
+    return stripAnsi(
+      renderToString(
+        <SessionContentView messages={messages} tools={[]} width={80} />,
+        { columns: 80 },
+      ),
+    );
+  }
+
+  it("renders a finalized reasoning message with its thinking duration label", () => {
+    const output = renderSession([
+      { kind: "reasoning", text: "先检查项目结构", durationMs: 1_620 },
+      { kind: "assistant", text: "这是结论" },
+    ]);
+    const lines = output.split("\n");
+    expect(lines[0]).toBe("Think · 1.6 秒");
+    expect(lines[1]).toBe("先检查项目结构");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("这是结论");
+  });
+
+  it("renders restored reasoning as plain dim text without the label", () => {
+    const output = renderSession([
+      { kind: "reasoning", text: "先检查项目结构" },
+      { kind: "assistant", text: "这是结论" },
+    ]);
+    const lines = output.split("\n");
+    expect(lines[0]).toBe("先检查项目结构");
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toBe("这是结论");
+    expect(output).not.toContain("Think");
   });
 });

@@ -157,6 +157,22 @@ describe("TUI terminal resize", () => {
       for (let round = 0; round < 2; round++) {
         emit({ type: "reasoning-delta", textDelta: `检查项目结构 ${round}` });
         await flush();
+        if (round === 0) {
+          const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+            terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+          expect(lines.some((line) => line.trim() === "Think..."),
+            "streaming reasoning shows the wave label").toBe(true);
+          expect(lines.some((line) => line.trim() === "检查项目结构 0▍"),
+            "stream reasoning renders dim content without a prefix").toBe(true);
+          // Run with FORCE_COLOR=3 to also verify ANSI styles in the terminal buffer.
+          if (process.env.FORCE_COLOR === "3") {
+            const label = terminal.buffer.active.getLine(lines.findIndex((line) => line.trim() === "Think..."))!;
+            const content = terminal.buffer.active.getLine(lines.findIndex((line) => line.trim() === "检查项目结构 0▍"))!;
+            expect(label.getCell(1)?.isBold()).toBeTruthy();
+            expect(content.getCell(1)?.isDim()).toBeTruthy();
+            expect(new Set(Array.from({ length: 8 }, (_, i) => label.getCell(i + 1)?.getFgColor())).size).toBeGreaterThan(1);
+          }
+        }
         expected.push(`检查项目结构 ${round}`);
         assertOrder("reasoning");
         emit({ type: "text-delta", textDelta: `读取项目文件 ${round}` });
@@ -166,8 +182,15 @@ describe("TUI terminal resize", () => {
             terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
           expect(lines.some((line) => line.trim() === "读取项目文件 0▍"),
             "stream text renders without a speaker prefix").toBe(true);
-          expect(lines.some((line) => line.trim() === "reasoning ▸ 检查项目结构 0▍"),
-            "stream reasoning keeps its state label").toBe(true);
+          expect(lines.some((line) => /^Think · \d+\.\d 秒$/.test(line.trim())),
+            "settled reasoning shows its thinking duration").toBe(true);
+          const reasoningRow = lines.findIndex((line) => line.trim() === "检查项目结构 0");
+          expect(reasoningRow).toBeGreaterThan(-1);
+          expect(lines[reasoningRow + 1]?.trim()).toBe("");
+          expect(lines[reasoningRow + 2]?.trim()).toBe("读取项目文件 0▍");
+          if (process.env.FORCE_COLOR === "3") {
+            expect(terminal.buffer.active.getLine(reasoningRow - 1)?.getCell(1)?.isDim()).toBeTruthy();
+          }
         }
         expected.push(`读取项目文件 ${round}`);
         const toolCall = { id: `call-${round}`, name: "read", arguments: { path: `file-${round}.md` } };
@@ -200,6 +223,14 @@ describe("TUI terminal resize", () => {
       emit({ type: "agent-loop-completed" });
       await flush();
       assertOrder("finished");
+      const completedLines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+      for (let round = 0; round < 2; round++) {
+        const reasoningRow = completedLines.findIndex((line) => line.trim() === `检查项目结构 ${round}`);
+        expect(completedLines[reasoningRow - 1]?.trim()).toMatch(/^Think · \d+\.\d 秒$/);
+        expect(completedLines[reasoningRow + 1]?.trim()).toBe("");
+        expect(completedLines[reasoningRow + 2]?.trim()).toBe(`读取项目文件 ${round}`);
+      }
     } finally {
       instance.unmount();
       await instance.waitUntilExit();

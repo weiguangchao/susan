@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   createTuiState,
   createModelPickerState,
@@ -752,6 +752,69 @@ describe("TUI state", () => {
         kind: "tool-batch",
         tools: [state.tools[0]],
       },
+    ]);
+  });
+
+  it("carries the reasoning thinking duration into the finalized reasoning message", () => {
+    let now = 1_000;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => now);
+    try {
+      let state = initialState({ status: "running" });
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: { type: "reasoning-delta", textDelta: "检查 " },
+      });
+      expect(state.stream).toMatchObject({
+        reasoning: "检查 ",
+        reasoningStartedAt: 1_000,
+        reasoningEndedAt: 1_000,
+      });
+      now = 2_600;
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: { type: "reasoning-delta", textDelta: "结构" },
+      });
+      now = 3_000;
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: { type: "text-delta", textDelta: "答案" },
+      });
+      state = reduceTuiState(state, {
+        type: "harness-event",
+        event: { type: "agent-loop-completed" },
+      });
+
+      expect(state.messages).toEqual([
+        { kind: "reasoning", text: "检查 结构", durationMs: 1_600 },
+        { kind: "assistant", text: "答案" },
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps restored session reasoning without a thinking duration", () => {
+    const state = createTuiState({
+      status: "idle",
+      sessionId: "session-1",
+      cwd: "/workspace",
+      messages: [
+        { role: "user", content: "你好" },
+        { role: "assistant", reasoning: "思考", content: "回答" },
+      ],
+      pending: null,
+      model: "gpt-5-codex",
+      reasoningEffort: "high",
+      contextWindow: 418_000,
+      sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
+    });
+
+    expect(state.messages).toEqual([
+      { kind: "user", text: "你好" },
+      { kind: "reasoning", text: "思考" },
+      { kind: "assistant", text: "回答" },
     ]);
   });
 

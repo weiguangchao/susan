@@ -28,7 +28,11 @@ export type { SlashCommand, SlashCommandMenu } from "./slash-command-menu.js";
 export type TuiMessage =
   | { readonly kind: "user"; readonly text: string }
   | { readonly kind: "assistant"; readonly text: string }
-  | { readonly kind: "reasoning"; readonly text: string }
+  | {
+      readonly kind: "reasoning";
+      readonly text: string;
+      readonly durationMs?: number;
+    }
   | { readonly kind: "interrupted"; readonly text: string }
   | { readonly kind: "error"; readonly text: string };
 
@@ -61,6 +65,8 @@ export type TuiState = {
   readonly stream: {
     readonly text: string;
     readonly reasoning: string;
+    readonly reasoningStartedAt: number | null;
+    readonly reasoningEndedAt: number | null;
   } | null;
   readonly retry: TuiRetry | null;
   readonly failure: ProviderFailure | null;
@@ -141,7 +147,12 @@ export type TuiAction =
   | { readonly type: "close-model-picker" }
   | { readonly type: "new-session"; readonly snapshot: HarnessSnapshot };
 
-const emptyStream = { text: "", reasoning: "" };
+const emptyStream = {
+  text: "",
+  reasoning: "",
+  reasoningStartedAt: null,
+  reasoningEndedAt: null,
+};
 
 export function createTuiState(
   snapshot: HarnessSnapshot,
@@ -740,17 +751,23 @@ function reduceHarnessEvent(
     case "text-delta":
     case "reasoning-delta": {
       const stream = state.stream ?? emptyStream;
+      const reasoningDelta = event.type === "reasoning-delta";
+      const now = reasoningDelta ? Date.now() : null;
       return {
         ...state,
         stream: {
-          text:
-            event.type === "text-delta"
-              ? stream.text + event.textDelta
-              : stream.text,
-          reasoning:
-            event.type === "reasoning-delta"
-              ? stream.reasoning + event.textDelta
-              : stream.reasoning,
+          text: reasoningDelta
+            ? stream.text
+            : stream.text + event.textDelta,
+          reasoning: reasoningDelta
+            ? stream.reasoning + event.textDelta
+            : stream.reasoning,
+          reasoningStartedAt:
+            reasoningDelta && stream.reasoningStartedAt === null
+              ? now
+              : stream.reasoningStartedAt,
+          reasoningEndedAt:
+            reasoningDelta && now !== null ? now : stream.reasoningEndedAt,
         },
         retry: null,
         notice: null,
@@ -1023,7 +1040,21 @@ function streamMessages(
   return [
     ...(stream.reasoning === ""
       ? []
-      : [{ kind: "reasoning" as const, text: stream.reasoning }]),
+      : [
+          {
+            kind: "reasoning" as const,
+            text: stream.reasoning,
+            ...(stream.reasoningStartedAt !== null &&
+            stream.reasoningEndedAt !== null
+              ? {
+                  durationMs: Math.max(
+                    0,
+                    stream.reasoningEndedAt - stream.reasoningStartedAt,
+                  ),
+                }
+              : {}),
+          },
+        ]),
     ...(stream.text === ""
       ? []
       : [{ kind: "assistant" as const, text: stream.text }]),

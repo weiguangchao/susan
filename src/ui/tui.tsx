@@ -318,7 +318,13 @@ export function TuiApp({
     : state.completedOutput
         .slice(emittedStaticCountRef.current)
         .reduce(
-          (sum, item) => sum + completedItemRows(item, transcriptWidth),
+          (sum, item, index) =>
+            sum +
+            completedItemRows(item, transcriptWidth) +
+            completedItemGapAbove(
+              state.completedOutput,
+              emittedStaticCountRef.current + index,
+            ),
           0,
         );
   const frameRows = Math.min(
@@ -341,11 +347,12 @@ export function TuiApp({
   return (
     <>
       <Static items={[...state.completedOutput]}>
-        {(item) => (
+        {(item, index) => (
           <CompletedOutputView
             key={item.id}
             item={item}
             width={transcriptWidth}
+            gapAbove={completedItemGapAbove(state.completedOutput, index)}
           />
         )}
       </Static>
@@ -523,9 +530,11 @@ function wrapLines(text: string, width: number): readonly string[] {
 function MessageView({
   message,
   width,
+  gapAbove = 0,
 }: {
   readonly message: TuiMessage;
   readonly width: number;
+  readonly gapAbove?: number;
 }) {
   if (message.kind === "user") {
     const lines = wrapLines(message.text, width - USER_MESSAGE_BAR_COLUMNS);
@@ -543,7 +552,7 @@ function MessageView({
   if (message.kind === "assistant") {
     const lines = wrapLines(message.text, width);
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" marginTop={gapAbove}>
         {lines.map((line, index) => (
           <Text key={index} wrap="truncate-end">
             {line === "" ? " " : line}
@@ -553,10 +562,20 @@ function MessageView({
     );
   }
   if (message.kind === "reasoning") {
+    const lines = wrapLines(message.text, width);
     return (
-      <Text dimColor>
-        reasoning ▸ {message.text}
-      </Text>
+      <Box flexDirection="column">
+        {message.durationMs === undefined ? null : (
+          <Text dimColor wrap="truncate-end">
+            {thinkDurationLabel(message.durationMs)}
+          </Text>
+        )}
+        {lines.map((line, index) => (
+          <Text key={index} dimColor wrap="truncate-end">
+            {line === "" ? " " : line}
+          </Text>
+        ))}
+      </Box>
     );
   }
   if (message.kind === "interrupted") {
@@ -579,14 +598,16 @@ function MessageView({
 function CompletedOutputView({
   item,
   width,
+  gapAbove = 0,
 }: {
   readonly item: TuiCompletedOutput;
   readonly width: number;
+  readonly gapAbove?: number;
 }) {
   return (
     <Box flexDirection="column" flexShrink={0} paddingLeft={1}>
       {item.kind === "message" ? (
-        <MessageView message={item.message} width={width} />
+        <MessageView message={item.message} width={width} gapAbove={gapAbove} />
       ) : (
         <ToolLedgerView tools={item.tools} />
       )}
@@ -607,9 +628,46 @@ export function SessionContentView({
     <>
       <ToolLedgerView tools={tools} />
       {messages.map((message, index) => (
-        <MessageView key={`message-${index}`} message={message} width={width} />
+        <MessageView
+          key={`message-${index}`}
+          message={message}
+          width={width}
+          gapAbove={messageGapAbove(messages, index)}
+        />
       ))}
     </>
+  );
+}
+
+function messageGapAbove(
+  messages: readonly TuiMessage[],
+  index: number,
+): number {
+  if (index === 0) {
+    return 0;
+  }
+  return messages[index - 1]?.kind === "reasoning" &&
+    messages[index]?.kind === "assistant"
+    ? 1
+    : 0;
+}
+
+function completedItemGapAbove(
+  items: readonly TuiCompletedOutput[],
+  index: number,
+): number {
+  if (index === 0) {
+    return 0;
+  }
+  const previous = items[index - 1]!;
+  const item = items[index]!;
+  return (
+    item.kind === "message" &&
+    item.message.kind === "assistant" &&
+    previous.kind === "message" &&
+    previous.message.kind === "reasoning"
+      ? 1
+      : 0
   );
 }
 
@@ -670,6 +728,12 @@ export function ToolLedgerView({
   );
 }
 
+const THINK_LABEL = "Think...";
+
+function thinkDurationLabel(durationMs: number): string {
+  return `Think · ${(durationMs / 1000).toFixed(1)} 秒`;
+}
+
 function StreamView({
   state,
   width,
@@ -677,18 +741,49 @@ function StreamView({
   readonly state: TuiState;
   readonly width: number;
 }) {
-  const text = state.stream?.text ?? "";
+  const stream = state.stream;
+  const reasoning = stream?.reasoning ?? "";
+  const text = stream?.text ?? "";
+  const thinking = reasoning !== "" && text === "";
+  const phase = useActivityPhase(thinking);
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {state.stream?.reasoning === "" ? null : (
-        <Text dimColor>reasoning ▸ {state.stream?.reasoning}▍</Text>
+      {reasoning === "" ? null : thinking ? (
+        <Text bold wrap="truncate-end">
+          {[...THINK_LABEL].map((character, index) => (
+            <Text key={index} color={workingColorAt(index, phase)}>
+              {character}
+            </Text>
+          ))}
+        </Text>
+      ) : (
+        <Text dimColor wrap="truncate-end">
+          {thinkDurationLabel(
+            Math.max(
+              0,
+              (stream?.reasoningEndedAt ?? 0) -
+                (stream?.reasoningStartedAt ?? 0),
+            ),
+          )}
+        </Text>
       )}
+      {reasoning === ""
+        ? null
+        : wrapLines(thinking ? `${reasoning}▍` : reasoning, width).map(
+            (line, index) => (
+              <Text key={index} dimColor wrap="truncate-end">
+                {line === "" ? " " : line}
+              </Text>
+            ),
+          )}
       {text === "" ? null : (
-        wrapLines(`${text}▍`, width).map((line, index) => (
-          <Text key={index} wrap="truncate-end">
-            {line}
-          </Text>
-        ))
+        <Box flexDirection="column" marginTop={reasoning === "" ? 0 : 1}>
+          {wrapLines(`${text}▍`, width).map((line, index) => (
+            <Text key={index} wrap="truncate-end">
+              {line}
+            </Text>
+          ))}
+        </Box>
       )}
     </Box>
   );
@@ -819,8 +914,13 @@ function completedItemRows(
   if (item.message.kind === "assistant") {
     return wrapLines(item.message.text, width).length;
   }
-  const prefix = item.message.kind === "reasoning" ? "reasoning ▸ " : "⚠ ";
-  return wrappedRowCount(prefix + item.message.text, width);
+  if (item.message.kind === "reasoning") {
+    return (
+      (item.message.durationMs === undefined ? 0 : 1) +
+      wrapLines(item.message.text, width).length
+    );
+  }
+  return wrappedRowCount(`⚠ ${item.message.text}`, width);
 }
 
 function liveFooterRows({

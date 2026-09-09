@@ -464,7 +464,7 @@ describe("TUI Tool rendering", () => {
       summary: "等待执行",
       supplementalLines: [],
     });
-    expect(requested).toContain("read · /tmp/example.txt offset=1 limit=2000");
+    expect(requested).toBe("");
     expect(requested).not.toContain("等待执行");
     expect(approvalPromptFragments(requested)).toEqual([]);
 
@@ -476,7 +476,7 @@ describe("TUI Tool rendering", () => {
       summary: "执行中",
       supplementalLines: [],
     });
-    expect(running).toContain("read · /tmp/example.txt offset=1 limit=2000");
+    expect(running).toBe("");
     expect(approvalPromptFragments(running)).toEqual([]);
 
     const completed = renderTool({
@@ -487,7 +487,7 @@ describe("TUI Tool rendering", () => {
       summary: "已读 2 行 · 17 B",
       supplementalLines: [],
     });
-    expect(completed).toContain("✓ read · /tmp/example.txt offset=1 limit=2000");
+    expect(completed).toContain("read · /tmp/example.txt offset=1 limit=2000");
     expect(completed).toContain("已读 2 行 · 17 B");
     expect(approvalPromptFragments(completed)).toEqual([]);
 
@@ -499,7 +499,7 @@ describe("TUI Tool rendering", () => {
       summary: "ENOENT · 文件不存在",
       supplementalLines: [],
     });
-    expect(failed).toContain("✗ read · /tmp/example.txt offset=1 limit=2000");
+    expect(failed).toContain("read · /tmp/example.txt offset=1 limit=2000");
     expect(failed).toContain("ENOENT · 文件不存在");
     expect(approvalPromptFragments(failed)).toEqual([]);
   });
@@ -558,7 +558,8 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const running = latestVisibleFrame(frames);
-    expect(running).toContain("read · /tmp/example.txt");
+    expect(running).not.toContain("read · /tmp/example.txt");
+    expect(running).toContain("Next moving...");
     expect(running).not.toContain("执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
 
@@ -639,7 +640,7 @@ describe("TUI Tool rendering", () => {
     emit({ type: "tool-started", toolCall });
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("read · /tmp/example.txt");
+    expect(latestVisibleFrame(frames)).toContain("Next moving...");
 
     frames.length = 0;
     emit({

@@ -19,7 +19,6 @@ import {
   InputLine,
   StatusBar,
   ToolLineView,
-  useActivityPhase,
 } from "../src/ui/tui.js";
 import { createTuiOutput } from "../src/ui/terminal-output.js";
 import { canonicalToolFixtures } from "../test/fixtures/tui-tool-results.js";
@@ -595,18 +594,16 @@ function VariantCardView({
   card,
   segments,
   variant,
-  phase,
 }: {
   readonly card: TuiToolCard;
   readonly segments: readonly ResultSegment[];
   readonly variant: VariantKey;
-  readonly phase: number;
 }) {
   const running = card.status === "requested" || card.status === "running";
   const rows = running ? [] : variantRows(segments, variant);
   return (
     <Box flexDirection="column" flexShrink={0}>
-      <ToolLineView tool={card} phase={phase} />
+      <ToolLineView tool={card} />
       {rows.map((row, index) => (
         <Text
           key={index}
@@ -630,9 +627,6 @@ function VariantLedgerView({
   readonly segmentSets: ReadonlyArray<readonly ResultSegment[]>;
   readonly variant: VariantKey;
 }) {
-  const phase = useActivityPhase(
-    cards.some((card) => card.status === "requested" || card.status === "running"),
-  );
   return (
     <Box flexDirection="column" flexShrink={0}>
       {cards.map((card, index) => (
@@ -641,7 +635,6 @@ function VariantLedgerView({
           card={card}
           segments={segmentSets[index] ?? []}
           variant={variant}
-          phase={phase}
         />
       ))}
     </Box>

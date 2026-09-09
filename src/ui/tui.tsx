@@ -296,7 +296,7 @@ export function TuiApp({
     ),
   );
   const activeTools = state.tools.filter(
-    (tool) => !completedToolIds.has(tool.id),
+    (tool) => !completedToolIds.has(tool.id) && tool.status !== "requested" && tool.status !== "running",
   );
 
   const liveHeightRef = useRef<number | undefined>(undefined);
@@ -331,7 +331,7 @@ export function TuiApp({
     rows,
     Math.max(
       footerRows + liveContentRows(state.stream, activeTools, transcriptWidth) +
-        (state.awaitingModelAfterTools ? 1 : 0),
+        (state.awaitingModelAfterTools || (state.stream !== null && state.stream.reasoning === "" && state.stream.text === "") ? 1 : 0),
       freshSession
         ? rows
         : newStaticRows > 0
@@ -672,32 +672,11 @@ function completedItemGapAbove(
   );
 }
 
-export function ToolLineView({ tool, phase = 0 }: { readonly tool: TuiToolCard; readonly phase?: number }) {
-  if (tool.status === "requested" || tool.status === "running") {
-    const label = tool.invocationLabel ? `${tool.name} · ${tool.invocationLabel}` : tool.name;
-    return <Text bold wrap="truncate-end">
-      {[...label].map((character, index) => (
-        <Text key={index} color={workingColorAt(index, phase)}>{character}</Text>
-      ))}
-    </Text>;
-  }
-  const color =
-    tool.status === "completed"
-      ? "green"
-      : tool.status === "failed" ||
-          tool.status === "interrupted"
-        ? "red"
-        : "yellow";
-  const marker =
-    tool.status === "completed"
-      ? "✓"
-      : tool.status === "failed" ||
-          tool.status === "interrupted"
-        ? "✗"
-        : "✗";
+export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
+  if (tool.status === "requested" || tool.status === "running") return null;
   return (
-    <Text color={color} wrap="truncate-end">
-      {marker} {tool.name} · {tool.invocationLabel}{tool.summary === "" ? "" : ` · ${tool.summary}`}
+    <Text color={tool.status === "completed" ? "green" : "red"} wrap="truncate-end">
+      {tool.name} · {tool.invocationLabel}{tool.summary === "" ? "" : ` · ${tool.summary}`}
     </Text>
   );
 }
@@ -707,12 +686,12 @@ export function ToolLedgerView({
 }: {
   readonly tools: readonly TuiToolCard[];
 }) {
-  const phase = useActivityPhase(tools.some(tool => tool.status === "requested" || tool.status === "running"));
+  const results = tools.filter(tool => tool.status !== "requested" && tool.status !== "running");
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {tools.map((tool) => (
+      {results.map((tool) => (
         <Box key={tool.id} flexDirection="column" flexShrink={0}>
-          <ToolLineView tool={tool} phase={phase} />
+          <ToolLineView tool={tool} />
           {toolResultRows(tool).map((row, index, rows) => (
             <Text
               key={`${tool.id}-result-${index}`}
@@ -745,7 +724,8 @@ function StreamView({
   const stream = state.stream;
   const reasoning = stream?.reasoning ?? "";
   const text = stream?.text ?? "";
-  const thinking = reasoning !== "" && text === "";
+  const thinking = stream !== null && (reasoning !== "" || text === "") && state.status === "running" &&
+    state.retry === null && state.failure === null && !state.awaitingModelAfterTools;
   const phase = useActivityPhase(thinking || state.awaitingModelAfterTools);
   const activityLabel = state.awaitingModelAfterTools ? "Next moving..." : THINK_LABEL;
   return (
@@ -771,7 +751,7 @@ function StreamView({
       )}
       {reasoning === ""
         ? null
-        : wrapLines(thinking ? `${reasoning}▍` : reasoning, width).map(
+        : wrapLines(thinking && text === "" ? `${reasoning}▍` : reasoning, width).map(
             (line, index) => (
               <Text key={index} dimColor wrap="truncate-end">
                 {line === "" ? " " : line}

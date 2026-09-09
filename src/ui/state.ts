@@ -62,6 +62,7 @@ export type TuiState = {
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
   readonly completedOutput: readonly TuiCompletedOutput[];
+  // Covers Tool execution and the following Provider wait without resetting the animation.
   readonly awaitingModelAfterTools: boolean;
   readonly stream: {
     readonly text: string;
@@ -800,6 +801,8 @@ function reduceHarnessEvent(
       return {
         ...state,
         awaitingModelAfterTools: false,
+        stream: state.stream ?? emptyStream,
+        retry: null,
         tools: placeToolAtIndex(state.tools, event.index, {
           id, name, invocationLabel, argumentsText, streamIndex: event.index,
           status: "requested",
@@ -812,7 +815,7 @@ function reduceHarnessEvent(
       const completedMessages = streamMessages(state.stream);
       return {
         ...state,
-        awaitingModelAfterTools: false,
+        awaitingModelAfterTools: true,
         messages: [...state.messages, ...completedMessages],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -831,10 +834,11 @@ function reduceHarnessEvent(
       const completedMessages = streamMessages(state.stream);
       return {
         ...state,
+        awaitingModelAfterTools: true,
         messages: [...state.messages, ...completedMessages],
-        completedOutput: appendCompletedMessages(
-          state.completedOutput,
-          completedMessages,
+        completedOutput: appendCompletedToolBatch(
+          appendCompletedMessages(state.completedOutput, completedMessages),
+          [card],
         ),
         stream: null,
         tools: updateTool(state.tools, event.toolCall.id, card),

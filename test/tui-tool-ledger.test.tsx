@@ -2,7 +2,6 @@ import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
 import type { JsonObject, ProviderToolCall } from "../src/index.js";
 import { createTuiState, reduceTuiState } from "../src/index.js";
-import { Children, type ReactElement } from "react";
 import { SessionContentView, ToolLineView } from "../src/ui/tui.js";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results.js";
 
@@ -23,19 +22,46 @@ function initialState() {
 }
 
 describe("TUI Tool execution ledger", () => {
-  it.each(canonicalToolFixtures)("animates active instructions and freezes results for $call.name", ({ call, result }) => {
+  it.each(canonicalToolFixtures)("hides active calls and colors terminal results for $call.name", ({ call, result }) => {
     let state = reduceTuiState(initialState(), { type: "harness-event", event: { type: "tool-started", toolCall: call } });
-    const card = state.tools[0]!;
     for (const status of ["requested", "running"] as const) {
-      const first = ToolLineView({ tool: { ...card, status }, phase: 0 });
-      const next = ToolLineView({ tool: { ...card, status }, phase: 1 });
-      const characters = (element: ReactElement<{ children?: import("react").ReactNode }>) => Children.toArray(element.props.children) as ReactElement<{ color: string; children: string }>[];
-      expect(characters(first).map(c => c.props.children).join("")).toBe(`${call.name} · ${card.invocationLabel}`);
-      expect(characters(first)[0]!.props.color).not.toBe(characters(next)[0]!.props.color);
-      expect(characters(first)[0]!.props.color).toBe(characters(next)[1]!.props.color);
+      expect(renderToString(<SessionContentView messages={[]} tools={[{ ...state.tools[0]!, status }]} />)).toBe("");
     }
     state = reduceTuiState(state, { type: "harness-event", event: { type: "tool-completed", toolCall: call, result } });
-    expect(ToolLineView({ tool: state.tools[0]!, phase: 0 })).toEqual(ToolLineView({ tool: state.tools[0]!, phase: 1 }));
+    const line = ToolLineView({ tool: state.tools[0]! });
+    expect(line?.props.color).toBe(result.ok ? "green" : "red");
+    expect(renderToString(line!)).toBe(`${call.name} · ${state.tools[0]!.invocationLabel} · ${state.tools[0]!.summary}`);
+  });
+
+  it("archives each result immediately and retains it when the next tool is interrupted", () => {
+    const first = canonicalToolFixtures[0]!;
+    const second = canonicalToolFixtures[1]!;
+    let state = initialState();
+    const emit = (event: import("../src/index.js").HarnessEvent) => {
+      state = reduceTuiState(state, { type: "harness-event", event });
+    };
+    const history = () => renderToString(<SessionContentView messages={[]}
+      tools={state.completedOutput.flatMap(item => item.kind === "tool-batch" ? item.tools : [])} />);
+    emit({ type: "tool-started", toolCall: first.call });
+    emit({ type: "tool-completed", toolCall: first.call, result: first.result });
+    expect(history()).toContain("read · src/link.ts · 已读 1 行");
+    emit({ type: "tool-started", toolCall: second.call });
+    expect(history()).toContain("read · src/link.ts · 已读 1 行");
+    expect(history()).not.toContain("write ·");
+    emit({ type: "agent-loop-interrupted" });
+    expect(history().split("read ·")).toHaveLength(2);
+    expect(history()).toContain("write · /outside/report.txt · 已中断");
+    expect(state.awaitingModelAfterTools).toBe(false);
+  });
+
+  it.each(["ETIMEDOUT", "ETOOL", "ETOOL_BATCH_LIMIT"])("archives %s without requiring tool-started", code => {
+    const state = reduceTuiState(initialState(), { type: "harness-event", event: {
+      type: "tool-completed", toolCall: { id: "failure", name: "bash", arguments: { command: "pwd" } },
+      result: { ok: false, error: { code, message: "failed" } },
+    } });
+    const tools = state.completedOutput.flatMap(item => item.kind === "tool-batch" ? item.tools : []);
+    expect(renderToString(<SessionContentView messages={[]} tools={tools} />)).toContain(`bash · pwd · ${code} · failed`);
+    expect(state.awaitingModelAfterTools).toBe(true);
   });
 
   it("assembles streamed arguments for waiting tool instructions", () => {
@@ -357,29 +383,29 @@ describe("TUI Tool execution ledger", () => {
       { columns: 80 },
     );
     const lines = output.split("\n");
-    expect(lines[0]).toContain("✓ read · src/link.ts · 已读 1 行 · 19 B");
+    expect(lines[0]).toContain("read · src/link.ts · 已读 1 行 · 19 B");
     expect(lines[1]).toContain("├ Resolved Path → Real Target Path · /workspace/src/link.ts");
     expect(lines[2]).toContain("└ export const x = 1;");
-    expect(lines[3]).toContain("✓ write · /outside/report.txt");
-    expect(lines[4]).toContain("✓ edit · src/real.ts · 1 edit · 2 replacements · 24 B");
+    expect(lines[3]).toContain("write · /outside/report.txt");
+    expect(lines[4]).toContain("edit · src/real.ts · 1 edit · 2 replacements · 24 B");
     expect(lines[5]).toContain("├ @@ -1 +1 @@");
     expect(lines[8]).toContain("truncation · head · retained 24 B, 3 lines");
     expect(lines[9]).toContain("└ …其余 1 行省略");
-    expect(lines[10]).toContain("✗ bash · pnpm test");
+    expect(lines[10]).toContain("bash · pnpm test");
     expect(lines[11]).toContain("stdout (tail) · tests started");
     expect(lines[12]).toContain("stderr (tail) · one failure");
     expect(lines[13]).toContain("termination · process-group");
     expect(lines[14]).toContain("truncation · tail · retained 28 B");
     expect(lines[15]).toContain("└ …其余 1 行省略");
     expect(output).not.toContain("next arguments · unavailable");
-    expect(lines[16]).toContain("✓ grep · src · /needle/ · 2 matches");
+    expect(lines[16]).toContain("grep · src · /needle/ · 2 matches");
     expect(lines[17]).toContain("├ truncation · head · retained 128 B, 2 items");
     expect(lines[18]).toContain('└ next arguments · {"pattern":"needle","path":"src","offset":2}');
-    expect(lines[19]).toContain("✓ find · . · **/*.ts · 0 entries");
-    expect(lines[20]).toContain("✓ ls · src · 2 entries");
+    expect(lines[19]).toContain("find · . · **/*.ts · 0 entries");
+    expect(lines[20]).toContain("ls · src · 2 entries");
     expect(lines[21]).toContain("├ index.ts");
     expect(lines[22]).toContain("└ ui/");
-    expect(lines[23]).toContain("✓ read · README.md · 已读 1 行 · 19 B");
+    expect(lines[23]).toContain("read · README.md · 已读 1 行 · 19 B");
     expect(lines[24]).toContain("└ export const x = 1;");
   });
 });

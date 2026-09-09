@@ -130,7 +130,7 @@ describe("TUI terminal resize", () => {
       failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
     { type: "provider-failed",
       failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
-  ])("shows Next moving after a Tool Batch, survives resize, and exits on $type", async (event) => {
+  ])("shows one continuous execution wait and handles $type", async (event) => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000, allowProposedApi: true, convertEol: true });
     const pendingWrites: Promise<void>[] = [];
     const stdout = terminalOutput(chunk => {
@@ -152,9 +152,15 @@ describe("TUI terminal resize", () => {
     try {
       expect((await screen()).join("\n")).not.toContain("Next moving...");
       const toolCall = { id: "call", name: "read", arguments: { path: "README.md" } };
+      emit({ type: "reasoning-delta", textDelta: "先检查" });
+      emit({ type: "tool-call-delta", index: 0, id: "call", name: "read", argumentsDelta: '{"path":"README.md"}' });
+      let generating = await screen();
+      expect(generating).toContain("Think...");
+      expect(generating.join("\n")).not.toContain("README.md");
       emit({ type: "tool-started", toolCall });
+      expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
       emit({ type: "tool-completed", toolCall, result: { ok: true, result: { content: "retained result" } } });
-      expect((await screen()).join("\n")).not.toContain("Next moving...");
+      expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
       emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
       let lines = await screen();
       let waitingRow = lines.indexOf("Next moving...");
@@ -179,7 +185,11 @@ describe("TUI terminal resize", () => {
       lines = await screen();
       if (event.type === "reasoning-delta") expect(lines.indexOf("Think...")).toBe(waitingRow);
       if (event.type === "text-delta") expect(lines).toContain("直接回答▍");
-      expect(lines.join("\n")).not.toContain("Next moving...");
+      expect(lines.filter(line => line === "Next moving...")).toHaveLength(event.type === "tool-started" ? 1 : 0);
+      if (event.type === "tool-call-delta") {
+        expect(lines).toContain("Think...");
+        expect(lines.join("\n")).not.toContain("ls ·");
+      }
       if (event.type === "reasoning-delta" || event.type === "text-delta") {
         for (const [columns, rows] of [[40, 16], [100, 30], [80, 18]] as const) {
           terminal.resize(columns, rows);
@@ -260,7 +270,7 @@ describe("TUI terminal resize", () => {
     }
   });
 
-  it("keeps streamed tool calls below the reasoning that precedes them", async () => {
+  it("hides streamed calls and preserves reasoning before completed results", async () => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
       allowProposedApi: true, convertEol: true });
     const pendingWrites: Promise<void>[] = [];
@@ -326,14 +336,14 @@ describe("TUI terminal resize", () => {
             terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
           expect(lines.some((line) => line.trim() === "读取项目文件 0▍"),
             "stream text renders without a speaker prefix").toBe(true);
-          expect(lines.some((line) => /^Think · \d+\.\d 秒$/.test(line.trim())),
-            "settled reasoning shows its thinking duration").toBe(true);
+          expect(lines.some((line) => line.trim() === "Think..."),
+            "Think continues until the entire response completes").toBe(true);
           const reasoningRow = lines.findIndex((line) => line.trim() === "检查项目结构 0");
           expect(reasoningRow).toBeGreaterThan(-1);
           expect(lines[reasoningRow + 1]?.trim()).toBe("");
           expect(lines[reasoningRow + 2]?.trim()).toBe("读取项目文件 0▍");
           if (process.env.FORCE_COLOR === "3") {
-            expect(terminal.buffer.active.getLine(reasoningRow - 1)?.getCell(1)?.isDim()).toBeTruthy();
+            expect(terminal.buffer.active.getLine(reasoningRow - 1)?.getCell(1)?.isBold()).toBeTruthy();
           }
         }
         expected.push(`读取项目文件 ${round}`);
@@ -341,13 +351,10 @@ describe("TUI terminal resize", () => {
         emit({ type: "tool-call-delta", index: 0, id: toolCall.id, name: toolCall.name,
           argumentsDelta: '{"path":' });
         await flush();
-        expected.push("read");
         assertOrder("partial arguments");
-        expected.pop();
         emit({ type: "tool-call-delta", index: 0,
           argumentsDelta: `"file-${round}.md"}` });
         await flush();
-        expected.push(`read · file-${round}.md`);
         assertOrder("complete arguments");
         emit({ type: "tool-started", toolCall });
         await flush();
@@ -355,6 +362,7 @@ describe("TUI terminal resize", () => {
         emit({ type: "tool-completed", toolCall,
           result: { ok: true, result: { content: `文件内容 ${round}` } } });
         await flush();
+        expected.push(`read · file-${round}.md`);
         assertOrder("completed");
         emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
         await flush();

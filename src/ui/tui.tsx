@@ -298,6 +298,12 @@ export function TuiApp({
   const activeTools = state.tools.filter(
     (tool) => !completedToolIds.has(tool.id) && tool.status !== "requested" && tool.status !== "running",
   );
+  const lastCompleted = state.completedOutput.at(-1);
+  const liveGapAbove = (state.stream !== null || state.awaitingModelAfterTools) &&
+    lastCompleted !== undefined &&
+    (lastCompleted.kind === "tool-batch" ||
+      lastCompleted.message.kind === "reasoning" ||
+      lastCompleted.message.kind === "assistant") ? 1 : 0;
 
   const liveHeightRef = useRef<number | undefined>(undefined);
   const emittedStaticCountRef = useRef(0);
@@ -332,7 +338,7 @@ export function TuiApp({
   const frameRows = Math.min(
     rows,
     Math.max(
-      footerRows + liveContentRows(state.stream, activeTools, transcriptWidth) +
+      footerRows + liveGapAbove + liveContentRows(state.stream, activeTools, transcriptWidth) +
         (state.awaitingModelAfterTools || (state.stream !== null && state.stream.reasoning === "" && state.stream.text === "") ? 1 : 0),
       freshSession
         ? rows
@@ -382,7 +388,7 @@ export function TuiApp({
           {/* Keep natural content height: shrinking multiline text can overlap
               reasoning and answers. Fill short frames from the top; clip only
               the beginning of overflowing live content to show its latest rows. */}
-          <Box flexDirection="column" flexGrow={1} flexShrink={0}>
+          <Box flexDirection="column" flexGrow={1} flexShrink={0} paddingTop={liveGapAbove}>
             {(state.stream !== null || state.awaitingModelAfterTools) && (
               <StreamView state={state} width={transcriptWidth} />
             )}
@@ -608,9 +614,9 @@ function CompletedOutputView({
   readonly gapAbove?: number;
 }) {
   return (
-    <Box flexDirection="column" flexShrink={0} paddingLeft={1}>
+    <Box flexDirection="column" flexShrink={0} paddingLeft={1} marginTop={gapAbove}>
       {item.kind === "message" ? (
-        <MessageView message={item.message} width={width} gapAbove={gapAbove} />
+        <MessageView message={item.message} width={width} />
       ) : (
         <ToolLedgerView tools={item.tools} />
       )}
@@ -664,14 +670,11 @@ function completedItemGapAbove(
   }
   const previous = items[index - 1]!;
   const item = items[index]!;
-  return (
-    item.kind === "message" &&
-    item.message.kind === "assistant" &&
-    previous.kind === "message" &&
-    previous.message.kind === "reasoning"
-      ? 1
-      : 0
-  );
+  const previousKind = previous.kind === "message" ? previous.message.kind : previous.kind;
+  const currentKind = item.kind === "message" ? item.message.kind : item.kind;
+  const outputKinds = ["reasoning", "assistant", "tool-batch"];
+  return previousKind !== currentKind &&
+    outputKinds.includes(previousKind) && outputKinds.includes(currentKind) ? 1 : 0;
 }
 
 export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
@@ -726,7 +729,7 @@ function StreamView({
   const stream = state.stream;
   const reasoning = stream?.reasoning ?? "";
   const text = stream?.text ?? "";
-  const thinking = stream !== null && (reasoning !== "" || text === "") && state.status === "running" &&
+  const thinking = stream !== null && text === "" && state.status === "running" &&
     state.retry === null && state.failure === null && !state.awaitingModelAfterTools;
   const phase = useActivityPhase(thinking || state.awaitingModelAfterTools);
   const activityLabel = state.awaitingModelAfterTools ? "Next moving..." : THINK_LABEL;

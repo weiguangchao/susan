@@ -164,6 +164,11 @@ describe("TUI terminal resize", () => {
       emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
       let lines = await screen();
       let waitingRow = lines.indexOf("Next moving...");
+      const reasoningRow = lines.indexOf("先检查");
+      expect(reasoningRow).toBeGreaterThan(-1);
+      expect(lines[reasoningRow + 1]).toBe("");
+      expect(lines[reasoningRow + 2]).toContain("read · README.md");
+      expect(waitingRow).toBe(lines.findIndex(line => line.includes("retained result")) + 2);
       expect(waitingRow).toBeGreaterThan(lines.findIndex(line => line.includes("retained result")));
       expect(waitingRow).toBeGreaterThan(-1);
       for (const [columns, rows] of [[80, 12], [80, 24], [100, 30], [80, 24], [40, 16], [80, 24]] as const) {
@@ -392,13 +397,14 @@ describe("TUI terminal resize", () => {
           expect(lines.some((line) => line.trim() === "读取项目文件 0▍"),
             "stream text renders without a speaker prefix").toBe(true);
           expect(lines.some((line) => line.trim() === "Think..."),
-            "Think continues until the entire response completes").toBe(true);
+            "Think animation stops when answer text starts").toBe(false);
           const reasoningRow = lines.findIndex((line) => line.trim() === "检查项目结构 0");
           expect(reasoningRow).toBeGreaterThan(-1);
+          expect(lines[reasoningRow - 1]?.trim()).toMatch(/^Think · \d+\.\d 秒$/);
           expect(lines[reasoningRow + 1]?.trim()).toBe("");
           expect(lines[reasoningRow + 2]?.trim()).toBe("读取项目文件 0▍");
           if (process.env.FORCE_COLOR === "3") {
-            expect(terminal.buffer.active.getLine(reasoningRow - 1)?.getCell(1)?.isBold()).toBeTruthy();
+            expect(terminal.buffer.active.getLine(reasoningRow - 1)?.getCell(1)?.isDim()).toBeTruthy();
           }
         }
         expected.push(`读取项目文件 ${round}`);

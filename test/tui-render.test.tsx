@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { render, renderToString } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   Harness,
   HarnessCommand,
@@ -663,6 +663,56 @@ describe("TUI Tool rendering", () => {
 });
 
 describe("TUI reasoning rendering", () => {
+  it("stops Think animation when reasoning transitions to answer text", async () => {
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    const clearInterval = vi.spyOn(globalThis, "clearInterval");
+    const { harness, emit } = createEventHarness(idleSnapshot({ status: "running" }));
+    const frames: string[] = [];
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      {
+        stdin: terminalInput(),
+        stdout: terminalOutput((chunk) => frames.push(stripAnsi(chunk))),
+        interactive: true,
+        patchConsole: false,
+      },
+    );
+    try {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      expect(latestVisibleFrame(frames)).toContain("Think...");
+      await flushEffects();
+      const animationCall = intervals.mock.calls.findIndex((call) => call[1] === 180);
+      expect(animationCall).toBeGreaterThanOrEqual(0);
+      const animationTimer = intervals.mock.results[animationCall]!.value;
+
+      emit({ type: "text-delta", textDelta: "这是结论" });
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      const answerFrame = latestVisibleFrame(frames);
+      expect(answerFrame).toContain("这是结论");
+      expect(answerFrame).toContain("先检查项目结构");
+      expect(answerFrame).not.toContain("Think...");
+      expect(answerFrame).toMatch(/Think · \d+\.\d 秒/);
+      await flushEffects();
+      expect(clearInterval).toHaveBeenCalledWith(animationTimer);
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      intervals.mockRestore();
+      clearInterval.mockRestore();
+    }
+  });
+
   function renderSession(messages: readonly TuiMessage[]): string {
     return stripAnsi(
       renderToString(

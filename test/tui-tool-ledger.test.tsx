@@ -1,6 +1,6 @@
 import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import type { ProviderToolCall } from "../src/index.js";
+import type { JsonObject, ProviderToolCall } from "../src/index.js";
 import { createTuiState, reduceTuiState } from "../src/index.js";
 import { Children, type ReactElement } from "react";
 import { SessionContentView, ToolLineView } from "../src/ui/tui.js";
@@ -99,6 +99,79 @@ describe("TUI Tool execution ledger", () => {
     });
 
     expect(state.tools[0]?.summary).toBe("已读 3/12 行 · 13 B");
+    expect(state.tools[0]?.supplementalLines).toEqual(["four", "five", "six"]);
+  });
+
+  it.each<{ readonly name: string; readonly payload: JsonObject; readonly rows: readonly string[] }>([
+    { name: "read", payload: { content: "" }, rows: ["└ 空文件"] },
+    { name: "ls", payload: { entries: [] }, rows: ["└ 空目录"] },
+    {
+      name: "read",
+      payload: { content: "first\n\nthird\nfourth\nfifth\n" },
+      rows: ["├ first", "├", "├ third", "├ fourth", "└ …其余 2 行省略"],
+    },
+    {
+      name: "ls",
+      payload: { entries: [
+        { name: "file.ts", type: "file" },
+        { name: "src", type: "directory" },
+        { name: "link", type: "symlink" },
+      ] },
+      rows: ["├ file.ts", "├ src/", "└ link@"],
+    },
+  ])("renders normal $name result rows without content prefixes", ({ name, payload, rows }) => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: { id: "normal", name, arguments: { path: "." } },
+        result: { ok: true, result: payload },
+      },
+    });
+    const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
+    expect(output.split("\n").slice(1).map((line) => line.trim())).toEqual(rows);
+  });
+
+  it.each(["read", "ls"])("preserves %s failure details without empty-result labels", (name) => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: { id: "failure", name, arguments: { path: "missing" } },
+        result: { ok: false, error: { code: "ENOENT", message: "Missing path", details: { path: "missing" } } },
+      },
+    });
+    expect(state.tools[0]?.supplementalLines).toEqual(['error details · {"path":"missing"}']);
+  });
+
+  it("shares the four-row budget between Ls entries and pagination metadata", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: { id: "page", name: "ls", arguments: { path: ".", limit: 4 } },
+        result: {
+          ok: true,
+          result: { entries: [
+            { name: "a", type: "file" }, { name: "b", type: "file" },
+            { name: "c", type: "file" }, { name: "d", type: "file" },
+          ] },
+          meta: { truncation: {
+            reasons: ["items"], strategy: "head", fields: ["entries"],
+            retained: { bytes: 100, items: 4 }, total: { items: 8 },
+            nextArguments: { path: ".", offset: 4 },
+          } },
+        },
+      },
+    });
+    expect(state.tools[0]?.supplementalLines.slice(4)).toEqual([
+      "truncation · head · retained 100 B, 4 items / limit 51,200 B output, 4 items · fields entries · total 8 items",
+      'next arguments · {"path":".","offset":4}',
+    ]);
+    const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
+    expect(output.split("\n").slice(1).map((line) => line.trim())).toEqual([
+      "├ a", "├ b", "├ c", "├ d", "└ …其余 2 行省略",
+    ]);
   });
 
   it("keeps Tool Call order when streaming placeholders receive their ids", () => {
@@ -229,9 +302,11 @@ describe("TUI Tool execution ledger", () => {
       { name: "find", invocationLabel: ". · **/*.ts", status: "completed", summary: "0 entries" },
       { name: "ls", invocationLabel: "src", status: "completed", summary: "2 entries" },
     ]);
-    expect(state.tools[0]?.supplementalLines).toContain(
+    expect(state.tools[0]?.supplementalLines).toEqual([
       "Resolved Path → Real Target Path · /workspace/src/link.ts → /workspace/src/index.ts",
-    );
+      "export const x = 1;",
+    ]);
+    expect(state.tools[6]?.supplementalLines).toEqual(["index.ts", "ui/"]);
     expect(state.tools[2]?.supplementalLines).toContain("@@ -1 +1 @@");
     expect(state.tools[2]?.supplementalLines).toContain(
       "truncation · head · retained 24 B, 3 lines / limit 51,200 B output · fields diff · total 96 B, 12 lines",
@@ -276,31 +351,35 @@ describe("TUI Tool execution ledger", () => {
       text: `message ${index}`,
     }));
     const output = renderToString(
-      <Box height={24} width={80} overflow="hidden" flexDirection="column">
+      <Box height={28} width={80} overflow="hidden" flexDirection="column">
         <SessionContentView messages={messages} tools={state.tools} />
       </Box>,
       { columns: 80 },
     );
     const lines = output.split("\n");
     expect(lines[0]).toContain("✓ read · src/link.ts · 已读 1 行 · 19 B");
-    expect(lines[1]).toContain("└ Resolved Path → Real Target Path · /workspace/src/link.ts");
-    expect(lines[2]).toContain("✓ write · /outside/report.txt");
-    expect(lines[3]).toContain("✓ edit · src/real.ts · 1 edit · 2 replacements · 24 B");
-    expect(lines[4]).toContain("├ @@ -1 +1 @@");
-    expect(lines[7]).toContain("truncation · head · retained 24 B, 3 lines");
-    expect(lines[8]).toContain("└ …其余 1 行省略");
-    expect(lines[9]).toContain("✗ bash · pnpm test");
-    expect(lines[10]).toContain("stdout (tail) · tests started");
-    expect(lines[11]).toContain("stderr (tail) · one failure");
-    expect(lines[12]).toContain("termination · process-group");
-    expect(lines[13]).toContain("truncation · tail · retained 28 B");
-    expect(lines[14]).toContain("└ …其余 1 行省略");
+    expect(lines[1]).toContain("├ Resolved Path → Real Target Path · /workspace/src/link.ts");
+    expect(lines[2]).toContain("└ export const x = 1;");
+    expect(lines[3]).toContain("✓ write · /outside/report.txt");
+    expect(lines[4]).toContain("✓ edit · src/real.ts · 1 edit · 2 replacements · 24 B");
+    expect(lines[5]).toContain("├ @@ -1 +1 @@");
+    expect(lines[8]).toContain("truncation · head · retained 24 B, 3 lines");
+    expect(lines[9]).toContain("└ …其余 1 行省略");
+    expect(lines[10]).toContain("✗ bash · pnpm test");
+    expect(lines[11]).toContain("stdout (tail) · tests started");
+    expect(lines[12]).toContain("stderr (tail) · one failure");
+    expect(lines[13]).toContain("termination · process-group");
+    expect(lines[14]).toContain("truncation · tail · retained 28 B");
+    expect(lines[15]).toContain("└ …其余 1 行省略");
     expect(output).not.toContain("next arguments · unavailable");
-    expect(lines[15]).toContain("✓ grep · src · /needle/ · 2 matches");
-    expect(lines[16]).toContain("├ truncation · head · retained 128 B, 2 items");
-    expect(lines[17]).toContain('└ next arguments · {"pattern":"needle","path":"src","offset":2}');
-    expect(lines[18]).toContain("✓ find · . · **/*.ts · 0 entries");
-    expect(lines[19]).toContain("✓ ls · src · 2 entries");
-    expect(lines[20]).toContain("✓ read · README.md · 已读 1 行 · 19 B");
+    expect(lines[16]).toContain("✓ grep · src · /needle/ · 2 matches");
+    expect(lines[17]).toContain("├ truncation · head · retained 128 B, 2 items");
+    expect(lines[18]).toContain('└ next arguments · {"pattern":"needle","path":"src","offset":2}');
+    expect(lines[19]).toContain("✓ find · . · **/*.ts · 0 entries");
+    expect(lines[20]).toContain("✓ ls · src · 2 entries");
+    expect(lines[21]).toContain("├ index.ts");
+    expect(lines[22]).toContain("└ ui/");
+    expect(lines[23]).toContain("✓ read · README.md · 已读 1 行 · 19 B");
+    expect(lines[24]).toContain("└ export const x = 1;");
   });
 });

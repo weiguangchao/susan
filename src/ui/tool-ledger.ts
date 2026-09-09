@@ -63,6 +63,10 @@ type ToolPresenter = {
 const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
   read: {
     summary: readSummary,
+    supplementalLines: (result) => {
+      const content = stringField(result, "content");
+      return content === undefined ? [] : content === "" ? ["空文件"] : content.split("\n");
+    },
   },
   read_file: {
     summary: readSummary,
@@ -120,6 +124,21 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
   ls: {
     summary: (result) =>
       `${arrayLength(result, "entries")} entries${diagnosticSuffix(result)}`,
+    supplementalLines: (result) => {
+      if (!Array.isArray(result.entries)) {
+        return [];
+      }
+      if (result.entries.length === 0) {
+        return ["空目录"];
+      }
+      return result.entries.flatMap((entry: unknown) => {
+        const name = stringField(entry, "name");
+        const type = stringField(entry, "type");
+        return name === undefined ? [] : [
+          `${name}${type === "directory" ? "/" : type === "symlink" ? "@" : ""}`,
+        ];
+      });
+    },
   },
 };
 

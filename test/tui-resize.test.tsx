@@ -116,6 +116,76 @@ async function flushEffects(): Promise<void> {
 }
 
 describe("TUI terminal resize", () => {
+  it.each<HarnessEvent>([
+    { type: "reasoning-delta", textDelta: "检查结果" },
+    { type: "text-delta", textDelta: "直接回答" },
+    { type: "tool-call-delta", index: 0, id: "next", name: "ls", argumentsDelta: "{}" },
+    { type: "tool-started", toolCall: { id: "next", name: "ls", arguments: {} } },
+    { type: "agent-loop-completed" },
+    { type: "agent-loop-interrupted" },
+    { type: "harness-failed", error: { code: "HARNESS_SESSION", message: "fixture failure" } },
+    { type: "interrupted-response", response: { content: "partial" },
+      failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: true } },
+    { type: "provider-retrying", retry: 1, maxRetries: 2, delayMs: 2000,
+      failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
+    { type: "provider-failed",
+      failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
+  ])("shows Next moving after a Tool Batch, survives expansion, and exits on $type", async (event) => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000, allowProposedApi: true, convertEol: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdout = terminalOutput(chunk => {
+      pendingWrites.push(new Promise<void>(resolve => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness();
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function screen() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+      return Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true).trim() ?? "");
+    }
+    try {
+      expect((await screen()).join("\n")).not.toContain("Next moving...");
+      const toolCall = { id: "call", name: "read", arguments: { path: "README.md" } };
+      emit({ type: "tool-started", toolCall });
+      emit({ type: "tool-completed", toolCall, result: { ok: true, result: { content: "retained result" } } });
+      expect((await screen()).join("\n")).not.toContain("Next moving...");
+      emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
+      let lines = await screen();
+      let waitingRow = lines.indexOf("Next moving...");
+      expect(waitingRow).toBeGreaterThan(lines.findIndex(line => line.includes("retained result")));
+      expect(waitingRow).toBeGreaterThan(-1);
+      for (const [columns, rows] of [[100, 30]] as const) {
+        terminal.resize(columns, rows);
+        stdout.columns = columns;
+        stdout.rows = rows;
+        stdout.emit("resize");
+        lines = await screen();
+        expect(lines.filter(line => line === "Next moving...")).toHaveLength(1);
+        expect(lines.filter(line => line.includes("retained result"))).toHaveLength(1);
+      }
+      waitingRow = lines.indexOf("Next moving...");
+      if (process.env.FORCE_COLOR === "3") {
+        const label = terminal.buffer.active.getLine(waitingRow)!;
+        expect(label.getCell(1)?.isBold()).toBeTruthy();
+        expect(new Set(Array.from({ length: 14 }, (_, i) => label.getCell(i + 1)?.getFgColor())).size).toBeGreaterThan(1);
+      }
+      emit(event);
+      lines = await screen();
+      if (event.type === "reasoning-delta") expect(lines.indexOf("Think...")).toBe(waitingRow);
+      if (event.type === "text-delta") expect(lines).toContain("直接回答▍");
+      expect(lines.join("\n")).not.toContain("Next moving...");
+    } finally {
+      instance.unmount();
+      terminal.dispose();
+    }
+  });
+
   it.each([
     { type: "text-delta", toolCount: 18 },
     { type: "reasoning-delta", toolCount: 18 },

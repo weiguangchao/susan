@@ -330,7 +330,8 @@ export function TuiApp({
   const frameRows = Math.min(
     rows,
     Math.max(
-      footerRows + liveContentRows(state.stream, activeTools, transcriptWidth),
+      footerRows + liveContentRows(state.stream, activeTools, transcriptWidth) +
+        (state.awaitingModelAfterTools ? 1 : 0),
       freshSession
         ? rows
         : newStaticRows > 0
@@ -380,7 +381,7 @@ export function TuiApp({
               reasoning and answers. Fill short frames from the top; clip only
               the beginning of overflowing live content to show its latest rows. */}
           <Box flexDirection="column" flexGrow={1} flexShrink={0}>
-            {state.stream !== null && (
+            {(state.stream !== null || state.awaitingModelAfterTools) && (
               <StreamView state={state} width={transcriptWidth} />
             )}
             <ToolLedgerView tools={activeTools} />
@@ -745,18 +746,19 @@ function StreamView({
   const reasoning = stream?.reasoning ?? "";
   const text = stream?.text ?? "";
   const thinking = reasoning !== "" && text === "";
-  const phase = useActivityPhase(thinking);
+  const phase = useActivityPhase(thinking || state.awaitingModelAfterTools);
+  const activityLabel = state.awaitingModelAfterTools ? "Next moving..." : THINK_LABEL;
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {reasoning === "" ? null : thinking ? (
+      {state.awaitingModelAfterTools || thinking ? (
         <Text bold wrap="truncate-end">
-          {[...THINK_LABEL].map((character, index) => (
+          {[...activityLabel].map((character, index) => (
             <Text key={index} color={workingColorAt(index, phase)}>
               {character}
             </Text>
           ))}
         </Text>
-      ) : (
+      ) : reasoning === "" ? null : (
         <Text dimColor wrap="truncate-end">
           {thinkDurationLabel(
             Math.max(

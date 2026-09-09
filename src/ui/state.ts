@@ -62,6 +62,7 @@ export type TuiState = {
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
   readonly completedOutput: readonly TuiCompletedOutput[];
+  readonly awaitingModelAfterTools: boolean;
   readonly stream: {
     readonly text: string;
     readonly reasoning: string;
@@ -174,6 +175,7 @@ export function createTuiState(
       snapshot.messages,
       tools,
     ),
+    awaitingModelAfterTools: false,
     stream: null,
     retry: null,
     failure: null,
@@ -394,6 +396,7 @@ export function reduceTuiState(
         ...state,
         cwd: action.snapshot.cwd,
         status: action.snapshot.status,
+        awaitingModelAfterTools: action.snapshot.status === "running" && state.awaitingModelAfterTools,
         pending: action.snapshot.pending,
         model: action.snapshot.model,
         reasoningEffort: action.snapshot.reasoningEffort,
@@ -686,6 +689,7 @@ function applyInputIntent(
         ...state,
         ...clearedDraftState(state),
         status: "running",
+        awaitingModelAfterTools: false,
         messages: [...state.messages, message],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -722,6 +726,7 @@ function applyInputIntent(
       return {
         ...state,
         status: "running",
+        awaitingModelAfterTools: false,
         pending: null,
         failure: null,
         notice: null,
@@ -755,6 +760,7 @@ function reduceHarnessEvent(
       const now = reasoningDelta ? Date.now() : null;
       return {
         ...state,
+        awaitingModelAfterTools: false,
         stream: {
           text: reasoningDelta
             ? stream.text
@@ -793,6 +799,7 @@ function reduceHarnessEvent(
       }
       return {
         ...state,
+        awaitingModelAfterTools: false,
         tools: placeToolAtIndex(state.tools, event.index, {
           id, name, invocationLabel, argumentsText, streamIndex: event.index,
           status: "requested",
@@ -805,6 +812,7 @@ function reduceHarnessEvent(
       const completedMessages = streamMessages(state.stream);
       return {
         ...state,
+        awaitingModelAfterTools: false,
         messages: [...state.messages, ...completedMessages],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -836,6 +844,7 @@ function reduceHarnessEvent(
       const ids = new Set(event.toolCalls.map((toolCall) => toolCall.id));
       return {
         ...state,
+        awaitingModelAfterTools: true,
         completedOutput: appendCompletedToolBatch(
           state.completedOutput,
           state.tools.filter((tool) => ids.has(tool.id) && isTerminalTool(tool)),
@@ -871,6 +880,7 @@ function reduceHarnessEvent(
     case "provider-retrying":
       return {
         ...state,
+        awaitingModelAfterTools: false,
         retry: {
           reason: formatProviderFailure(event.failure),
           retry: event.retry,
@@ -884,6 +894,7 @@ function reduceHarnessEvent(
       const completedMessages = streamMessages(state.stream);
       return {
         ...state,
+        awaitingModelAfterTools: false,
         messages: [...state.messages, ...completedMessages],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -900,6 +911,7 @@ function reduceHarnessEvent(
     case "provider-failed":
       return {
         ...state,
+        awaitingModelAfterTools: false,
         retry: null,
         failure: event.failure,
         pending: { reason: "provider-failure", failure: event.failure },
@@ -912,6 +924,7 @@ function reduceHarnessEvent(
       };
       return {
         ...state,
+        awaitingModelAfterTools: false,
         messages: [...state.messages, message],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -932,6 +945,7 @@ function reduceHarnessEvent(
       );
       return {
         ...state,
+        awaitingModelAfterTools: false,
         stream: null,
         retry: null,
         tools: interruptedTools,
@@ -948,6 +962,7 @@ function reduceHarnessEvent(
       const message = { kind: "error" as const, text: event.error.message };
       return {
         ...state,
+        awaitingModelAfterTools: false,
         messages: [...state.messages, message],
         completedOutput: appendCompletedMessages(
           state.completedOutput,

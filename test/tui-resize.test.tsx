@@ -153,7 +153,7 @@ describe("TUI terminal resize", () => {
       await flush();
       stdin.write("\r");
       await flush();
-      expected.push("你 ▸ 介绍当前项目");
+      expected.push("▌ 介绍当前项目");
       for (let round = 0; round < 2; round++) {
         emit({ type: "reasoning-delta", textDelta: `检查项目结构 ${round}` });
         await flush();
@@ -161,6 +161,14 @@ describe("TUI terminal resize", () => {
         assertOrder("reasoning");
         emit({ type: "text-delta", textDelta: `读取项目文件 ${round}` });
         await flush();
+        if (round === 0) {
+          const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+            terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+          expect(lines.some((line) => line.trim() === "读取项目文件 0▍"),
+            "stream text renders without a speaker prefix").toBe(true);
+          expect(lines.some((line) => line.trim() === "reasoning ▸ 检查项目结构 0▍"),
+            "stream reasoning keeps its state label").toBe(true);
+        }
         expected.push(`读取项目文件 ${round}`);
         const toolCall = { id: `call-${round}`, name: "read", arguments: { path: `file-${round}.md` } };
         emit({ type: "tool-call-delta", index: 0, id: toolCall.id, name: toolCall.name,
@@ -222,7 +230,7 @@ describe("TUI terminal resize", () => {
       await instance.waitUntilRenderFlush();
       await Promise.all(pendingWrites.splice(0));
     }
-    const archivedLines = ["你 ▸ 介绍当前项目"];
+    const archivedLines = ["▌ 介绍当前项目"];
     function assertSingleInput(stage: string) {
       const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
         terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
@@ -490,10 +498,12 @@ describe("TUI terminal resize", () => {
       await flush();
       stdin.write("\r");
       await flush();
-      expect(bufferLines().join("\n")).toContain("你 ▸ 介绍这个项目");
+      expect(bufferLines().join("\n")).toContain("▌ 介绍这个项目");
       expect(terminal.buffer.active.cursorY, "first submit keeps the input at the bottom")
         .toBe(rows - 3);
-      expect(bufferLines()[terminal.buffer.active.baseY]).toContain("你 ▸ 介绍这个项目");
+      expect(bufferLines()[terminal.buffer.active.baseY + 1],
+        "user message keeps one blank margin row above the bar")
+        .toContain("▌ 介绍这个项目");
       expect(bufferLines()[terminal.buffer.active.baseY + rows - 1]).toContain(modelLabel);
       for (let round = 0; round < rounds; round++) {
         const textLines = Array.from({ length: lines }, (_, index) =>

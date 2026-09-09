@@ -228,6 +228,7 @@ export function TuiApp({
   );
 
   const inputWidth = inputContentWidth(columns);
+  const transcriptWidth = Math.max(1, columns - 1);
   const maxInputRows = Math.max(
     1,
     Math.min(10, Math.floor(rows * 0.4) - 2),
@@ -317,7 +318,7 @@ export function TuiApp({
     : state.completedOutput
         .slice(emittedStaticCountRef.current)
         .reduce(
-          (sum, item) => sum + completedItemRows(item, Math.max(1, columns - 1)),
+          (sum, item) => sum + completedItemRows(item, transcriptWidth),
           0,
         );
   const frameRows = Math.min(
@@ -340,7 +341,13 @@ export function TuiApp({
   return (
     <>
       <Static items={[...state.completedOutput]}>
-        {(item) => <CompletedOutputView key={item.id} item={item} />}
+        {(item) => (
+          <CompletedOutputView
+            key={item.id}
+            item={item}
+            width={transcriptWidth}
+          />
+        )}
       </Static>
       <Box
         flexDirection="column"
@@ -366,7 +373,9 @@ export function TuiApp({
               reasoning and answers. Fill short frames from the top; clip only
               the beginning of overflowing live content to show its latest rows. */}
           <Box flexDirection="column" flexGrow={1} flexShrink={0}>
-            {state.stream !== null && <StreamView state={state} />}
+            {state.stream !== null && (
+              <StreamView state={state} width={transcriptWidth} />
+            )}
             <ToolLedgerView tools={activeTools} />
           </Box>
         </Box>
@@ -482,19 +491,65 @@ function PendingBanner({
   );
 }
 
-function MessageView({ message }: { readonly message: TuiMessage }) {
+const USER_MESSAGE_BAR = "▌";
+const USER_MESSAGE_BAR_COLUMNS = 2;
+
+function wrapLines(text: string, width: number): readonly string[] {
+  const usable = Math.max(1, width);
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    if (paragraph === "") {
+      lines.push("");
+      continue;
+    }
+    let current = "";
+    let currentWidth = 0;
+    for (const character of Array.from(paragraph)) {
+      const characterWidth = stringWidth(character);
+      if (currentWidth + characterWidth > usable && current !== "") {
+        lines.push(current);
+        current = character;
+        currentWidth = characterWidth;
+      } else {
+        current += character;
+        currentWidth += characterWidth;
+      }
+    }
+    lines.push(current);
+  }
+  return lines;
+}
+
+function MessageView({
+  message,
+  width,
+}: {
+  readonly message: TuiMessage;
+  readonly width: number;
+}) {
   if (message.kind === "user") {
+    const lines = wrapLines(message.text, width - USER_MESSAGE_BAR_COLUMNS);
     return (
-      <Text color="cyan">
-        你 ▸ {message.text}
-      </Text>
+      <Box flexDirection="column" marginTop={1} marginBottom={1}>
+        {lines.map((line, index) => (
+          <Text key={index} wrap="truncate-end">
+            <Text color="cyan">{USER_MESSAGE_BAR} </Text>
+            <Text bold>{line}</Text>
+          </Text>
+        ))}
+      </Box>
     );
   }
   if (message.kind === "assistant") {
+    const lines = wrapLines(message.text, width);
     return (
-      <Text>
-        susan ▸ {message.text}
-      </Text>
+      <Box flexDirection="column">
+        {lines.map((line, index) => (
+          <Text key={index} wrap="truncate-end">
+            {line === "" ? " " : line}
+          </Text>
+        ))}
+      </Box>
     );
   }
   if (message.kind === "reasoning") {
@@ -505,9 +560,15 @@ function MessageView({ message }: { readonly message: TuiMessage }) {
     );
   }
   if (message.kind === "interrupted") {
+    const lines = wrapLines(message.text, width);
     return (
       <Box flexDirection="column">
-        <Text color="red">susan ▸ [已中断] {message.text}</Text>
+        {lines.map((line, index) => (
+          <Text key={index} color="red" wrap="truncate-end">
+            {index === 0 ? <Text>[已中断] </Text> : null}
+            {line === "" ? " " : line}
+          </Text>
+        ))}
         <Text dimColor>└ 未写入 Session Transcript · Enter 显式重试</Text>
       </Box>
     );
@@ -517,13 +578,15 @@ function MessageView({ message }: { readonly message: TuiMessage }) {
 
 function CompletedOutputView({
   item,
+  width,
 }: {
   readonly item: TuiCompletedOutput;
+  readonly width: number;
 }) {
   return (
     <Box flexDirection="column" flexShrink={0} paddingLeft={1}>
       {item.kind === "message" ? (
-        <MessageView message={item.message} />
+        <MessageView message={item.message} width={width} />
       ) : (
         <ToolLedgerView tools={item.tools} />
       )}
@@ -534,15 +597,17 @@ function CompletedOutputView({
 export function SessionContentView({
   messages,
   tools,
+  width = 80,
 }: {
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
+  readonly width?: number;
 }) {
   return (
     <>
       <ToolLedgerView tools={tools} />
       {messages.map((message, index) => (
-        <MessageView key={`message-${index}`} message={message} />
+        <MessageView key={`message-${index}`} message={message} width={width} />
       ))}
     </>
   );
@@ -605,16 +670,25 @@ export function ToolLedgerView({
   );
 }
 
-function StreamView({ state }: { readonly state: TuiState }) {
+function StreamView({
+  state,
+  width,
+}: {
+  readonly state: TuiState;
+  readonly width: number;
+}) {
+  const text = state.stream?.text ?? "";
   return (
     <Box flexDirection="column" flexShrink={0}>
       {state.stream?.reasoning === "" ? null : (
         <Text dimColor>reasoning ▸ {state.stream?.reasoning}▍</Text>
       )}
-      {state.stream?.text === "" ? null : (
-        <Text>
-          susan ▸ {state.stream?.text}▍
-        </Text>
+      {text === "" ? null : (
+        wrapLines(`${text}▍`, width).map((line, index) => (
+          <Text key={index} wrap="truncate-end">
+            {line}
+          </Text>
+        ))
       )}
     </Box>
   );
@@ -737,14 +811,15 @@ function completedItemRows(
   if (item.message.kind === "interrupted") {
     return 2;
   }
-  const prefix =
-    item.message.kind === "user"
-      ? "你 ▸ "
-      : item.message.kind === "reasoning"
-        ? "reasoning ▸ "
-        : item.message.kind === "error"
-          ? "⚠ "
-          : "susan ▸ ";
+  if (item.message.kind === "user") {
+    return (
+      wrapLines(item.message.text, width - USER_MESSAGE_BAR_COLUMNS).length + 2
+    );
+  }
+  if (item.message.kind === "assistant") {
+    return wrapLines(item.message.text, width).length;
+  }
+  const prefix = item.message.kind === "reasoning" ? "reasoning ▸ " : "⚠ ";
   return wrappedRowCount(prefix + item.message.text, width);
 }
 

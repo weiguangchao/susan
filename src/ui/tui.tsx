@@ -366,8 +366,8 @@ export function TuiApp({
               reasoning and answers. Fill short frames from the top; clip only
               the beginning of overflowing live content to show its latest rows. */}
           <Box flexDirection="column" flexGrow={1} flexShrink={0}>
-            <ToolLedgerView tools={activeTools} />
             {state.stream !== null && <StreamView state={state} />}
+            <ToolLedgerView tools={activeTools} />
           </Box>
         </Box>
         <ActivityLine state={state} now={now} />

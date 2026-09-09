@@ -116,6 +116,90 @@ async function flushEffects(): Promise<void> {
 }
 
 describe("TUI terminal resize", () => {
+  it("keeps streamed tool calls below the reasoning that precedes them", async () => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+      allowProposedApi: true, convertEol: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdout = terminalOutput((chunk) => {
+      pendingWrites.push(new Promise<void>((resolve) => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness({ status: "idle" });
+    const stdin = terminalInput();
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin, stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function flush() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+    }
+    const expected: string[] = [];
+    function assertOrder(stage: string) {
+      const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+      let previous = -1;
+      for (const content of expected) {
+        const matches = lines.flatMap((line, index) => line.includes(content) && index > previous ? [index] : []);
+        expect(matches, `${stage}: ${content}`).toHaveLength(1);
+        expect(matches[0], `${stage}: ${content}`).toBeGreaterThan(previous);
+        previous = matches[0]!;
+      }
+    }
+    try {
+      await flush();
+      stdin.write("介绍当前项目");
+      await flush();
+      stdin.write("\r");
+      await flush();
+      expected.push("你 ▸ 介绍当前项目");
+      for (let round = 0; round < 2; round++) {
+        emit({ type: "reasoning-delta", textDelta: `检查项目结构 ${round}` });
+        await flush();
+        expected.push(`检查项目结构 ${round}`);
+        assertOrder("reasoning");
+        emit({ type: "text-delta", textDelta: `读取项目文件 ${round}` });
+        await flush();
+        expected.push(`读取项目文件 ${round}`);
+        const toolCall = { id: `call-${round}`, name: "read", arguments: { path: `file-${round}.md` } };
+        emit({ type: "tool-call-delta", index: 0, id: toolCall.id, name: toolCall.name,
+          argumentsDelta: '{"path":' });
+        await flush();
+        expected.push("read");
+        assertOrder("partial arguments");
+        expected.pop();
+        emit({ type: "tool-call-delta", index: 0,
+          argumentsDelta: `"file-${round}.md"}` });
+        await flush();
+        expected.push(`read · file-${round}.md`);
+        assertOrder("complete arguments");
+        emit({ type: "tool-started", toolCall });
+        await flush();
+        assertOrder("running");
+        emit({ type: "tool-completed", toolCall,
+          result: { ok: true, result: { content: `文件内容 ${round}` } } });
+        await flush();
+        assertOrder("completed");
+        emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
+        await flush();
+        assertOrder("archived");
+      }
+      emit({ type: "text-delta", textDelta: "项目介绍完成" });
+      await flush();
+      expected.push("项目介绍完成");
+      assertOrder("final stream");
+      emit({ type: "agent-loop-completed" });
+      await flush();
+      assertOrder("finished");
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      await Promise.all(pendingWrites.splice(0));
+      terminal.dispose();
+    }
+  });
+
   it.each([
     { textLines: 1, rounds: 3 },
     { textLines: 30, rounds: 3 },

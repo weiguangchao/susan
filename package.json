@@ -17,6 +17,8 @@
     "prototype": "tsx prototype/tui-prototype.tsx",
     "preview:tools": "tsx prototype/tool-ui-preview.tsx",
     "preview:tool-results": "tsx prototype/tool-result-inline-preview.tsx",
+    "preview:read-ls": "tsx prototype/read-ls-result-preview.tsx",
+    "preview:read-rows": "tsx prototype/read-rows-preview.tsx",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

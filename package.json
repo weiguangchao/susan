@@ -18,6 +18,7 @@
     "preview:tools": "tsx prototype/tool-ui-preview.tsx",
     "preview:tool-results": "tsx prototype/tool-result-inline-preview.tsx",
     "preview:user-msg": "tsx prototype/user-message-emphasis.tsx",
+    "preview:reasoning": "tsx prototype/reasoning-stream-preview.tsx",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

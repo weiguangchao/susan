@@ -16,6 +16,7 @@
     "dev": "tsx src/cli.ts --config .",
     "prototype": "tsx prototype/tui-prototype.tsx",
     "preview:tools": "tsx prototype/tool-ui-preview.tsx",
+    "preview:tool-results": "tsx prototype/tool-result-inline-preview.tsx",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

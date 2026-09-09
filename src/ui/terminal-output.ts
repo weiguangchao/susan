@@ -17,7 +17,8 @@ type TuiOutput = NodeJS.WriteStream & {
 // Near-full live frames report their height as the viewport so Ink skips its
 // extra trailing newline and the status bar can sit on the last row. History
 // preservation is handled by patches/ink@7.1.1.patch at the redraw boundary;
-// rewriting clear-screen escapes alone would still replay all Static history.
+// ordinary redraws append only new Static output; resize rebuilds the terminal
+// from Ink's complete Static cache after reflow invalidates live-row coordinates.
 export function createTuiOutput(
   stdout: NodeJS.WriteStream,
 ): TuiOutput {

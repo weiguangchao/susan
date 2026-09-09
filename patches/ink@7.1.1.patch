@@ -1,8 +1,59 @@
 diff --git a/build/ink.js b/build/ink.js
-index 0082666b281ec2db77b875d6b8460bcc19a59ce7..11e656afba00ac94595c58dad47200d7c1dd1e24 100644
+index 0082666b281ec2db77b875d6b8460bcc19a59ce7..7628c44cb13c01ae04e56ed54521d3fec357201f 100644
 --- a/build/ink.js
 +++ b/build/ink.js
-@@ -765,7 +765,11 @@ export default class Ink {
+@@ -276,17 +276,15 @@ export default class Ink {
+         // error but consumers never call waitUntilExit().
+         void this.exitPromise.catch(noop);
+     }
++    needsResizeReplay = false;
+     resized = () => {
+         const currentWidth = getWindowSize(this.options.stdout).columns;
+-        if (currentWidth < this.lastTerminalWidth) {
+-            // We clear the screen when decreasing terminal width to prevent duplicate overlapping re-renders.
+-            this.log.clear();
+-            this.lastOutput = '';
+-            this.lastOutputToRender = '';
+-        }
++        // Susan's state-backed terminal dimensions trigger the next React commit.
++        // Painting here would render the old explicit widths after the terminal
++        // has already reflowed its buffer, pushing stale live rows into history.
++        this.needsResizeReplay = true;
+         this.calculateLayout();
+         dom.emitLayoutListeners(this.rootNode);
+-        this.onRender();
+         this.lastTerminalWidth = currentWidth;
+     };
+     resolveExitPromise = () => { };
+@@ -760,12 +758,39 @@ export default class Ink {
+             nextOutputHeight: outputHeight,
+             isUnmounting: this.isUnmounting,
+         });
++        if (this.needsResizeReplay) {
++            this.needsResizeReplay = false;
++            const sync = this.shouldSync();
++            if (sync) {
++                this.options.stdout.write(bsu);
++            }
++            // Shrinking can reflow old live rows into scrollback, beyond the
++            // reach of eraseLines. Susan clears the terminal at startup and
++            // owns its history: reconstruct it from the complete Static cache.
++            // Erase the visible buffer before scrollback so terminals that
++            // archive erased screens do not retain the obsolete live frame.
++            this.log.reset();
++            this.options.stdout.write(hideCursorEscape + '\u001B[H\u001B[J\u001B[3J' + this.fullStaticOutput);
++            this.log.setCursorPosition(this.cursorPosition);
++            this.log(outputToRender);
++            this.lastOutput = output;
++            this.lastOutputToRender = outputToRender;
++            this.lastOutputHeight = outputHeight;
++            if (sync) {
++                this.options.stdout.write(esu);
++            }
++            return;
++        }
+         if (shouldClearTerminal) {
+             const sync = this.shouldSync();
              if (sync) {
                  this.options.stdout.write(bsu);
              }

@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   ink@7.1.1:
-    hash: 7e50549155524fcea51401c8996ae20d35fd9dbd0322b672324c1cfee89949b8
+    hash: 65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5
     path: patches/ink@7.1.1.patch
 
 importers:
@@ -15,7 +15,7 @@ importers:
     dependencies:
       ink:
         specifier: 7.1.1
-        version: 7.1.1(patch_hash=7e50549155524fcea51401c8996ae20d35fd9dbd0322b672324c1cfee89949b8)(@types/react@19.2.18)(react@19.2.8)
+        version: 7.1.1(patch_hash=65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5)(@types/react@19.2.18)(react@19.2.8)
       openai:
         specifier: ^7.9.0
         version: 7.9.0(ws@8.21.3)(zod@4.5.4)
@@ -1480,7 +1480,7 @@ snapshots:
 
   indent-string@5.0.0: {}
 
-  ink@7.1.1(patch_hash=7e50549155524fcea51401c8996ae20d35fd9dbd0322b672324c1cfee89949b8)(@types/react@19.2.18)(react@19.2.8):
+  ink@7.1.1(patch_hash=65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5)(@types/react@19.2.18)(react@19.2.8):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.3.0
       ansi-escapes: 7.3.0

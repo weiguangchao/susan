@@ -130,7 +130,7 @@ describe("TUI terminal resize", () => {
       failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
     { type: "provider-failed",
       failure: { code: "PROVIDER_HTTP", message: "busy", httpStatus: 429, hadSemanticOutput: false } },
-  ])("shows Next moving after a Tool Batch, survives expansion, and exits on $type", async (event) => {
+  ])("shows Next moving after a Tool Batch, survives resize, and exits on $type", async (event) => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000, allowProposedApi: true, convertEol: true });
     const pendingWrites: Promise<void>[] = [];
     const stdout = terminalOutput(chunk => {
@@ -160,7 +160,7 @@ describe("TUI terminal resize", () => {
       let waitingRow = lines.indexOf("Next moving...");
       expect(waitingRow).toBeGreaterThan(lines.findIndex(line => line.includes("retained result")));
       expect(waitingRow).toBeGreaterThan(-1);
-      for (const [columns, rows] of [[100, 30]] as const) {
+      for (const [columns, rows] of [[80, 12], [80, 24], [100, 30], [80, 24], [40, 16], [80, 24]] as const) {
         terminal.resize(columns, rows);
         stdout.columns = columns;
         stdout.rows = rows;
@@ -180,6 +180,20 @@ describe("TUI terminal resize", () => {
       if (event.type === "reasoning-delta") expect(lines.indexOf("Think...")).toBe(waitingRow);
       if (event.type === "text-delta") expect(lines).toContain("直接回答▍");
       expect(lines.join("\n")).not.toContain("Next moving...");
+      if (event.type === "reasoning-delta" || event.type === "text-delta") {
+        for (const [columns, rows] of [[40, 16], [100, 30], [80, 18]] as const) {
+          terminal.resize(columns, rows);
+          Object.assign(stdout, { columns, rows });
+          stdout.emit("resize");
+          lines = await screen();
+          expect(lines.join("\n")).not.toContain("Next moving...");
+          expect(lines.filter(line => line.includes("retained result"))).toHaveLength(1);
+          const content = event.type === "reasoning-delta" ? "检查结果▍" : "直接回答▍";
+          expect(lines.filter(line => line === content)).toHaveLength(1);
+          expect(lines.filter(line => line === "Think...")).toHaveLength(event.type === "reasoning-delta" ? 1 : 0);
+          expect(lines.filter(line => line.includes("gpt-5-codex · high"))).toHaveLength(1);
+        }
+      }
     } finally {
       instance.unmount();
       terminal.dispose();
@@ -428,7 +442,7 @@ describe("TUI terminal resize", () => {
       emit({ type: "agent-loop-completed" });
       await flush();
       assertSingleInput("finished");
-      for (const [columns, rows] of [[80, 18], [100, 30]] as const) {
+      for (const [columns, rows] of [[80, 18], [100, 30], [40, 16], [80, 24]] as const) {
         terminal.resize(columns, rows);
         Object.assign(stdout, { columns, rows });
         stdout.emit("resize");

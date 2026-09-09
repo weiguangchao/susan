@@ -6,6 +6,7 @@ import type { ProviderToolCall } from "../src/core/provider.js";
 import type { ToolResult } from "../src/core/tool-result.js";
 import { isRecord, type JsonValue } from "../src/core/json.js";
 import { createTuiState, reduceTuiState } from "../src/ui/state.js";
+import { toolResultRows } from "../src/ui/tool-ledger.js";
 import { InputLine, StatusBar, ToolLedgerView } from "../src/ui/tui.js";
 import { createTuiOutput } from "../src/ui/terminal-output.js";
 import { canonicalToolFixtures } from "../test/fixtures/tui-tool-results.js";
@@ -100,7 +101,7 @@ function Preview() {
     state = { ...state, status: scenario === 2 ? "pending" : "idle" };
   }
   const contentRows = Math.max(1, size.rows - (full ? 12 : 7));
-  const totalRows = state.tools.reduce((n, card) => n + 1 + card.supplementalLines.length, 0);
+  const totalRows = state.tools.reduce((n, card) => n + 1 + toolResultRows(card).length, 0);
   const maxScroll = Math.max(0, totalRows - contentRows);
   const offset = Math.min(scroll, maxScroll);
   useInput((input, key) => {

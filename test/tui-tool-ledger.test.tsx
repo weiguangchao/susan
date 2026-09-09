@@ -250,7 +250,7 @@ describe("TUI Tool execution ledger", () => {
     );
   });
 
-  it("renders all eight main records before bounded supplemental content at 80 columns", () => {
+  it("nests bounded result rows under each tool invocation at 80 columns", () => {
     let state = initialState();
     const fixtures = [...canonicalToolFixtures, {
       ...canonicalToolFixtures[0],
@@ -282,9 +282,25 @@ describe("TUI Tool execution ledger", () => {
       { columns: 80 },
     );
     const lines = output.split("\n");
-    expect(lines.slice(0, 8).every((line) => /^[✓✗●⏳■] /.test(line))).toBe(true);
     expect(lines[0]).toContain("✓ read · src/link.ts · 已读 1 行 · 19 B");
-    expect(lines[7]).toContain("✓ read · README.md · 已读 1 行 · 19 B");
-    expect(lines.findIndex((line) => line.includes("Resolved Path → Real Target Path"))).toBeGreaterThanOrEqual(8);
+    expect(lines[1]).toContain("└ Resolved Path → Real Target Path · /workspace/src/link.ts");
+    expect(lines[2]).toContain("✓ write · /outside/report.txt");
+    expect(lines[3]).toContain("✓ edit · src/real.ts · 1 edit · 2 replacements · 24 B");
+    expect(lines[4]).toContain("├ @@ -1 +1 @@");
+    expect(lines[7]).toContain("truncation · head · retained 24 B, 3 lines");
+    expect(lines[8]).toContain("└ …其余 1 行省略");
+    expect(lines[9]).toContain("✗ bash · pnpm test");
+    expect(lines[10]).toContain("stdout (tail) · tests started");
+    expect(lines[11]).toContain("stderr (tail) · one failure");
+    expect(lines[12]).toContain("termination · process-group");
+    expect(lines[13]).toContain("truncation · tail · retained 28 B");
+    expect(lines[14]).toContain("└ …其余 1 行省略");
+    expect(output).not.toContain("next arguments · unavailable");
+    expect(lines[15]).toContain("✓ grep · src · /needle/ · 2 matches");
+    expect(lines[16]).toContain("├ truncation · head · retained 128 B, 2 items");
+    expect(lines[17]).toContain('└ next arguments · {"pattern":"needle","path":"src","offset":2}');
+    expect(lines[18]).toContain("✓ find · . · **/*.ts · 0 entries");
+    expect(lines[19]).toContain("✓ ls · src · 2 entries");
+    expect(lines[20]).toContain("✓ read · README.md · 已读 1 行 · 19 B");
   });
 });

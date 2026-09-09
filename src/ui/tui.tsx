@@ -31,6 +31,7 @@ import {
 } from "./input-layout.js";
 import { pinLiveFrameRows } from "./terminal-output.js";
 import { ModelPickerView } from "./model-picker.js";
+import { toolResultRows } from "./tool-ledger.js";
 import {
   createTuiState,
   formatProviderFailure,
@@ -580,15 +581,20 @@ export function ToolLedgerView({
   return (
     <Box flexDirection="column" flexShrink={0}>
       {tools.map((tool) => (
-        <ToolLineView key={tool.id} tool={tool} phase={phase} />
+        <Box key={tool.id} flexDirection="column" flexShrink={0}>
+          <ToolLineView tool={tool} phase={phase} />
+          {toolResultRows(tool).map((row, index, rows) => (
+            <Text
+              key={`${tool.id}-result-${index}`}
+              wrap="truncate-end"
+              dimColor
+              italic={row.gap}
+            >
+              {"    "}{index === rows.length - 1 ? "└ " : "├ "}{row.text}
+            </Text>
+          ))}
+        </Box>
       ))}
-      {tools.flatMap((tool) =>
-        tool.supplementalLines.map((line, index) => (
-          <Text key={`${tool.id}-detail-${index}`} dimColor wrap="truncate-end">
-            {"  └ "}{tool.name} · {line}
-          </Text>
-        )),
-      )}
     </Box>
   );
 }
@@ -718,7 +724,7 @@ function completedItemRows(
 ): number {
   if (item.kind === "tool-batch") {
     return item.tools.reduce(
-      (sum, tool) => sum + 1 + tool.supplementalLines.length,
+      (sum, tool) => sum + 1 + toolResultRows(tool).length,
       0,
     );
   }

@@ -26,6 +26,24 @@ export type TuiToolCard = {
   readonly supplementalLines: readonly string[];
 };
 
+export type TuiToolResultRow = {
+  readonly text: string;
+  readonly gap: boolean;
+};
+
+export const TOOL_RESULT_ROW_BUDGET = 4;
+
+export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
+  const lines = tool.supplementalLines.flatMap((line) => line.split("\n"));
+  if (lines.length <= TOOL_RESULT_ROW_BUDGET) {
+    return lines.map((text) => ({ text, gap: false }));
+  }
+  return [
+    ...lines.slice(0, TOOL_RESULT_ROW_BUDGET).map((text) => ({ text, gap: false })),
+    { text: `…其余 ${lines.length - TOOL_RESULT_ROW_BUDGET} 行省略`, gap: true },
+  ];
+}
+
 type ToolPresenter = {
   readonly summary: (result: Record<string, unknown>) => string;
   readonly invocationLabel?: (
@@ -253,7 +271,9 @@ function bashSupplementalLines(
   for (const field of ["stdout", "stderr"] as const) {
     const output = stringField(payload, field)?.trimEnd();
     if (output !== undefined && output !== "") {
-      lines.push(`${field} (${strategy}) · ${output}`);
+      lines.push(
+        ...output.split("\n").map((line) => `${field} (${strategy}) · ${line}`),
+      );
     }
   }
   const termination = asRecord(payload.termination);

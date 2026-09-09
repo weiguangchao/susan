@@ -330,7 +330,7 @@ export function TuiApp({
   const frameRows = Math.min(
     rows,
     Math.max(
-      footerRows,
+      footerRows + liveContentRows(state.stream, activeTools, transcriptWidth),
       freshSession
         ? rows
         : newStaticRows > 0
@@ -921,6 +921,24 @@ function completedItemRows(
     );
   }
   return wrappedRowCount(`⚠ ${item.message.text}`, width);
+}
+
+// Let growing live output reclaim terminal rows from completed Static output.
+// The previous frame height is a floor, not a fixed viewport for later streams.
+function liveContentRows(
+  stream: TuiState["stream"],
+  tools: readonly TuiToolCard[],
+  width: number,
+): number {
+  const reasoning = stream?.reasoning ?? "";
+  const text = stream?.text ?? "";
+  const reasoningRows = reasoning === "" ? 0 : 1 +
+    wrapLines(text === "" ? `${reasoning}▍` : reasoning, width).length;
+  const textRows = text === "" ? 0 :
+    (reasoning === "" ? 0 : 1) + wrapLines(`${text}▍`, width).length;
+  return reasoningRows + textRows + tools.reduce(
+    (sum, tool) => sum + 1 + toolResultRows(tool).length, 0,
+  );
 }
 
 function liveFooterRows({

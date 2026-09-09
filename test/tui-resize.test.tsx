@@ -116,6 +116,66 @@ async function flushEffects(): Promise<void> {
 }
 
 describe("TUI terminal resize", () => {
+  it.each([
+    { type: "text-delta", toolCount: 18 },
+    { type: "reasoning-delta", toolCount: 18 },
+    { type: "text-delta", toolCount: 20 },
+    { type: "reasoning-delta", toolCount: 20 },
+  ] as const)("scrolls $toolCount completed tools upward while $type grows", async ({ type, toolCount }) => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+      allowProposedApi: true, convertEol: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdout = terminalOutput(chunk => {
+      pendingWrites.push(new Promise<void>(resolve => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness();
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function flush() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+    }
+    const buffer = () => Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+      terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+    try {
+      await flush();
+      const toolCalls = Array.from({ length: toolCount }, (_, i) => ({
+        id: `call-${i}`, name: "read", arguments: { path: `file-${i}.md` },
+      }));
+      for (const toolCall of toolCalls) {
+        emit({ type: "tool-started", toolCall });
+        emit({ type: "tool-completed", toolCall, result: { ok: false,
+          error: { code: "ENOENT", message: "fixture" } } });
+      }
+      emit({ type: "tool-batch-completed", toolCalls });
+      await flush();
+      const initialBase = terminal.buffer.active.baseY;
+      for (let i = 0; i < 8; i++) {
+        emit({ type, textDelta: `stream-row-${i}\n` });
+        await flush();
+        const visible = buffer().slice(terminal.buffer.active.baseY).join("\n");
+        for (let j = 0; j <= i; j++) {
+          expect(visible, "stream expands into rows previously occupied by completed tools")
+            .toContain(`stream-row-${j}`);
+        }
+      }
+      expect(terminal.buffer.active.baseY, "tools scroll before the stream completes").toBeGreaterThan(initialBase);
+      emit({ type: "agent-loop-completed" });
+      await flush();
+      const completed = buffer().join("\n");
+      for (const tool of toolCalls) expect(completed.split(tool.arguments.path)).toHaveLength(2);
+      for (let i = 0; i < 8; i++) expect(completed.split(`stream-row-${i}`)).toHaveLength(2);
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      terminal.dispose();
+    }
+  });
+
   it("keeps streamed tool calls below the reasoning that precedes them", async () => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
       allowProposedApi: true, convertEol: true });

@@ -193,6 +193,76 @@ describe("TUI terminal resize", () => {
     }
   });
 
+  it.each([
+    { reasoningLines: 2, conclusionLines: 1 },
+    { reasoningLines: 16, conclusionLines: 1 },
+    { reasoningLines: 17, conclusionLines: 1 },
+    { reasoningLines: 20, conclusionLines: 10 },
+  ])("keeps $reasoningLines reasoning rows and $conclusionLines conclusion rows intact throughout streaming", async ({ reasoningLines, conclusionLines }) => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+      allowProposedApi: true, convertEol: true, scrollOnEraseInDisplay: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput(chunk => {
+      pendingWrites.push(new Promise<void>(resolve => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness({ status: "idle" });
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin, stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function flush() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+    }
+    const reasoning = Array.from({ length: reasoningLines }, (_, i) => `推理行${i}：正在检查项目结构以及模块之间的调用关系。`);
+    const conclusion = Array.from({ length: conclusionLines }, (_, i) => `结论行${i}：这是终端项目。`);
+    const failures: string[] = [];
+    function check(stage: string) {
+      const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
+      for (const line of lines.filter(line => /推理行|结论行/.test(line))) {
+        const content = line.trim().replace(/^(reasoning|susan) ▸ /, "").replace(/▍$/, "");
+        if (![...reasoning, ...conclusion].includes(content)) failures.push(`${stage}: ${line}`);
+      }
+    }
+    try {
+      await flush();
+      stdin.write("介绍当前项目");
+      await flush();
+      stdin.write("\r");
+      await flush();
+      for (const line of reasoning) {
+        emit({ type: "reasoning-delta", textDelta: `${line}\n` });
+        await flush();
+        check("reasoning");
+      }
+      for (const [index, line] of conclusion.entries()) {
+        emit({ type: "text-delta", textDelta: `${line}\n` });
+        await flush();
+        check(`conclusion ${index}`);
+        const visible = Array.from({ length: terminal.rows }, (_, i) =>
+          terminal.buffer.active.getLine(terminal.buffer.active.baseY + i)?.translateToString(true) ?? "");
+        expect(visible.join("\n"), "the latest conclusion remains visible while streaming").toContain(line);
+      }
+      emit({ type: "agent-loop-completed" });
+      await flush();
+      check("completed");
+      const completed = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "").join("\n");
+      for (const line of [...reasoning, ...conclusion]) {
+        expect(completed.split(line), "completed history retains every line exactly once").toHaveLength(2);
+      }
+      expect(failures).toEqual([]);
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      terminal.dispose();
+    }
+  });
+
   it("does not commit the status bar to scrollback when the terminal shrinks during streaming", async () => {
     const terminal = new Terminal({
       cols: 80,

@@ -358,11 +358,17 @@ export function TuiApp({
           flexGrow={1}
           flexShrink={1}
           overflow="hidden"
+          justifyContent="flex-end"
           paddingLeft={1}
           marginBottom={1}
         >
-          <ToolLedgerView tools={activeTools} />
-          {state.stream !== null && <StreamView state={state} />}
+          {/* Keep natural content height: shrinking multiline text can overlap
+              reasoning and answers. Fill short frames from the top; clip only
+              the beginning of overflowing live content to show its latest rows. */}
+          <Box flexDirection="column" flexGrow={1} flexShrink={0}>
+            <ToolLedgerView tools={activeTools} />
+            {state.stream !== null && <StreamView state={state} />}
+          </Box>
         </Box>
         <ActivityLine state={state} now={now} />
         {state.modelPickerActive ? (
@@ -601,7 +607,7 @@ export function ToolLedgerView({
 
 function StreamView({ state }: { readonly state: TuiState }) {
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexShrink={0}>
       {state.stream?.reasoning === "" ? null : (
         <Text dimColor>reasoning ▸ {state.stream?.reasoning}▍</Text>
       )}

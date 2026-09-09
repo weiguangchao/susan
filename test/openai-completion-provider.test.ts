@@ -1,3 +1,4 @@
+import pkg from "../package.json" with { type: "json" };
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   APIConnectionError,
@@ -59,6 +60,7 @@ type FakeClientOptions = {
   baseURL: string;
   timeout: number;
   maxRetries: number;
+  defaultHeaders: { "User-Agent": string };
 };
 
 function chunk(
@@ -154,6 +156,7 @@ describe("openai-completion provider adapter", () => {
       baseURL: "https://api.deepseek.com/",
       maxRetries: 0,
       timeout: 60_000,
+      defaultHeaders: { "User-Agent": `susan/${pkg.version}` },
     });
     expect(createOptions?.signal).toBeInstanceOf(AbortSignal);
     expect(upstreamRequest).toEqual({

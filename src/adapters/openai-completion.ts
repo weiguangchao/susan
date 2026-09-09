@@ -5,6 +5,7 @@ import OpenAI, {
   APIError,
 } from "openai";
 import { isJsonValue, isRecord, type JsonValue } from "../core/json.js";
+import { SUSAN_USER_AGENT } from "../version.js";
 import type {
   ProviderAdapter,
   ProviderClient,
@@ -25,6 +26,7 @@ type OpenAIClientOptions = {
   readonly baseURL: string;
   readonly timeout: number;
   readonly maxRetries: number;
+  readonly defaultHeaders: { readonly "User-Agent": string };
 };
 
 type ChatCompletionsClient = {
@@ -514,6 +516,8 @@ function createClient(
     baseURL: config.baseURL.href,
     timeout: REQUEST_TIMEOUT_MS,
     maxRetries: 0,
+    // Replaces the SDK default User-Agent (OpenAI/JS x.y.z) intentionally.
+    defaultHeaders: { "User-Agent": SUSAN_USER_AGENT },
   });
 
   return {

@@ -327,6 +327,8 @@ export function TuiApp({
             ),
           0,
         );
+  // Static output consumes the remaining live area; resetting to terminal
+  // height here would push earlier results upward while blank rows remain.
   const frameRows = Math.min(
     rows,
     Math.max(
@@ -335,7 +337,7 @@ export function TuiApp({
       freshSession
         ? rows
         : newStaticRows > 0
-          ? rows - newStaticRows
+          ? (liveHeightRef.current ?? rows) - newStaticRows
           : (liveHeightRef.current ?? rows),
     ),
   );

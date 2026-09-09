@@ -270,6 +270,61 @@ describe("TUI terminal resize", () => {
     }
   });
 
+  it("uses remaining output space before scrolling completed tools", async () => {
+    const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+      allowProposedApi: true, convertEol: true });
+    const pendingWrites: Promise<void>[] = [];
+    const stdout = terminalOutput((chunk) => {
+      pendingWrites.push(new Promise<void>((resolve) => terminal.write(chunk, resolve)));
+    });
+    const { harness, emit } = streamingHarness({ status: "idle" });
+    const stdin = terminalInput();
+    const instance = render(<TuiApp harness={harness} inputHistory={[]}
+      startNewSession={() => harness} modelCatalog={modelCatalog}
+      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      { stdin, stdout: createTuiOutput(stdout), interactive: true,
+        patchConsole: false, incrementalRendering: true });
+    async function flush() {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      await Promise.all(pendingWrites.splice(0));
+    }
+    try {
+      await flush();
+      stdin.write("检查文件");
+      await flush();
+      stdin.write("\r");
+      await flush();
+      for (let index = 0; index < 12; index++) {
+        const toolCall = { id: `space-${index}`, name: "read", arguments: { path: `space-${index}.md` } };
+        emit({ type: "tool-started", toolCall });
+        await flush();
+        emit({ type: "tool-completed", toolCall,
+          result: { ok: true, result: { content: `content-${index}` } } });
+        await flush();
+        if (index < 3) {
+          expect(terminal.buffer.active.baseY, "short results must consume blank rows before scrolling").toBe(0);
+        }
+        expect(terminal.buffer.active.getLine(terminal.buffer.active.baseY + 23)?.translateToString(true)).toContain("gpt-5-codex");
+        const baseBeforeBatch = terminal.buffer.active.baseY;
+        emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
+        await flush();
+        expect(terminal.buffer.active.baseY).toBe(baseBeforeBatch);
+      }
+      expect(terminal.buffer.active.baseY, "overflow must still scroll").toBeGreaterThan(0);
+      const history = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
+        terminal.buffer.active.getLine(i)?.translateToString(true) ?? "").join("\n");
+      for (let index = 0; index < 12; index++) {
+        expect(history.split(`read · space-${index}.md`)).toHaveLength(2);
+      }
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      await Promise.all(pendingWrites.splice(0));
+      terminal.dispose();
+    }
+  });
+
   it("hides streamed calls and preserves reasoning before completed results", async () => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
       allowProposedApi: true, convertEol: true });
@@ -359,11 +414,13 @@ describe("TUI terminal resize", () => {
         emit({ type: "tool-started", toolCall });
         await flush();
         assertOrder("running");
+        if (round === 0) expect(terminal.buffer.active.baseY).toBe(0);
         emit({ type: "tool-completed", toolCall,
           result: { ok: true, result: { content: `文件内容 ${round}` } } });
         await flush();
         expected.push(`read · file-${round}.md`);
         assertOrder("completed");
+        if (round === 0) expect(terminal.buffer.active.baseY).toBe(0);
         emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
         await flush();
         assertOrder("archived");

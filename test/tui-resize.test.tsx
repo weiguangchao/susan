@@ -275,6 +275,88 @@ describe("TUI terminal resize", () => {
     }
   });
 
+  it.each(["text-delta", "reasoning-delta", "tool-completed"] as const)(
+    "keeps one shared input gap while %s fills and overflows the output area",
+    async (type) => {
+      const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
+        allowProposedApi: true, convertEol: true });
+      const pendingWrites: Promise<void>[] = [];
+      const stdout = terminalOutput(chunk => {
+        pendingWrites.push(new Promise<void>(resolve => terminal.write(chunk, resolve)));
+      });
+      const { harness, emit } = streamingHarness();
+      const instance = render(<TuiApp harness={harness} inputHistory={[]}
+        startNewSession={() => harness} modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+        { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
+          patchConsole: false, incrementalRendering: true });
+      async function flush() {
+        await flushEffects();
+        await instance.waitUntilRenderFlush();
+        await Promise.all(pendingWrites.splice(0));
+      }
+      function visibleRows() {
+        return Array.from({ length: terminal.rows }, (_, index) =>
+          terminal.buffer.active.getLine(terminal.buffer.active.baseY + index)
+            ?.translateToString(true).trim() ?? "");
+      }
+      function assertInputGap() {
+        const visible = visibleRows();
+        const inputTop = visible.findIndex(line => line.startsWith("╭"));
+        const lastOutput = visible.slice(0, inputTop).findLastIndex(line => line !== "");
+        expect(inputTop, "input stays at the bottom").toBe(terminal.rows - 4);
+        expect(inputTop - lastOutput - 1, "all output shares exactly one footer gap").toBe(1);
+      }
+      try {
+        await flush();
+        // Fill the screen with completed history so each new output row must
+        // reclaim space from it, exposing inflated live-height calculations.
+        const toolCalls = Array.from({ length: 12 }, (_, index) => ({
+          id: `history-${index}`, name: "read", arguments: { path: `history-${index}.md` },
+        }));
+        for (const toolCall of toolCalls) {
+          emit({ type: "tool-started", toolCall });
+          emit({ type: "tool-completed", toolCall,
+            result: { ok: true, result: { content: "history content" } } });
+        }
+        emit({ type: "tool-batch-completed", toolCalls });
+        await flush();
+        for (let index = 0; index < 10; index++) {
+          if (type === "tool-completed") {
+            const toolCall = { id: `live-${index}`, name: "read",
+              arguments: { path: `live-${index}.md` } };
+            emit({ type: "tool-started", toolCall });
+            emit({ type, toolCall,
+              result: { ok: true, result: { content: `result-${index}\n\nresult-end-${index}` } } });
+          } else {
+            emit({ type, textDelta: `${index === 0 ? "" : "\n"}paragraph-${index}\n\nend-${index}` });
+          }
+          await flush();
+          assertInputGap();
+          if (type !== "tool-completed") {
+            const visible = visibleRows();
+            const paragraph = visible.indexOf(`paragraph-${index}`);
+            expect(paragraph).toBeGreaterThanOrEqual(0);
+            expect(visible.slice(paragraph, paragraph + 2)).toEqual([
+              `paragraph-${index}`, `end-${index}▍`,
+            ]);
+          }
+        }
+        for (const rows of [18, 30]) {
+          terminal.resize(80, rows);
+          stdout.rows = rows;
+          stdout.emit("resize");
+          await flush();
+          assertInputGap();
+        }
+      } finally {
+        instance.unmount();
+        await instance.waitUntilExit();
+        terminal.dispose();
+      }
+    },
+  );
+
   it("uses remaining output space before scrolling completed tools", async () => {
     const terminal = new Terminal({ cols: 80, rows: 24, scrollback: 1000,
       allowProposedApi: true, convertEol: true });

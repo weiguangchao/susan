@@ -34,7 +34,9 @@ export type TuiToolResultRow = {
 export const TOOL_RESULT_ROW_BUDGET = 4;
 
 export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
-  const lines = tool.supplementalLines.flatMap((line) => line.split("\n"));
+  const lines = tool.supplementalLines
+    .flatMap((line) => line.split("\n"))
+    .filter(line => line.trim() !== "");
   if (lines.length <= TOOL_RESULT_ROW_BUDGET) {
     return lines.map((text) => ({ text, gap: false }));
   }

@@ -134,7 +134,7 @@ describe("TUI Tool execution ledger", () => {
     {
       name: "read",
       payload: { content: "first\n\nthird\nfourth\nfifth\n" },
-      rows: ["├ first", "├", "├ third", "├ fourth", "└ …其余 2 行省略"],
+      rows: ["├ first", "├ third", "├ fourth", "└ fifth"],
     },
     {
       name: "ls",

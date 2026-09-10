@@ -383,7 +383,7 @@ export function TuiApp({
           overflow="hidden"
           justifyContent="flex-end"
           paddingLeft={1}
-          marginBottom={1}
+          marginBottom={LIVE_GUTTER_ROWS}
         >
           {/* Keep natural content height: shrinking multiline text can overlap
               reasoning and answers. Fill short frames from the top; clip only
@@ -536,6 +536,12 @@ function wrapLines(text: string, width: number): readonly string[] {
   return lines;
 }
 
+// Compact output presentation without changing the stored message content.
+// Rendering and height accounting must consume the same visible rows.
+function outputLines(text: string, width: number): readonly string[] {
+  return wrapLines(text, width).filter(line => line.trim() !== "");
+}
+
 function MessageView({
   message,
   width,
@@ -559,7 +565,7 @@ function MessageView({
     );
   }
   if (message.kind === "assistant") {
-    const lines = wrapLines(message.text, width);
+    const lines = outputLines(message.text, width);
     return (
       <Box flexDirection="column" marginTop={gapAbove}>
         {lines.map((line, index) => (
@@ -571,7 +577,7 @@ function MessageView({
     );
   }
   if (message.kind === "reasoning") {
-    const lines = wrapLines(message.text, width);
+    const lines = outputLines(message.text, width);
     return (
       <Box flexDirection="column">
         {message.durationMs === undefined ? null : (
@@ -756,7 +762,7 @@ function StreamView({
       )}
       {reasoning === ""
         ? null
-        : wrapLines(thinking && text === "" ? `${reasoning}▍` : reasoning, width).map(
+        : outputLines(thinking && text === "" ? `${reasoning}▍` : reasoning, width).map(
             (line, index) => (
               <Text key={index} dimColor wrap="truncate-end">
                 {line === "" ? " " : line}
@@ -765,9 +771,9 @@ function StreamView({
           )}
       {text === "" ? null : (
         <Box flexDirection="column" marginTop={reasoning === "" ? 0 : 1}>
-          {wrapLines(`${text}▍`, width).map((line, index) => (
+          {outputLines(`${text}▍`, width).map((line, index) => (
             <Text key={index} wrap="truncate-end">
-              {line}
+              {line === "" ? " " : line}
             </Text>
           ))}
         </Box>
@@ -870,6 +876,8 @@ const RESET_CURSOR_SHAPE = "\u001B[0 q";
 const STATUS_ROWS = 1;
 const INPUT_BORDER_ROWS = 2;
 const PENDING_BANNER_ROWS = 1;
+// The shared output container owns the footer gap for text, reasoning and tools.
+// Use the same value in the rendered layout and its height budget.
 const LIVE_GUTTER_ROWS = 1;
 
 function wrappedRowCount(text: string, width: number): number {
@@ -899,12 +907,12 @@ function completedItemRows(
     );
   }
   if (item.message.kind === "assistant") {
-    return wrapLines(item.message.text, width).length;
+    return outputLines(item.message.text, width).length;
   }
   if (item.message.kind === "reasoning") {
     return (
       (item.message.durationMs === undefined ? 0 : 1) +
-      wrapLines(item.message.text, width).length
+      outputLines(item.message.text, width).length
     );
   }
   return wrappedRowCount(`⚠ ${item.message.text}`, width);
@@ -920,9 +928,9 @@ function liveContentRows(
   const reasoning = stream?.reasoning ?? "";
   const text = stream?.text ?? "";
   const reasoningRows = reasoning === "" ? 0 : 1 +
-    wrapLines(text === "" ? `${reasoning}▍` : reasoning, width).length;
+    outputLines(text === "" ? `${reasoning}▍` : reasoning, width).length;
   const textRows = text === "" ? 0 :
-    (reasoning === "" ? 0 : 1) + wrapLines(`${text}▍`, width).length;
+    (reasoning === "" ? 0 : 1) + outputLines(`${text}▍`, width).length;
   return reasoningRows + textRows + tools.reduce(
     (sum, tool) => sum + 1 + toolResultRows(tool).length, 0,
   );

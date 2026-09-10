@@ -87,6 +87,7 @@ function Preview() {
   let state = createTuiState({
     status: "running", sessionId: "tool-preview", cwd: "/workspace", messages: [],
     pending: null, model: "preview", reasoningEffort: "high", contextWindow: 128000,
+    contextTokens: 0,
     sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
   });
   state = reduceTuiState(state, { type: "harness-event", event: {

@@ -2,16 +2,21 @@ import { PassThrough } from "node:stream";
 import { render, renderToString } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  CompletionMessage,
   Harness,
   HarnessCommand,
   HarnessEvent,
   HarnessSnapshot,
   ProviderClient,
+  ProviderRequest,
+  ProviderStreamEvent,
   ProviderToolCall,
+  SessionStore,
+  SessionTranscript,
   TuiMessage,
   TuiToolCard,
 } from "../src/index.js";
-import { createTuiState, TuiApp } from "../src/index.js";
+import { createHarness, createTuiState, TuiApp } from "../src/index.js";
 import { ActivityLine, SessionContentView, ToolLineView } from "../src/ui/tui.js";
 
 const toolCall: ProviderToolCall = {
@@ -95,6 +100,7 @@ function idleSnapshot(
     model: "gpt-5-codex",
     reasoningEffort: "high",
     contextWindow: 418_000,
+    contextTokens: 0,
     sessionTotalTokens: 0,
     sessionInputTokens: 0,
     sessionCachedInputTokens: 0,
@@ -151,7 +157,7 @@ const provider = {
 describe("TUI status bar", () => {
   it("renders the percentage before token usage without slash spaces", async () => {
     const { harness } = createEventHarness(
-      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+      idleSnapshot({ sessionTotalTokens: 25_000, contextTokens: 25_000, contextWindow: 127_000 }),
     );
     const frames: string[] = [];
     const stdin = terminalInput();
@@ -178,7 +184,7 @@ describe("TUI status bar", () => {
 
   it("renders the Cache Hit Rate prefix once cached usage accumulates", async () => {
     const { harness, emit } = createEventHarness(
-      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+      idleSnapshot({ sessionTotalTokens: 25_000, contextTokens: 25_000, contextWindow: 127_000 }),
     );
     const frames: string[] = [];
     const stdin = terminalInput();
@@ -198,14 +204,14 @@ describe("TUI status bar", () => {
     emit(
       {
         type: "session-usage-updated",
-        sessionTotalTokens: 50_000,
+        sessionTotalTokens: 50_000, contextTokens: 50_000,
         sessionInputTokens: 40_000,
         sessionCachedInputTokens: 10_320,
         contextWindow: 127_000,
       },
       idleSnapshot({
         status: "running",
-        sessionTotalTokens: 50_000,
+        sessionTotalTokens: 50_000, contextTokens: 50_000,
         sessionInputTokens: 40_000,
         sessionCachedInputTokens: 10_320,
         contextWindow: 127_000,
@@ -222,7 +228,7 @@ describe("TUI status bar", () => {
 
   it("keeps the Cache Hit Rate prefix hidden while no cache has been reported", async () => {
     const { harness, emit } = createEventHarness(
-      idleSnapshot({ sessionTotalTokens: 25_000, contextWindow: 127_000 }),
+      idleSnapshot({ sessionTotalTokens: 25_000, contextTokens: 25_000, contextWindow: 127_000 }),
     );
     const frames: string[] = [];
     const stdin = terminalInput();
@@ -242,14 +248,14 @@ describe("TUI status bar", () => {
     emit(
       {
         type: "session-usage-updated",
-        sessionTotalTokens: 50_000,
+        sessionTotalTokens: 50_000, contextTokens: 50_000,
         sessionInputTokens: 40_000,
         sessionCachedInputTokens: 0,
         contextWindow: 127_000,
       },
       idleSnapshot({
         status: "running",
-        sessionTotalTokens: 50_000,
+        sessionTotalTokens: 50_000, contextTokens: 50_000,
         sessionInputTokens: 40_000,
         sessionCachedInputTokens: 0,
         contextWindow: 127_000,
@@ -261,6 +267,136 @@ describe("TUI status bar", () => {
     const frame = latestVisibleFrame(frames);
     expect(frame).toContain("39.4%/50k");
     expect(frame).not.toContain("CH ");
+
+    instance.unmount();
+    await instance.waitUntilExit();
+  });
+});
+
+describe("TUI context usage display", () => {
+  function contextUsageTranscript(): SessionTranscript {
+    return {
+      header: {
+        type: "session",
+        version: 2,
+        id: "00000000-0000-4000-8000-000000000002",
+        createdAt: "2026-09-03T00:00:00.000Z",
+        cwd: "/workspace",
+      },
+      records: [],
+      messages: [],
+      filePath: "/sessions/context-usage.jsonl",
+    };
+  }
+
+  function contextUsageSessionStore(): SessionStore {
+    return {
+      async createSession() {
+        throw new Error("not used");
+      },
+      async appendMessage() {
+        return { ok: true, value: undefined };
+      },
+      async appendCompaction() {
+        return { ok: true, value: undefined };
+      },
+      async appendUsage() {
+        return { ok: true, value: undefined };
+      },
+      async loadSession() {
+        throw new Error("not used");
+      },
+      async listSessions() {
+        throw new Error("not used");
+      },
+      async loadLastSession() {
+        throw new Error("not used");
+      },
+      async loadInputHistory() {
+        throw new Error("not used");
+      },
+    };
+  }
+
+  function contextUsageProvider(): ProviderClient {
+    const responses: readonly (readonly ProviderStreamEvent[])[] = [
+      [
+        {
+          type: "response-complete",
+          response: {
+            assistant: { role: "assistant", content: "Hello" },
+            finishReason: "stop",
+            usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+          },
+        },
+      ],
+      [
+        {
+          type: "response-complete",
+          response: {
+            assistant: { role: "assistant", content: "Again" },
+            finishReason: "stop",
+            usage: { inputTokens: 180, outputTokens: 30, totalTokens: 210 },
+          },
+        },
+      ],
+    ];
+    let index = 0;
+    return {
+      type: "openai-completion",
+      async complete() {
+        return {
+          code: "PROVIDER_PROTOCOL",
+          message: "not used",
+          hadSemanticOutput: false,
+        };
+      },
+      async *stream() {
+        yield* responses[index++]!;
+      },
+    };
+  }
+
+  it("shows the current context usage, not cumulative session usage, in the status bar", async () => {
+    const harness = createHarness({
+      provider: contextUsageProvider(),
+      sessionStore: contextUsageSessionStore(),
+      session: contextUsageTranscript(),
+      model: "model",
+      reasoningEffort: "medium",
+      contextWindow: 100_000,
+      maxOutputTokens: 1_000,
+      tools: [],
+    });
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const stdout = terminalOutput((chunk) => frames.push(stripAnsi(chunk)));
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      { stdin, stdout, interactive: true, patchConsole: false },
+    );
+
+    await instance.waitUntilRenderFlush();
+    const initialFrame = latestVisibleFrame(frames);
+    expect(initialFrame).toContain("0.0%/0");
+    expect(await harness.dispatch({ type: "submit", content: "Hi" })).toEqual({
+      ok: true,
+    });
+    expect(
+      await harness.dispatch({ type: "submit", content: "Again" }),
+    ).toEqual({ ok: true });
+    await flushEffects();
+    await instance.waitUntilRenderFlush();
+
+    const frame = latestVisibleFrame(frames);
+    expect(frame).toContain("0.2%/210");
+    expect(frame).not.toContain("0.3%/335");
 
     instance.unmount();
     await instance.waitUntilExit();
@@ -423,7 +559,7 @@ describe("TUI activity slot", () => {
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).toContain("› /model 模型");
 
-    emit({ type: "session-usage-updated", sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0, contextWindow: 418_000 }, idleSnapshot({ status: "running" }));
+    emit({ type: "session-usage-updated", sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0, contextWindow: 418_000, contextTokens: 0 }, idleSnapshot({ status: "running" }));
     await flushEffects();
     await instance.waitUntilRenderFlush();
     expect(latestVisibleFrame(frames)).not.toContain("Working...");

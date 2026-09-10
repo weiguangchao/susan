@@ -27,6 +27,7 @@ import type {
 } from "./provider.js";
 import type {
   SessionCompactionRecord,
+  SessionRecord,
   SessionStore,
   SessionTranscript,
 } from "./session.js";
@@ -85,6 +86,7 @@ export type HarnessSnapshot = {
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
+  readonly contextTokens: number;
   readonly sessionTotalTokens: number;
   readonly sessionInputTokens: number;
   readonly sessionCachedInputTokens: number;
@@ -119,6 +121,7 @@ export type HarnessEvent =
       readonly type: "context-compacted";
       readonly tokensBefore: number;
       readonly tokensAfterEstimate: number;
+      readonly contextTokens: number;
     }
   | {
       readonly type: "session-usage-updated";
@@ -126,6 +129,7 @@ export type HarnessEvent =
       readonly sessionInputTokens: number;
       readonly sessionCachedInputTokens: number;
       readonly contextWindow: number;
+      readonly contextTokens: number;
     }
   | {
       readonly type: "compaction-failed";
@@ -332,6 +336,33 @@ const systemClock: HarnessClock = {
   },
 };
 
+type UsageBaseline = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly messageCount: number;
+};
+
+function restoreUsageBaseline(
+  records: readonly SessionRecord[],
+): UsageBaseline | undefined {
+  let baseline: UsageBaseline | undefined;
+  let messageCount = 0;
+  for (const record of records) {
+    if (record.type === "message") {
+      messageCount += 1;
+    } else if (record.type === "usage") {
+      baseline = {
+        inputTokens: record.usage.inputTokens,
+        outputTokens: record.usage.outputTokens,
+        messageCount,
+      };
+    } else if (record.type === "compaction") {
+      baseline = undefined;
+    }
+  }
+  return baseline;
+}
+
 export function createHarness(options: HarnessOptions): Harness {
   const messages = [...options.session.messages];
   const toolDefinitions = options.tools.map(({ name, description, parameters }) => ({
@@ -341,9 +372,8 @@ export function createHarness(options: HarnessOptions): Harness {
   }));
   const listeners = new Set<(event: HarnessEvent) => void>();
   let checkpoint = latestCompactionCheckpoint(options.session.records);
-  let usageBaseline:
-    | { readonly inputTokens: number; readonly messageCount: number }
-    | undefined;
+  let usageBaseline: UsageBaseline | undefined =
+    restoreUsageBaseline(options.session.records);
   let sessionTotalTokens = options.session.records.reduce(
     (total, record) =>
       record.type === "usage"
@@ -458,6 +488,7 @@ export function createHarness(options: HarnessOptions): Harness {
       sessionInputTokens,
       sessionCachedInputTokens,
       contextWindow,
+      contextTokens: estimateCurrentContext(),
     });
     return { ok: true };
   };
@@ -491,8 +522,14 @@ export function createHarness(options: HarnessOptions): Harness {
     if (usageBaseline !== undefined) {
       return (
         usageBaseline.inputTokens +
-        estimateMessagesTokens(messages.slice(usageBaseline.messageCount))
+        usageBaseline.outputTokens +
+        estimateMessagesTokens(
+          messages.slice(usageBaseline.messageCount + 1),
+        )
       );
+    }
+    if (messages.length === 0) {
+      return 0;
     }
     return (
       estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) +
@@ -673,7 +710,12 @@ export function createHarness(options: HarnessOptions): Harness {
     }
     checkpoint = completedCheckpoint;
     usageBaseline = undefined;
-    emit({ type: "context-compacted", tokensBefore, tokensAfterEstimate });
+    emit({
+      type: "context-compacted",
+      tokensBefore,
+      tokensAfterEstimate,
+      contextTokens: tokensAfterEstimate,
+    });
     return { ok: true };
   };
 
@@ -754,6 +796,7 @@ export function createHarness(options: HarnessOptions): Harness {
         if (terminal.usage !== undefined) {
           usageBaseline = {
             inputTokens: terminal.usage.inputTokens,
+            outputTokens: terminal.usage.outputTokens,
             messageCount: messages.length,
           };
         }
@@ -1151,6 +1194,7 @@ export function createHarness(options: HarnessOptions): Harness {
         model,
         reasoningEffort,
         contextWindow,
+        contextTokens: estimateCurrentContext(),
         sessionTotalTokens,
         sessionInputTokens,
         sessionCachedInputTokens,

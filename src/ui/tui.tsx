@@ -1075,7 +1075,7 @@ export function workingColorAt(index: number, phase: number): string {
 }
 
 export function StatusBar({ state }: { readonly state: TuiState }) {
-  const percentage = (state.sessionTotalTokens / state.contextWindow) * 100;
+  const percentage = (state.contextTokens / state.contextWindow) * 100;
   const cacheVisible =
     state.sessionCachedInputTokens > 0 && state.sessionInputTokens > 0;
   const cacheHitRate = cacheVisible
@@ -1091,7 +1091,7 @@ export function StatusBar({ state }: { readonly state: TuiState }) {
     >
       <Text dimColor>
         {cacheHitRate === null ? "" : `CH ${cacheHitRate.toFixed(1)}% `}
-        {percentage.toFixed(1)}%/{formatTokenCount(state.sessionTotalTokens)}
+        {percentage.toFixed(1)}%/{formatTokenCount(state.contextTokens)}
       </Text>
       <Text dimColor>
         {state.model ?? "未设置"} · {state.reasoningEffort ?? "未设置"}

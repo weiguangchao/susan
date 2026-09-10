@@ -699,6 +699,7 @@ function Preview() {
     model: "preview",
     reasoningEffort: "high",
     contextWindow: 128_000,
+    contextTokens: 0,
     sessionTotalTokens: 0,
     sessionInputTokens: 0,
     sessionCachedInputTokens: 0,

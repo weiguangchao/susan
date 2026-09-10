@@ -89,6 +89,7 @@ export function PrototypeApp({
     model: "gpt-5-codex",
     reasoningEffort: "high",
     contextWindow: 128_000,
+    contextTokens: 18_400,
     sessionTotalTokens: 18_400,
     sessionInputTokens: 26_000,
     sessionCachedInputTokens: 18_200,

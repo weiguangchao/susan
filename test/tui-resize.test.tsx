@@ -43,6 +43,7 @@ function idleHarness(): Harness {
     model: "gpt-5-codex",
     reasoningEffort: "high",
     contextWindow: 418_000,
+    contextTokens: 0,
     sessionTotalTokens: 0,
     sessionInputTokens: 0,
     sessionCachedInputTokens: 0,
@@ -63,6 +64,7 @@ function streamingHarness(overrides: Partial<HarnessSnapshot> = {}): {
   let snapshot: HarnessSnapshot = {
     ...idleHarness().getSnapshot(),
     status: "running",
+    contextTokens: 12_345,
     sessionTotalTokens: 12_345,
     sessionInputTokens: 9_876,
     sessionCachedInputTokens: 0,
@@ -781,6 +783,7 @@ describe("TUI terminal resize", () => {
       model: "deepseek-v4-flash",
       reasoningEffort: "low",
       contextWindow: 128_000,
+      contextTokens: 118_144,
       sessionTotalTokens: 118_144,
       sessionInputTokens: 100_000,
       sessionCachedInputTokens: 0,

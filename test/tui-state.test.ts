@@ -38,7 +38,7 @@ function initialState(
     model: "gpt-5-codex",
     reasoningEffort: "high",
     contextWindow: 418_000,
-    sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
+    contextTokens: 0, sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
     ...overrides,
   });
 }
@@ -386,7 +386,7 @@ describe("TUI state", () => {
         model: "gpt-5-codex",
         reasoningEffort: "high",
         contextWindow: 418_000,
-        sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
+        contextTokens: 18_400, sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
       },
     });
     current = reduceTuiState(current, {
@@ -573,7 +573,7 @@ describe("TUI state", () => {
         model: "gpt-5-codex",
         reasoningEffort: "high",
         contextWindow: 418_000,
-        sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
+        contextTokens: 0, sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
       },
     });
     expect(state.inputHistory).toEqual(["previous session input"]);
@@ -625,7 +625,7 @@ describe("TUI state", () => {
         model: "deepseek-v4-flash",
         reasoningEffort: "medium",
         contextWindow: 128_000,
-        sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
+        contextTokens: 18_400, sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
       },
     });
 
@@ -642,6 +642,7 @@ describe("TUI state", () => {
       type: "harness-event",
       event: {
         type: "session-usage-updated",
+        contextTokens: 32_000,
         sessionTotalTokens: 32_000,
         sessionInputTokens: 25_600,
         sessionCachedInputTokens: 6_400,
@@ -653,8 +654,9 @@ describe("TUI state", () => {
     expect(updated.sessionInputTokens).toBe(25_600);
     expect(updated.sessionCachedInputTokens).toBe(6_400);
     expect(updated.contextWindow).toBe(128_000);
+    expect(updated.contextTokens).toBe(32_000);
     expect(
-      (updated.sessionTotalTokens / updated.contextWindow) * 100,
+      (updated.contextTokens / updated.contextWindow) * 100,
     ).toBe(25);
     expect(
       (updated.sessionCachedInputTokens / updated.sessionInputTokens) * 100,
@@ -664,6 +666,7 @@ describe("TUI state", () => {
   it("resets Session usage when a new Session starts", () => {
     const previous = {
       ...initialState(),
+      contextTokens: 64_000,
       sessionTotalTokens: 64_000,
       sessionInputTokens: 50_000,
       sessionCachedInputTokens: 10_000,
@@ -680,7 +683,7 @@ describe("TUI state", () => {
         model: "model",
         reasoningEffort: "high",
         contextWindow: 128_000,
-        sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
+        contextTokens: 0, sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
       },
     });
 
@@ -808,7 +811,7 @@ describe("TUI state", () => {
       model: "gpt-5-codex",
       reasoningEffort: "high",
       contextWindow: 418_000,
-      sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
+      contextTokens: 0, sessionTotalTokens: 0, sessionInputTokens: 0, sessionCachedInputTokens: 0,
     });
 
     expect(state.messages).toEqual([
@@ -1049,7 +1052,7 @@ describe("TUI state", () => {
         model: "gpt-5-codex",
         reasoningEffort: "high",
         contextWindow: 418_000,
-        sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
+        contextTokens: 18_400, sessionTotalTokens: 18_400, sessionInputTokens: 16_000, sessionCachedInputTokens: 0,
       },
     });
 

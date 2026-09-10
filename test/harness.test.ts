@@ -475,6 +475,7 @@ describe("Harness", () => {
       sessionInputTokens: 120,
       sessionCachedInputTokens: 60,
       contextWindow: 100_000,
+      contextTokens: 125,
     });
     expect(usageEvents[1]).toEqual({
       type: "session-usage-updated",
@@ -482,6 +483,7 @@ describe("Harness", () => {
       sessionInputTokens: 300,
       sessionCachedInputTokens: 150,
       contextWindow: 100_000,
+      contextTokens: 210,
     });
     expect(appendedUsage).toEqual([
       { inputTokens: 120, outputTokens: 5, totalTokens: 125, cachedInputTokens: 60 },
@@ -504,6 +506,7 @@ describe("Harness", () => {
     expect(harness.getSnapshot().sessionTotalTokens).toBe(335);
     expect(harness.getSnapshot().sessionInputTokens).toBe(300);
     expect(harness.getSnapshot().sessionCachedInputTokens).toBe(150);
+    expect(harness.getSnapshot().contextTokens).toBe(210);
   });
 
   it("restores the cumulative Provider usage from the Session Transcript", () => {
@@ -539,6 +542,7 @@ describe("Harness", () => {
     expect(restored.getSnapshot().sessionTotalTokens).toBe(330);
     expect(restored.getSnapshot().sessionInputTokens).toBe(280);
     expect(restored.getSnapshot().sessionCachedInputTokens).toBe(90);
+    expect(restored.getSnapshot().contextTokens).toBe(210);
   });
 
   it("executes every Yolo Tool Call serially before continuing the Agent Loop", async () => {

@@ -61,6 +61,7 @@ function idleSnapshot(
     model: "gpt-5-codex",
     reasoningEffort: "high",
     contextWindow: 418_000,
+    contextTokens: 0,
     sessionTotalTokens: 0,
     sessionInputTokens: 0,
     sessionCachedInputTokens: 0,

@@ -76,6 +76,7 @@ export type TuiState = {
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
+  readonly contextTokens: number;
   readonly sessionTotalTokens: number;
   readonly sessionInputTokens: number;
   readonly sessionCachedInputTokens: number;
@@ -184,6 +185,7 @@ export function createTuiState(
     model: snapshot.model,
     reasoningEffort: snapshot.reasoningEffort,
     contextWindow: snapshot.contextWindow,
+    contextTokens: snapshot.contextTokens,
     sessionTotalTokens: snapshot.sessionTotalTokens,
     sessionInputTokens: snapshot.sessionInputTokens,
     sessionCachedInputTokens: snapshot.sessionCachedInputTokens,
@@ -402,6 +404,7 @@ export function reduceTuiState(
         model: action.snapshot.model,
         reasoningEffort: action.snapshot.reasoningEffort,
         contextWindow: action.snapshot.contextWindow,
+        contextTokens: action.snapshot.contextTokens,
         sessionTotalTokens: action.snapshot.sessionTotalTokens,
         sessionInputTokens: action.snapshot.sessionInputTokens,
         sessionCachedInputTokens: action.snapshot.sessionCachedInputTokens,
@@ -858,11 +861,13 @@ function reduceHarnessEvent(
     case "context-compacted":
       return {
         ...state,
+        contextTokens: event.contextTokens,
         notice: `上下文已压缩 · ${event.tokensBefore} → ${event.tokensAfterEstimate} est.`,
       };
     case "session-usage-updated":
       return {
         ...state,
+        contextTokens: event.contextTokens,
         sessionTotalTokens: event.sessionTotalTokens,
         sessionInputTokens: event.sessionInputTokens,
         sessionCachedInputTokens: event.sessionCachedInputTokens,

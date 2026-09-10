@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0015
+---
+
 # Agent Loop 串行执行 Tool Batch 并设置双重预算
 
 susan 接受模型在一次输出中请求多个 Tool Call，但按出现顺序串行执行；相比并发执行，这让 Tool Result 顺序与 Session Transcript 保持确定。所有 Tool Call 按 Yolo 直接放行，不存在逐次审批。每个 Tool Batch 最多 8 个 Tool Call，每次用户输入最多 20 个 Tool Round，触顶后只允许一次关闭 Tool 的收尾请求，以同时限制失控循环和单批资源消耗。

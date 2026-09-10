@@ -54,7 +54,7 @@ describe("TUI Tool execution ledger", () => {
     expect(state.awaitingModelAfterTools).toBe(false);
   });
 
-  it.each(["ETIMEDOUT", "ETOOL", "ETOOL_BATCH_LIMIT"])("archives %s without requiring tool-started", code => {
+  it.each(["ETIMEDOUT", "ETOOL"])("archives %s without requiring tool-started", code => {
     const state = reduceTuiState(initialState(), { type: "harness-event", event: {
       type: "tool-completed", toolCall: { id: "failure", name: "bash", arguments: { command: "pwd" } },
       result: { ok: false, error: { code, message: "failed" } },

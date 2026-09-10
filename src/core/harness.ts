@@ -115,7 +115,6 @@ export type HarnessEvent =
       readonly type: "tool-batch-completed";
       readonly toolCalls: readonly ProviderToolCall[];
     }
-  | { readonly type: "tool-round-limit-reached"; readonly limit: 20 }
   | {
       readonly type: "context-compacted";
       readonly tokensBefore: number;
@@ -241,26 +240,9 @@ function restoredPending(
   return { reason: "restored" };
 }
 
-function restoredToolRoundCount(messages: readonly CompletionMessage[]): number {
-  const lastUserIndex = messages.findLastIndex(
-    (message) => message.role === "user",
-  );
-  return messages
-    .slice(lastUserIndex + 1)
-    .filter(
-      (message) =>
-        message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0,
-    ).length;
-}
-
 function restoredToolBatch(
   messages: readonly CompletionMessage[],
-):
-  | {
-      readonly remaining: readonly ProviderToolCall[];
-      readonly originalSize: number;
-    }
-  | undefined {
+): { readonly remaining: readonly ProviderToolCall[] } | undefined {
   const lastUserIndex = messages.findLastIndex(
     (message) => message.role === "user",
   );
@@ -291,9 +273,7 @@ function restoredToolBatch(
   const remaining = assistant.toolCalls.filter(
     (toolCall) => !completed.has(toolCall.id),
   );
-  return remaining.length === 0
-    ? undefined
-    : { remaining, originalSize: assistant.toolCalls.length };
+  return remaining.length === 0 ? undefined : { remaining };
 }
 
 function providerProtocolFailure(message: string): ProviderFailure {
@@ -391,7 +371,6 @@ export function createHarness(options: HarnessOptions): Harness {
         ? "compatibility"
         : "pending";
   let activeRunController: AbortController | undefined;
-  let currentToolRounds = restoredToolRoundCount(messages);
   let pendingToolBatch =
     pending?.reason === "compatibility"
       ? undefined
@@ -699,7 +678,6 @@ export function createHarness(options: HarnessOptions): Harness {
   };
 
   const requestProvider = async (
-    toolsEnabled = true,
     overflowRecoveryAvailable = true,
     skipPreflight = false,
   ): Promise<
@@ -724,9 +702,7 @@ export function createHarness(options: HarnessOptions): Harness {
         { role: "system", content: buildSystemPrompt(options.session.header.cwd) },
         ...modelContextMessages(messages, checkpoint),
       ],
-      ...(toolsEnabled && toolDefinitions.length > 0
-        ? { tools: toolDefinitions }
-        : {}),
+      ...(toolDefinitions.length > 0 ? { tools: toolDefinitions } : {}),
     };
     for (let attempt = 0; attempt < 3; attempt += 1) {
       let terminal: ProviderResponse | ProviderFailure | undefined;
@@ -798,7 +774,7 @@ export function createHarness(options: HarnessOptions): Harness {
         if (!compacted.ok) {
           return { ok: false, contextError: compacted.error };
         }
-        return requestProvider(toolsEnabled, false, true);
+        return requestProvider(false, true);
       }
       if (attempt === 2 || !isRetryableProviderFailure(failure)) {
         const interruptedResponse = hadSemanticOutput
@@ -954,25 +930,13 @@ export function createHarness(options: HarnessOptions): Harness {
 
   const processToolBatch = async (
     toolCalls: readonly ProviderToolCall[],
-    originalSize = toolCalls.length,
   ): Promise<HarnessCommandResult> => {
     for (const toolCall of toolCalls) {
-      let result: ToolResult;
-      if (originalSize > 8) {
-        result = {
-          ok: false,
-          error: {
-            code: "ETOOL_BATCH_LIMIT",
-            message: "Tool Batch exceeds the limit of 8 Tool Calls.",
-          },
-        };
-      } else {
-        const outcome = await executeToolCall(toolCall);
-        if (outcome.kind === "interrupted") {
-          return interruptAgentLoop();
-        }
-        result = outcome.result;
+      const outcome = await executeToolCall(toolCall);
+      if (outcome.kind === "interrupted") {
+        return interruptAgentLoop();
       }
+      const result = outcome.result;
       emit({ type: "tool-completed", toolCall, result });
       const appendedResult = await appendMessage({
         role: "tool",
@@ -1018,65 +982,19 @@ export function createHarness(options: HarnessOptions): Harness {
   };
 
   const completeAgentLoop = (): HarnessCommandResult => {
-    currentToolRounds = 0;
     status = "idle";
     pending = null;
     emit({ type: "agent-loop-completed" });
     return { ok: true };
   };
 
-  const runToolFreeFinalRequest = async (): Promise<HarnessCommandResult> => {
-    const finalResult = await requestProvider(false);
-    if (!finalResult.ok) {
-      if (finalResult.contextError !== undefined) {
-        return failContext(finalResult.contextError);
-      }
-      return failProvider({
-        failure: finalResult.failure!,
-        ...(finalResult.interruptedResponse === undefined
-          ? {}
-          : { interruptedResponse: finalResult.interruptedResponse }),
-      });
-    }
-    const appendedUsage = await appendProviderUsage(
-      finalResult.response.usage,
-      currentUsageAudit(),
-    );
-    if (!appendedUsage.ok) {
-      return appendedUsage;
-    }
-    const finalAssistant = finalResult.response.assistant;
-    if (
-      (finalAssistant.toolCalls?.length ?? 0) > 0 ||
-      ((finalAssistant.content?.length ?? 0) === 0 &&
-        (finalAssistant.reasoning?.length ?? 0) === 0)
-    ) {
-      return failProvider({
-        failure: providerProtocolFailure(
-          "Tool-free final request returned no valid final content.",
-        ),
-      });
-    }
-    const appendedFinal = await appendMessage(finalAssistant);
-    if (!appendedFinal.ok) {
-      return appendedFinal;
-    }
-    return completeAgentLoop();
-  };
-
   const runAgentLoop = async (): Promise<HarnessCommandResult> => {
     if (pendingToolBatch !== undefined) {
-      const processed = await processToolBatch(
-        pendingToolBatch.remaining,
-        pendingToolBatch.originalSize,
-      );
+      const processed = await processToolBatch(pendingToolBatch.remaining);
       if (!processed.ok) {
         return processed;
       }
       pendingToolBatch = undefined;
-    }
-    if (currentToolRounds >= 20) {
-      return runToolFreeFinalRequest();
     }
     while (true) {
       const providerResult = await requestProvider();
@@ -1112,12 +1030,6 @@ export function createHarness(options: HarnessOptions): Harness {
       const processed = await processToolBatch(toolCalls);
       if (!processed.ok) {
         return processed;
-      }
-
-      currentToolRounds += 1;
-      if (currentToolRounds === 20) {
-        emit({ type: "tool-round-limit-reached", limit: 20 });
-        return runToolFreeFinalRequest();
       }
     }
   };
@@ -1214,7 +1126,6 @@ export function createHarness(options: HarnessOptions): Harness {
 
       status = "running";
       pending = null;
-      currentToolRounds = 0;
       activeRunController = new AbortController();
       const appendedUser = await appendMessage({
         role: "user",

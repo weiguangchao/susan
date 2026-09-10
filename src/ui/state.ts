@@ -855,8 +855,6 @@ function reduceHarnessEvent(
         ),
       };
     }
-    case "tool-round-limit-reached":
-      return { ...state, notice: `Tool 轮次达到上限 ${event.limit}，改为无 Tool 最终请求` };
     case "context-compacted":
       return {
         ...state,

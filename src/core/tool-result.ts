@@ -30,7 +30,6 @@ export const SHARED_TOOL_ERROR_CODES = [
   "EUNSUPPORTED",
   "EIO",
   "ETOOL",
-  "ETOOL_BATCH_LIMIT",
 ] as const;
 
 export type SharedToolErrorCode = (typeof SHARED_TOOL_ERROR_CODES)[number];

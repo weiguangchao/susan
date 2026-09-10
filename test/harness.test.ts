@@ -744,10 +744,10 @@ describe("Harness", () => {
     ]);
   });
 
-  it("rejects an oversized Tool Batch without partial execution", async () => {
+  it("executes an oversized Tool Batch serially in full", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
-    let executions = 0;
+    const executions: string[] = [];
     const toolCalls = Array.from({ length: 9 }, (_, index) => ({
       id: `call-${index + 1}`,
       name: "read_file",
@@ -768,7 +768,7 @@ describe("Harness", () => {
           {
             type: "response-complete",
             response: {
-              assistant: { role: "assistant", content: "Too many tools" },
+              assistant: { role: "assistant", content: "All executed" },
               finishReason: "stop",
             },
           },
@@ -789,8 +789,8 @@ describe("Harness", () => {
           name: "read_file",
           description: "read",
           parameters: {},
-          async execute() {
-            executions += 1;
+          async execute(input) {
+            executions.push((input as { path: string }).path);
             return { ok: true, result: {} };
           },
         },
@@ -800,25 +800,22 @@ describe("Harness", () => {
       await harness.dispatch({ type: "submit", content: "Read everything" }),
     ).toEqual({ ok: true });
 
-    expect(executions).toBe(0);
+    expect(executions).toEqual(
+      Array.from({ length: 9 }, (_, index) => `/file-${index + 1}`),
+    );
     const results = appended.filter((message) => message.role === "tool");
     expect(results).toHaveLength(9);
     expect(results.map((message) => message.content)).toEqual(
-      Array.from({ length: 9 }, () => ({
-        ok: false,
-        error: {
-          code: "ETOOL_BATCH_LIMIT",
-          message: "Tool Batch exceeds the limit of 8 Tool Calls.",
-        },
-      })),
+      Array.from({ length: 9 }, () => ({ ok: true, result: {} })),
     );
+    expect(requests).toHaveLength(2);
   });
 
-  it("stops after 20 Tool Rounds with one Tool-free final request", async () => {
+  it("continues past 20 Tool Rounds until the model stops calling tools", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const responses: ProviderStreamEvent[][] = Array.from(
-      { length: 20 },
+      { length: 21 },
       (_, index) => [
         {
           type: "response-complete",
@@ -842,7 +839,7 @@ describe("Harness", () => {
       {
         type: "response-complete",
         response: {
-          assistant: { role: "assistant", content: "Stopped safely" },
+          assistant: { role: "assistant", content: "Stopped on my own" },
           finishReason: "stop",
         },
       },
@@ -873,15 +870,12 @@ describe("Harness", () => {
       await harness.dispatch({ type: "submit", content: "Keep reading" }),
     ).toEqual({ ok: true });
 
-    expect(requests).toHaveLength(21);
-    expect(requests.slice(0, 20).every((request) => request.tools?.length === 1)).toBe(true);
-    expect(requests[20]?.tools).toBeUndefined();
-    expect(
-      events.filter((event) => event.type === "tool-round-limit-reached"),
-    ).toHaveLength(1);
+    expect(requests).toHaveLength(22);
+    expect(requests.every((request) => request.tools?.length === 1)).toBe(true);
+    expect(appended.filter((message) => message.role === "tool")).toHaveLength(21);
     expect(appended.at(-1)).toEqual({
       role: "assistant",
-      content: "Stopped safely",
+      content: "Stopped on my own",
     });
   });
 
@@ -1677,7 +1671,7 @@ describe("Harness", () => {
     });
   });
 
-  it("restores the Tool Round budget and rejects Tool Calls in the final request", async () => {
+  it("resumes a restored Agent Loop with tools after 20 completed Tool Rounds", async () => {
     const persisted: CompletionMessage[] = [
       { role: "user", content: "Loop" },
     ];
@@ -1704,13 +1698,8 @@ describe("Harness", () => {
             {
               type: "response-complete",
               response: {
-                assistant: {
-                  role: "assistant",
-                  toolCalls: [
-                    { id: "illegal", name: "read_file", arguments: {} },
-                  ],
-                },
-                finishReason: "tool_calls",
+                assistant: { role: "assistant", content: "Resumed" },
+                finishReason: "stop",
               },
             },
           ],
@@ -1723,19 +1712,15 @@ describe("Harness", () => {
       reasoningEffort: "high",
       contextWindow: 1_000_000,
       maxOutputTokens: 1_000,
-        tools: [createReadTool({ sessionCwd: process.cwd() })],
+      tools: [createReadTool({ sessionCwd: process.cwd() })],
     });
 
-    expect(await harness.dispatch({ type: "retry" })).toMatchObject({
-      ok: false,
-      error: {
-        code: "HARNESS_PROVIDER",
-        providerFailure: { code: "PROVIDER_PROTOCOL" },
-      },
-    });
+    expect(await harness.dispatch({ type: "retry" })).toEqual({ ok: true });
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.tools).toBeUndefined();
-    expect(appended).toEqual([]);
+    expect(requests[0]?.tools?.length).toBe(1);
+    expect(appended).toEqual([
+      { role: "assistant", content: "Resumed" },
+    ]);
   });
 
   it("resumes only unfinished Tool Calls from a persisted Tool Batch", async () => {

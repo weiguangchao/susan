@@ -18,11 +18,7 @@ import {
   isWellFormedUnicode,
   type LineEnding,
 } from "./text-file.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  type ToolResult,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
 
 export const WRITE_MAX_CONTENT_BYTES = 10 * 1024 * 1024;
 export const WRITE_DEFAULT_TIMEOUT_MS = 10_000;
@@ -32,33 +28,28 @@ const WRITE_DESCRIPTION =
 
 export type WriteLineEnding = LineEnding;
 
-export type WriteErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "ENOENT"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EISDIR"
-  | "EUNSUPPORTED"
-  | "EFILE_TOO_LARGE"
-  | "EBINARY"
-  | "ECONFLICT"
-  | "ESYMLINK"
-  | "ETIMEDOUT"
-  | "ETOOL";
-
 export type WriteToolOptions = {
   readonly sessionCwd: string;
   readonly timeoutMs?: number;
   readonly replacementHooks?: FileReplacementHooks;
 };
 
+export type WriteToolDetails = {
+  readonly resolvedPath: string;
+  readonly realTargetPath: string;
+  readonly cwdRelation: CwdRelation;
+  readonly operation: "created" | "overwritten";
+  readonly bytesWritten: number;
+  readonly bom: boolean;
+  readonly lineEnding: WriteLineEnding;
+  readonly detachedHardLinks: boolean;
+};
+
 export type WriteTool = {
   readonly name: "write";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<WriteToolDetails>>;
 };
 
 type ValidatedArguments = {
@@ -72,55 +63,23 @@ type PathFacts = {
   readonly cwdRelation: CwdRelation;
 };
 
-function fail(
-  code: WriteErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
-}
-
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid write arguments.", { field });
-}
-
-function validateArguments(input: unknown):
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult } {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("path") };
+    throw new Error("Invalid write arguments.");
   }
   const extra = Object.keys(input).find(
     (key) => key !== "path" && key !== "content",
   );
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    throw new Error("Invalid write arguments.");
   }
   if (typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    throw new Error("Invalid write arguments.");
   }
   if (typeof input.content !== "string") {
-    return { ok: false, result: invalid("content") };
+    throw new Error("Invalid write arguments.");
   }
-  return {
-    ok: true,
-    value: { path: input.path, content: input.content },
-  };
+  return { path: input.path, content: input.content };
 }
 
 function pathFacts(resolution: PathResolution): PathFacts {
@@ -131,37 +90,41 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
-  const messages: Record<PathResolutionError["code"], string> = {
-    EINVAL_PATH: "Path syntax is invalid.",
-    ENOENT: "Path does not exist.",
-    ELOOP: "Path contains a symlink loop.",
-    EACCES: "Path cannot be written.",
-    EIO: "Path cannot be resolved.",
-    ESYMLINK: "Final path component is a symlink.",
-  };
-  return fail(error.code, messages[error.code], details);
+function mapPathError(error: PathResolutionError): never {
+  if (error.code === "ENOENT") {
+    throw new Error("Path does not exist.");
+  }
+  if (error.code === "ELOOP") {
+    throw new Error("Path contains a symlink loop.");
+  }
+  if (error.code === "EACCES") {
+    throw new Error("Path cannot be written.");
+  }
+  if (error.code === "EINVAL_PATH") {
+    throw new Error("Path syntax is invalid.");
+  }
+  if (error.code === "ESYMLINK") {
+    throw new Error("Final path component is a symlink.");
+  }
+  throw new Error("Path cannot be resolved.");
 }
 
 function mapReplacementError(
   error: FileReplacementError,
-  facts: PathFacts,
-): ToolResult {
-  return fail(error.code, error.message, {
-    ...facts,
-    ...error.details,
-  });
+  _facts: PathFacts,
+): never {
+  throw new Error(error.message);
 }
 
 function isTimeoutReason(reason: unknown): boolean {
   return reason instanceof Error && reason.name === "TimeoutError";
 }
 
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Write timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
+function abortResult(signal: AbortSignal): never {
+  if (isTimeoutReason(signal.reason)) {
+    throw new Error("Write timed out.");
+  }
+  throw new Error("Tool execution failed.");
 }
 
 function nodeErrorCode(error: unknown): string | undefined {
@@ -170,23 +133,22 @@ function nodeErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function mapDirectoryError(error: unknown, facts: PathFacts): ToolResult {
+function mapDirectoryError(error: unknown): never {
   const code = nodeErrorCode(error);
-  return code === "EACCES" || code === "EPERM"
-    ? fail("EACCES", "Parent directory cannot be created.", facts)
-    : code === "ENOENT"
-      ? fail("ENOENT", "Parent directory does not exist.", facts)
-      : fail("EIO", "Parent directory cannot be created.", facts);
+  if (code === "EACCES" || code === "EPERM") {
+    throw new Error("Parent directory cannot be created.");
+  }
+  if (code === "ENOENT") {
+    throw new Error("Parent directory does not exist.");
+  }
+  throw new Error("Parent directory cannot be created.");
 }
 
 export async function executeWrite(
   input: unknown,
   options: WriteToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<WriteToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
 
   const timeout = AbortSignal.timeout(
     options.timeoutMs ?? WRITE_DEFAULT_TIMEOUT_MS,
@@ -195,85 +157,64 @@ export async function executeWrite(
     ? timeout
     : AbortSignal.any([timeout, options.signal]);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
+    mapPathError(resolverResult.error);
   }
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
+  const resolved = await resolverResult.value.resolve(validated.path, {
     existence: "allow-missing",
     symlinks: "reject-final",
   });
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolved.ok) {
-    return mapPathError(resolved.error);
+    mapPathError(resolved.error);
   }
   const facts = pathFacts(resolved.value);
 
   const observed = await observeReplacementTarget(facts.realTargetPath);
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
   if (!observed.ok) {
-    return mapReplacementError(observed.error, facts);
+    mapReplacementError(observed.error, facts);
   }
 
-  const contents = Buffer.from(validated.value.content, "utf8");
+  const contents = Buffer.from(validated.content, "utf8");
   if (contents.byteLength > WRITE_MAX_CONTENT_BYTES) {
-    return fail("EFILE_TOO_LARGE", "Content exceeds the 10 MiB size limit.", {
-      ...facts,
-      actualBytes: contents.byteLength,
-      limitBytes: WRITE_MAX_CONTENT_BYTES,
-    });
+    throw new Error("Content exceeds the 10 MiB size limit.");
   }
   if (
-    validated.value.content.includes("\0") ||
-    !isWellFormedUnicode(validated.value.content)
+    validated.content.includes("\0") ||
+    !isWellFormedUnicode(validated.content)
   ) {
-    return fail(
-      "EBINARY",
-      "Content must be valid UTF-8 text without NUL bytes.",
-      facts,
-    );
+    throw new Error("Content must be valid UTF-8 text without NUL bytes.");
   }
 
-  let successResult: ToolResult;
-  try {
-    successResult = boundToolResult({
-      result: {
-        ...facts,
-        operation: observed.value.exists ? "overwritten" : "created",
-        bytesWritten: contents.byteLength,
-        bom: validated.value.content.startsWith("\uFEFF"),
-        lineEnding: detectLineEnding(validated.value.content),
-        detachedHardLinks:
-          observed.value.exists && observed.value.identity.nlink > 1,
-      },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
+  const details: WriteToolDetails = {
+    ...facts,
+    operation: observed.value.exists ? "overwritten" : "created",
+    bytesWritten: contents.byteLength,
+    bom: validated.content.startsWith("\uFEFF"),
+    lineEnding: detectLineEnding(validated.content),
+    detachedHardLinks:
+      observed.value.exists && observed.value.identity.nlink > 1,
+  };
 
   try {
     await mkdir(dirname(facts.realTargetPath), { recursive: true });
   } catch (error) {
-    return mapDirectoryError(error, facts);
+    mapDirectoryError(error);
   }
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
 
   const replaced = await replaceFile({
@@ -286,9 +227,12 @@ export async function executeWrite(
       : { hooks: options.replacementHooks }),
   });
   if (!replaced.ok) {
-    return mapReplacementError(replaced.error, facts);
+    mapReplacementError(replaced.error, facts);
   }
-  return successResult;
+  return {
+    content: [{ type: "text", text: `Successfully wrote to ${facts.resolvedPath}` }],
+    details,
+  };
 }
 
 export function createWriteTool(options: WriteToolOptions): WriteTool {

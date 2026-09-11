@@ -6,6 +6,7 @@ import type {
   SessionCompactionRecord,
   SessionRecord,
 } from "./session.js";
+import { toolResultText } from "./tool-result.js";
 
 export const RECENT_TAIL_TARGET_TOKENS = 20_000;
 
@@ -25,7 +26,10 @@ export function estimateMessageTokens(message: CompletionMessage): number {
   }
   if (message.role === "tool") {
     return estimateTextTokens(message.toolCallId) +
-      estimateTextTokens(JSON.stringify(message.content));
+      estimateTextTokens(toolResultText(message.content)) +
+      (message.details === undefined
+        ? 0
+        : estimateTextTokens(JSON.stringify(message.details)));
   }
   return estimateTextTokens(message.content ?? "") +
     (message.toolCalls ?? []).reduce(
@@ -159,7 +163,8 @@ export function serializeCompactionInput(
         return `[System]\n${message.content}`;
       }
       if (message.role === "tool") {
-        return `[Tool result ${message.toolCallId}]\n${JSON.stringify(message.content)}`;
+        // #96 临时适配：Compaction 整体移植 Pi 形态归 #101，这里仅保语义可用。
+        return `[Tool result ${message.toolCallId}]\n${toolResultText(message.content)}`;
       }
       const parts = ["[Assistant]"];
       if (message.content !== undefined) {

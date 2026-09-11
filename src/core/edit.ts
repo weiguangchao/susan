@@ -20,11 +20,7 @@ import {
   isWellFormedUnicode,
   type LineEnding,
 } from "./text-file.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  type ToolResult,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
 
 export const EDIT_MAX_CONTENT_BYTES = 10 * 1024 * 1024;
 export const EDIT_MAX_EDITS = 100;
@@ -38,38 +34,30 @@ const EDIT_DESCRIPTION =
 
 export type EditLineEnding = LineEnding;
 
-export type EditErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "ENOENT"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EISDIR"
-  | "EUNSUPPORTED"
-  | "EFILE_TOO_LARGE"
-  | "EBINARY"
-  | "EINVAL_EDIT"
-  | "ENOMATCH"
-  | "ENONUNIQUE"
-  | "EOVERLAP"
-  | "ENOCHANGE"
-  | "ECONFLICT"
-  | "ESYMLINK"
-  | "ETIMEDOUT"
-  | "ETOOL";
-
 export type EditToolOptions = {
   readonly sessionCwd: string;
   readonly timeoutMs?: number;
   readonly replacementHooks?: FileReplacementHooks;
 };
 
+export type EditToolDetails = {
+  readonly resolvedPath: string;
+  readonly realTargetPath: string;
+  readonly cwdRelation: CwdRelation;
+  readonly editsApplied: number;
+  readonly replacementsApplied: number;
+  readonly bytesWritten: number;
+  readonly bom: boolean;
+  readonly lineEnding: EditLineEnding;
+  readonly detachedHardLinks: boolean;
+  readonly diff: string;
+};
+
 export type EditTool = {
   readonly name: "edit";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<EditToolDetails>>;
 };
 
 type ValidatedEdit = {
@@ -128,135 +116,83 @@ type ChangeGroup = {
   readonly reachesUpdatedEnd: boolean;
 };
 
-function fail(
-  code: EditErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
+function fail(message: string): never {
+  throw new Error(message);
 }
 
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid edit arguments.", { field });
+function invalid(_field: string): never {
+  fail("Invalid edit arguments.");
 }
 
-function invalidEdit(message: string, details: JsonObject): ToolResult {
-  return fail("EINVAL_EDIT", message, details);
+function invalidEdit(message: string, _details: JsonObject): never {
+  fail(message);
 }
 
-function validateEdit(
-  value: unknown,
-  editIndex: number,
-):
-  | { readonly ok: true; readonly value: ValidatedEdit }
-  | { readonly ok: false; readonly result: ToolResult } {
+function validateEdit(value: unknown, editIndex: number): ValidatedEdit {
   if (!isRecord(value)) {
-    return {
-      ok: false,
-      result: invalidEdit("Each edit must be an object.", { editIndex }),
-    };
+    invalidEdit("Each edit must be an object.", { editIndex });
   }
   const extra = Object.keys(value).find(
     (key) => key !== "oldText" && key !== "newText" && key !== "replaceAll",
   );
   if (extra !== undefined) {
-    return {
-      ok: false,
-      result: invalidEdit("Edit has an unknown field.", {
-        editIndex,
-        field: extra,
-      }),
-    };
+    invalidEdit("Edit has an unknown field.", {
+      editIndex,
+      field: extra,
+    });
   }
   if (typeof value.oldText !== "string" || value.oldText.length === 0) {
-    return {
-      ok: false,
-      result: invalidEdit("oldText must be a non-empty string.", {
-        editIndex,
-        field: "oldText",
-      }),
-    };
+    invalidEdit("oldText must be a non-empty string.", {
+      editIndex,
+      field: "oldText",
+    });
   }
   if (typeof value.newText !== "string") {
-    return {
-      ok: false,
-      result: invalidEdit("newText must be a string.", {
-        editIndex,
-        field: "newText",
-      }),
-    };
+    invalidEdit("newText must be a string.", {
+      editIndex,
+      field: "newText",
+    });
   }
   if (value.replaceAll !== undefined && typeof value.replaceAll !== "boolean") {
-    return {
-      ok: false,
-      result: invalidEdit("replaceAll must be a boolean.", {
-        editIndex,
-        field: "replaceAll",
-      }),
-    };
+    invalidEdit("replaceAll must be a boolean.", {
+      editIndex,
+      field: "replaceAll",
+    });
   }
   return {
-    ok: true,
-    value: {
-      oldText: value.oldText,
-      newText: value.newText,
-      replaceAll: value.replaceAll ?? false,
-    },
+    oldText: value.oldText,
+    newText: value.newText,
+    replaceAll: value.replaceAll ?? false,
   };
 }
 
-function validateArguments(input: unknown):
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult } {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("path") };
+    invalid("path");
   }
   const extra = Object.keys(input).find(
     (key) => key !== "path" && key !== "edits",
   );
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    invalid(extra);
   }
   if (typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    invalid("path");
   }
   if (!Array.isArray(input.edits)) {
-    return { ok: false, result: invalid("edits") };
+    invalid("edits");
   }
   if (input.edits.length === 0 || input.edits.length > EDIT_MAX_EDITS) {
-    return {
-      ok: false,
-      result: invalidEdit(`edits must hold 1 to ${EDIT_MAX_EDITS} items.`, {
-        field: "edits",
-        actualItems: input.edits.length,
-        limitItems: EDIT_MAX_EDITS,
-      }),
-    };
+    invalidEdit(`edits must hold 1 to ${EDIT_MAX_EDITS} items.`, {
+      field: "edits",
+      actualItems: input.edits.length,
+      limitItems: EDIT_MAX_EDITS,
+    });
   }
-  const edits: ValidatedEdit[] = [];
-  for (const [editIndex, candidate] of input.edits.entries()) {
-    const validated = validateEdit(candidate, editIndex);
-    if (!validated.ok) {
-      return { ok: false, result: validated.result };
-    }
-    edits.push(validated.value);
-  }
-  return { ok: true, value: { path: input.path, edits } };
+  const edits = input.edits.map((candidate, editIndex) =>
+    validateEdit(candidate, editIndex),
+  );
+  return { path: input.path, edits };
 }
 
 function pathFacts(resolution: PathResolution): PathFacts {
@@ -267,8 +203,7 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
+function mapPathError(error: PathResolutionError): never {
   const messages: Record<PathResolutionError["code"], string> = {
     EINVAL_PATH: "Path syntax is invalid.",
     ENOENT: "Path does not exist.",
@@ -277,14 +212,11 @@ function mapPathError(error: PathResolutionError): ToolResult {
     EIO: "Path cannot be resolved.",
     ESYMLINK: "Final path component is a symlink.",
   };
-  return fail(error.code, messages[error.code], details);
+  fail(messages[error.code]);
 }
 
-function mapReplacementError(
-  error: FileReplacementError,
-  facts: PathFacts,
-): ToolResult {
-  return fail(error.code, error.message, { ...facts, ...error.details });
+function mapReplacementError(error: FileReplacementError): never {
+  fail(error.message);
 }
 
 function nodeErrorCode(error: unknown): string | undefined {
@@ -293,45 +225,39 @@ function nodeErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function mapReadError(error: unknown, facts: PathFacts): ToolResult {
+function mapReadError(error: unknown): never {
   const code = nodeErrorCode(error);
-  return code === "ENOENT"
-    ? fail("ECONFLICT", "File changed during edit.", facts)
-    : code === "EACCES" || code === "EPERM"
-      ? fail("EACCES", "File cannot be read.", facts)
-      : code === "EISDIR"
-        ? fail("EISDIR", "Path is a directory.", facts)
-        : fail("EIO", "File cannot be read.", facts);
+  if (code === "ENOENT") {
+    fail("File changed during edit.");
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    fail("File cannot be read.");
+  }
+  if (code === "EISDIR") {
+    fail("Path is a directory.");
+  }
+  fail("File cannot be read.");
 }
 
 function isTimeoutReason(reason: unknown): boolean {
   return reason instanceof Error && reason.name === "TimeoutError";
 }
 
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Edit timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
+function abortResult(signal: AbortSignal): never {
+  if (isTimeoutReason(signal.reason)) {
+    fail("Edit timed out.");
+  }
+  fail("Tool execution failed.");
 }
 
-function mapPlanFailure(failure: PlanFailure, facts: PathFacts): ToolResult {
+function mapPlanFailure(failure: PlanFailure): never {
   if (failure.code === "ENOMATCH") {
-    return fail("ENOMATCH", "oldText does not appear in the file.", {
-      ...facts,
-      editIndex: failure.editIndex,
-    });
+    fail("oldText does not appear in the file.");
   }
   if (failure.code === "ENONUNIQUE") {
-    return fail("ENONUNIQUE", "oldText appears more than once.", {
-      ...facts,
-      editIndex: failure.editIndex,
-      matches: failure.matches,
-    });
+    fail("oldText appears more than once.");
   }
-  return fail("EOVERLAP", "Two edits replace the same source text.", {
-    ...facts,
-    editIndexes: [...failure.editIndexes],
-  });
+  fail("Two edits replace the same source text.");
 }
 
 /**
@@ -654,18 +580,6 @@ function formatDiffRange(start: number, count: number): string {
       : `${start + 1},${count}`;
 }
 
-function failOversized(
-  facts: PathFacts,
-  actualBytes: number,
-  message: string,
-): ToolResult {
-  return fail("EFILE_TOO_LARGE", message, {
-    ...facts,
-    actualBytes,
-    limitBytes: EDIT_MAX_CONTENT_BYTES,
-  });
-}
-
 function boundedSuccess(
   facts: PathFacts,
   identity: FileReplacementIdentity,
@@ -675,50 +589,33 @@ function boundedSuccess(
   bom: boolean,
   bytesWritten: number,
   diffLines: readonly string[],
-): ToolResult {
-  try {
-    return boundToolResult({
-      result: {
-        ...facts,
-        editsApplied: edits.length,
-        replacementsApplied: spans.length,
-        bytesWritten,
-        bom,
-        lineEnding: detectLineEnding(updated),
-        detachedHardLinks: identity.nlink > 1,
+): ToolResult<EditToolDetails> {
+  const diff = diffLines.join("\n");
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Successfully replaced ${edits.length} block(s) in ${facts.resolvedPath}.`,
       },
-      fields: [
-        {
-          name: "diff",
-          kind: "text",
-          separator: "\n",
-          truncateOversizedRecords: true,
-        },
-      ],
-      records: diffLines.map((line) => ({
-        field: "diff",
-        value: line,
-        lines: 1 as const,
-      })),
-      strategy: "head",
-      includeTotal: ["bytes", "lines"],
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
+    ],
+    details: {
+      ...facts,
+      editsApplied: edits.length,
+      replacementsApplied: spans.length,
+      bytesWritten,
+      bom,
+      lineEnding: detectLineEnding(updated),
+      detachedHardLinks: identity.nlink > 1,
+      diff,
+    },
+  };
 }
 
 export async function executeEdit(
   input: unknown,
   options: EditToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<EditToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
 
   const timeout = AbortSignal.timeout(
     options.timeoutMs ?? EDIT_DEFAULT_TIMEOUT_MS,
@@ -727,109 +624,95 @@ export async function executeEdit(
     ? timeout
     : AbortSignal.any([timeout, options.signal]);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
+    mapPathError(resolverResult.error);
   }
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
+  const resolved = await resolverResult.value.resolve(validated.path, {
     existence: "required",
     symlinks: "reject-final",
   });
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolved.ok) {
-    return mapPathError(resolved.error);
+    mapPathError(resolved.error);
   }
   const facts = pathFacts(resolved.value);
 
   const observed = await observeReplacementTarget(facts.realTargetPath);
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
   if (!observed.ok) {
-    return mapReplacementError(observed.error, facts);
+    mapReplacementError(observed.error);
   }
   const baseline = observed.value;
   if (!baseline.exists) {
-    return fail("ENOENT", "Path does not exist.", facts);
+    fail("Path does not exist.");
   }
   if (baseline.identity.size > EDIT_MAX_CONTENT_BYTES) {
-    return failOversized(
-      facts,
-      baseline.identity.size,
-      "File exceeds the 10 MiB size limit.",
-    );
+    fail("File exceeds the 10 MiB size limit.");
   }
 
   let bytes: Buffer;
   try {
     bytes = await readFile(facts.realTargetPath, { signal });
   } catch (error) {
-    return signal.aborted
-      ? abortResult(signal, facts)
-      : mapReadError(error, facts);
+    if (signal.aborted) {
+      abortResult(signal);
+    }
+    mapReadError(error);
   }
   const decoded = decodeUtf8Text(bytes);
   if (!decoded.ok) {
-    return fail("EBINARY", "File is not valid UTF-8 text.", facts);
+    fail("File is not valid UTF-8 text.");
   }
-  const binaryEditIndex = validated.value.edits.findIndex(
+  const binaryEditIndex = validated.edits.findIndex(
     (edit) => edit.newText.includes("\0") || !isWellFormedUnicode(edit.newText),
   );
   if (binaryEditIndex !== -1) {
-    return fail(
-      "EBINARY",
-      "newText must be valid UTF-8 text without NUL bytes.",
-      { ...facts, editIndex: binaryEditIndex, field: "newText" },
-    );
+    fail("newText must be valid UTF-8 text without NUL bytes.");
   }
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
 
-  const planned = planReplacements(decoded.text, validated.value.edits);
+  const planned = planReplacements(decoded.text, validated.edits);
   if (!planned.ok) {
-    return mapPlanFailure(planned.failure, facts);
+    mapPlanFailure(planned.failure);
   }
   const updated = applyReplacements(decoded.text, planned.spans);
   const contents = `${decoded.bom ? "\uFEFF" : ""}${updated}`;
   const bytesWritten = Buffer.byteLength(contents, "utf8");
   if (bytesWritten > EDIT_MAX_CONTENT_BYTES) {
-    return failOversized(
-      facts,
-      bytesWritten,
-      "Edit result exceeds the 10 MiB size limit.",
-    );
+    fail("Edit result exceeds the 10 MiB size limit.");
   }
   if (updated === decoded.text) {
-    return fail("ENOCHANGE", "The batch leaves the file unchanged.", facts);
+    fail("The batch leaves the file unchanged.");
   }
   if (bytes.byteLength !== baseline.identity.size) {
-    return fail("ECONFLICT", "File changed during edit.", facts);
+    fail("File changed during edit.");
   }
 
   const successResult = boundedSuccess(
     facts,
     baseline.identity,
-    validated.value.edits,
+    validated.edits,
     planned.spans,
     updated,
     decoded.bom,
     bytesWritten,
     buildDiffLines(decoded.text, updated, planned.spans),
   );
-  if (!successResult.ok) {
-    return successResult;
-  }
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
 
   const replaced = await replaceFile({
@@ -841,9 +724,10 @@ export async function executeEdit(
       ? {}
       : { hooks: options.replacementHooks }),
   });
-  return replaced.ok
-    ? successResult
-    : mapReplacementError(replaced.error, facts);
+  if (!replaced.ok) {
+    mapReplacementError(replaced.error);
+  }
+  return successResult;
 }
 
 export function createEditTool(options: EditToolOptions): EditTool {

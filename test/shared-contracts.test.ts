@@ -70,7 +70,7 @@ describe("shared type contracts", () => {
         {
           role: "tool",
           toolCallId: "call-1",
-          content: { ok: true, result: { content: "example" } },
+          content: [{ type: "text", text: "example" }],
         },
       ],
       tools: [tool],

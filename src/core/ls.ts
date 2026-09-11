@@ -5,14 +5,7 @@ import {
   type PathResolution,
   type PathResolutionError,
 } from "./path-resolver.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  normalizeToolResult,
-  type ToolResult,
-  type ToolResultContinuationContext,
-  type ToolTruncationReason,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
 import {
   TRAVERSAL_DEFAULT_TIMEOUT_MS,
   traverse,
@@ -29,26 +22,6 @@ const LS_DESCRIPTION =
   "List a directory's direct children without recursion. Use ls to inspect a known directory and find for deeper path discovery. It returns deterministically ordered file, directory, and symlink entries, applies ignore rules unless requested otherwise, and does not follow symlinks. Results may include Traversal Diagnostics.";
 
 const ALLOWED_FIELDS = new Set(["path", "includeIgnored", "limit", "offset"]);
-const TRUNCATION_REASON_ORDER: readonly ToolTruncationReason[] = [
-  "bytes",
-  "lines",
-  "items",
-  "line-length",
-];
-
-export type LsErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "EINVAL_LIMIT"
-  | "EINVAL_OFFSET"
-  | "ENOENT"
-  | "ENOTDIR"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EQUERY_TOO_LARGE"
-  | "ETIMEDOUT"
-  | "ETOOL";
 
 export type LsToolOptions = {
   readonly sessionCwd: string;
@@ -56,11 +29,30 @@ export type LsToolOptions = {
   readonly now?: () => number;
 };
 
+export type LsEntry = {
+  readonly name: string;
+  readonly type: TraversalEntry["type"];
+};
+
+export type LsToolDetails = {
+  readonly resolvedPath: string;
+  readonly realTargetPath: string;
+  readonly cwdRelation: CwdRelation;
+  readonly entries: readonly LsEntry[];
+  readonly diagnostics: readonly TraversalDiagnostic[];
+  readonly truncation?: {
+    readonly truncatedBy: "items";
+    readonly outputItems: number;
+    readonly nextOffset: number;
+    readonly includeIgnored?: true;
+  };
+};
+
 export type LsTool = {
   readonly name: "ls";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<LsToolDetails>>;
 };
 
 type ValidatedArguments = {
@@ -70,101 +62,58 @@ type ValidatedArguments = {
   readonly offset: number;
 };
 
-type ArgumentValidationResult =
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult };
-
 type PathFacts = {
   readonly resolvedPath: string;
   readonly realTargetPath: string;
   readonly cwdRelation: CwdRelation;
 };
 
-type LsEntry = {
-  readonly name: string;
-  readonly type: TraversalEntry["type"];
-};
-
-function fail(
-  code: LsErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
+function fail(message: string): never {
+  throw new Error(message);
 }
 
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid ls arguments.", { field });
+function invalid(_field: string): never {
+  fail("Invalid ls arguments.");
 }
 
 function isSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value);
 }
 
-function validateArguments(input: unknown): ArgumentValidationResult {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("path") };
+    invalid("path");
   }
   const extra = Object.keys(input).find((key) => !ALLOWED_FIELDS.has(key));
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    invalid(extra);
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    invalid("path");
   }
   if (input.includeIgnored !== undefined && typeof input.includeIgnored !== "boolean") {
-    return { ok: false, result: invalid("includeIgnored") };
+    invalid("includeIgnored");
   }
   if (input.limit !== undefined && !isSafeInteger(input.limit)) {
-    return { ok: false, result: invalid("limit") };
+    invalid("limit");
   }
   if (input.offset !== undefined && !isSafeInteger(input.offset)) {
-    return { ok: false, result: invalid("offset") };
+    invalid("offset");
   }
   if (
     input.limit !== undefined &&
     (input.limit < 1 || input.limit > LS_MAX_LIMIT)
   ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_LIMIT",
-        `limit must be an integer between 1 and ${LS_MAX_LIMIT}.`,
-        { field: "limit" },
-      ),
-    };
+    fail(`limit must be an integer between 1 and ${LS_MAX_LIMIT}.`);
   }
   if (input.offset !== undefined && input.offset < 0) {
-    return {
-      ok: false,
-      result: fail("EINVAL_OFFSET", "offset must be a non-negative integer.", {
-        field: "offset",
-      }),
-    };
+    fail("offset must be a non-negative integer.");
   }
   return {
-    ok: true,
-    value: {
-      path: input.path ?? ".",
-      includeIgnored: input.includeIgnored === true,
-      limit: input.limit ?? LS_DEFAULT_LIMIT,
-      offset: input.offset ?? 0,
-    },
+    path: input.path ?? ".",
+    includeIgnored: input.includeIgnored === true,
+    limit: input.limit ?? LS_DEFAULT_LIMIT,
+    offset: input.offset ?? 0,
   };
 }
 
@@ -176,10 +125,9 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
+function mapPathError(error: PathResolutionError): never {
   if (error.code === "ESYMLINK") {
-    return fail("EIO", "Path cannot be resolved.", details);
+    fail("Path cannot be resolved.");
   }
   const messages: Record<Exclude<PathResolutionError["code"], "ESYMLINK">, string> = {
     EINVAL_PATH: "Path syntax is invalid.",
@@ -188,192 +136,77 @@ function mapPathError(error: PathResolutionError): ToolResult {
     EACCES: "Path cannot be read.",
     EIO: "Path cannot be resolved.",
   };
-  return fail(error.code, messages[error.code], details);
+  fail(messages[error.code]);
 }
 
-function mapTraversalError(error: TraversalError, facts: PathFacts): ToolResult {
-  const details = {
-    ...facts,
-    ...(error.details === undefined ? {} : error.details),
-  };
+function mapTraversalError(error: TraversalError): never {
   if (error.code === "ENOTDIR") {
-    return fail("ENOTDIR", "Path is not a directory.", details);
+    fail("Path is not a directory.");
   }
   if (error.code === "ENOENT") {
-    return fail("ENOENT", "Path does not exist.", details);
+    fail("Path does not exist.");
   }
   if (error.code === "EACCES") {
-    return fail("EACCES", "Path cannot be read.", details);
+    fail("Path cannot be read.");
   }
   if (error.code === "ELOOP") {
-    return fail("ELOOP", "Path contains a symlink loop.", details);
+    fail("Path contains a symlink loop.");
   }
   if (error.code === "EQUERY_TOO_LARGE") {
-    return fail("EQUERY_TOO_LARGE", "Query exceeded the entry budget.", details);
+    fail("Query exceeded the entry budget.");
   }
   if (error.code === "ETIMEDOUT") {
-    return fail("ETIMEDOUT", "Ls timed out.", details);
+    fail("Ls timed out.");
   }
-  return fail("EIO", "Path cannot be listed.", details);
+  fail("Path cannot be listed.");
 }
 
 function isTimeoutReason(reason: unknown): boolean {
   return reason instanceof Error && reason.name === "TimeoutError";
 }
 
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Ls timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
+function abortResult(signal: AbortSignal): never {
+  if (isTimeoutReason(signal.reason)) {
+    fail("Ls timed out.");
+  }
+  fail("Tool execution failed.");
 }
 
 function toLsEntry(entry: TraversalEntry): LsEntry {
   return { name: entry.path, type: entry.type };
 }
 
-function continuationArguments(
-  args: ValidatedArguments,
-  offset: number,
-): JsonObject {
-  return {
-    path: args.path,
-    offset,
-    limit: args.limit,
-    ...(args.includeIgnored ? { includeIgnored: true } : {}),
-  };
+function formatLsEntry(entry: LsEntry): string {
+  if (entry.type === "directory") {
+    return `${entry.name}/`;
+  }
+  if (entry.type === "symlink") {
+    return `${entry.name}@`;
+  }
+  return entry.name;
 }
 
-function fieldBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function mergeLimitContinuation(
-  bounded: ToolResult,
-  args: ValidatedArguments,
-  paged: readonly LsEntry[],
-  remaining: readonly LsEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  if (!bounded.ok || remaining.length <= paged.length) {
-    return bounded;
+function formatLsContent(
+  entries: readonly LsEntry[],
+  remaining: number,
+  nextOffset: number,
+): string {
+  const listing = entries.map(formatLsEntry).join("\n");
+  if (remaining <= 0) {
+    return listing;
   }
-  const retainedEntries = Array.isArray(bounded.result.entries)
-    ? bounded.result.entries.length
-    : 0;
-  if (retainedEntries !== paged.length) {
-    return bounded;
+  const note = `[${remaining} more entries. Use offset=${nextOffset} to continue.]`;
+  if (listing === "") {
+    return note;
   }
-  const existing = bounded.meta?.truncation;
-  if (
-    existing?.reasons.includes("items") === true &&
-    existing.fields.includes("entries") &&
-    existing.nextArguments !== undefined
-  ) {
-    return bounded;
-  }
-  const reasons = TRUNCATION_REASON_ORDER.filter(
-    (reason) => reason === "items" || existing?.reasons.includes(reason) === true,
-  );
-  const fields = ["entries", "diagnostics"].filter(
-    (field) => field === "entries" || existing?.fields.includes(field) === true,
-  );
-  const retainedBytes = existing?.retained.bytes ??
-    fieldBytes(bounded.result.entries) + fieldBytes(bounded.result.diagnostics);
-  return normalizeToolResult({
-    ok: true,
-    result: bounded.result,
-    meta: {
-      truncation: {
-        reasons,
-        strategy: "head",
-        fields,
-        retained: {
-          bytes: retainedBytes,
-          items: retainedEntries,
-        },
-        total: {
-          bytes: fieldBytes(remaining) + fieldBytes(diagnostics),
-          items: remaining.length,
-        },
-        nextArguments: existing?.nextArguments ??
-          continuationArguments(args, args.offset + paged.length),
-      },
-    },
-  });
-}
-
-function boundLsResult(
-  facts: PathFacts,
-  args: ValidatedArguments,
-  remaining: readonly LsEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  const paged = remaining.slice(0, args.limit);
-  try {
-    const bounded = boundToolResult({
-      result: { ...facts },
-      fields: [
-        { name: "entries", kind: "items" },
-        { name: "diagnostics", kind: "items" },
-      ],
-      records: [
-        ...paged.map((entry) => ({
-          field: "entries",
-          value: entry,
-          items: 1 as const,
-        })),
-        ...diagnostics.map((diagnostic) => ({
-          field: "diagnostics",
-          value: diagnostic,
-        })),
-      ],
-      strategy: "head" as const,
-      includeTotal: ["bytes", "items"],
-      continuation({
-        firstOmittedRecordIndex,
-        retainedRecordIndices,
-      }: ToolResultContinuationContext) {
-        const retainedEntries = retainedRecordIndices.filter(
-          (index) => index < paged.length,
-        ).length;
-        if (
-          firstOmittedRecordIndex !== undefined &&
-          firstOmittedRecordIndex < paged.length
-        ) {
-          if (retainedEntries === 0) {
-            return undefined;
-          }
-          return continuationArguments(
-            args,
-            args.offset + firstOmittedRecordIndex,
-          );
-        }
-        if (remaining.length > paged.length) {
-          return continuationArguments(args, args.offset + paged.length);
-        }
-        return undefined;
-      },
-    });
-    return mergeLimitContinuation(
-      bounded,
-      args,
-      paged,
-      remaining,
-      diagnostics,
-    );
-  } catch {
-    return fail("ETOOL", "Tool result exceeds its size limit.", facts);
-  }
+  return `${listing}\n\n${note}`;
 }
 
 export async function executeLs(
   input: unknown,
   options: LsToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<LsToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
 
   const timeoutMs = options.timeoutMs ?? LS_DEFAULT_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -381,51 +214,67 @@ export async function executeLs(
     ? timeout
     : AbortSignal.any([timeout, options.signal]);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
+    mapPathError(resolverResult.error);
   }
 
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
+  const resolved = await resolverResult.value.resolve(validated.path, {
     existence: "required",
     symlinks: "follow",
   });
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolved.ok) {
-    return mapPathError(resolved.error);
+    mapPathError(resolved.error);
   }
 
   const facts = pathFacts(resolved.value);
   const walked = await traverse({
     searchRoot: facts.realTargetPath,
     maxDepth: 1,
-    includeIgnored: validated.value.includeIgnored,
+    includeIgnored: validated.includeIgnored,
     timeoutMs,
     signal,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   if (!walked.ok) {
     if (signal.aborted) {
-      return abortResult(signal, facts);
+      abortResult(signal);
     }
-    return mapTraversalError(walked.error, facts);
+    mapTraversalError(walked.error);
   }
 
-  const remaining = walked.value.entries.slice(validated.value.offset).map(toLsEntry);
-  return boundLsResult(
-    facts,
-    validated.value,
-    remaining,
-    walked.value.diagnostics,
-  );
+  const remaining = walked.value.entries.slice(validated.offset).map(toLsEntry);
+  const paged = remaining.slice(0, validated.limit);
+  const omitted = remaining.length - paged.length;
+  const nextOffset = validated.offset + paged.length;
+  const details: LsToolDetails = {
+    ...facts,
+    entries: paged,
+    diagnostics: walked.value.diagnostics,
+    ...(omitted > 0
+      ? {
+          truncation: {
+            truncatedBy: "items" as const,
+            outputItems: paged.length,
+            nextOffset,
+            ...(validated.includeIgnored ? { includeIgnored: true as const } : {}),
+          },
+        }
+      : {}),
+  };
+  return {
+    content: [{ type: "text", text: formatLsContent(paged, omitted, nextOffset) }],
+    details,
+  };
 }
 
 export function createLsTool(options: LsToolOptions): LsTool {

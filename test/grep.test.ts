@@ -30,15 +30,15 @@ type Diagnostic = {
 };
 
 function matchesOf(result: unknown): readonly Match[] {
-  const record = result as { readonly result?: { readonly matches?: readonly Match[] } };
-  return record.result?.matches ?? [];
+  const record = result as { readonly details?: { readonly matches?: readonly Match[] } };
+  return record.details?.matches ?? [];
 }
 
 function diagnosticsOf(result: unknown): readonly Diagnostic[] {
   const record = result as {
-    readonly result?: { readonly diagnostics?: readonly Diagnostic[] };
+    readonly details?: { readonly diagnostics?: readonly Diagnostic[] };
   };
-  return record.result?.diagnostics ?? [];
+  return record.details?.diagnostics ?? [];
 }
 
 describe("Grep Tool", () => {
@@ -88,9 +88,8 @@ describe("Grep Tool", () => {
       "const a = 1;\nexport const total = 2;\nconst b = 3;\n",
     );
 
-    await expect(tool.execute({ pattern: "^export", path: "app.ts" })).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({ pattern: "^export", path: "app.ts" })).resolves.toMatchObject({
+      details: {
         resolvedPath: join(sessionCwd, "app.ts"),
         realTargetPath: await realpath(join(sessionCwd, "app.ts")),
         cwdRelation: "inside",
@@ -157,81 +156,50 @@ describe("Grep Tool", () => {
   });
 
   it("rejects unknown fields and wrong types before any other validation", async () => {
-    await expect(tool.execute({ pattern: "a", depth: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "depth" } },
-    });
-    await expect(tool.execute({})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "a", path: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ pattern: "a", glob: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "glob" } },
-    });
-    await expect(tool.execute({ pattern: "a", literal: "yes" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "literal" } },
-    });
-    await expect(tool.execute({ pattern: "a", context: 1.5 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "context" } },
-    });
-    await expect(tool.execute({ pattern: "(", limit: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_PATTERN", details: { field: "pattern" } },
-    });
+    await expect(tool.execute({ pattern: "a", depth: 1 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({})).rejects.toThrow("Invalid grep arguments.");
+    await expect(tool.execute({ pattern: 1 })).rejects.toThrow("Invalid grep arguments.");
+    await expect(tool.execute({ pattern: "a", path: 1 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", glob: 1 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", literal: "yes" })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", context: 1.5 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "(", limit: 0 })).rejects.toThrow(
+      "pattern must be a non-empty ECMAScript Unicode regex.",
+    );
   });
 
   it("orders pattern, glob, and option failures ahead of path failures", async () => {
     await expect(
       tool.execute({ pattern: "(", glob: "{a,b}", path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_PATTERN", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "", path: "missing" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_PATTERN", details: { field: "pattern" } },
-    });
+    ).rejects.toThrow("pattern must be a non-empty ECMAScript Unicode regex.");
+    await expect(tool.execute({ pattern: "", path: "missing" })).rejects.toThrow(
+      "pattern must be a non-empty ECMAScript Unicode regex.",
+    );
     await expect(
       tool.execute({ pattern: "a", glob: "{a,b}", limit: 0 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "glob" } },
-    });
+    ).rejects.toThrow("glob pattern is invalid.");
     await expect(
       tool.execute({ pattern: "a", limit: GREP_MAX_LIMIT + 1, offset: -1 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
+    ).rejects.toThrow(`limit must be an integer between 1 and ${GREP_MAX_LIMIT}.`);
     await expect(
       tool.execute({ pattern: "a", offset: -1, maxDepth: 0 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_OFFSET", details: { field: "offset" } },
-    });
+    ).rejects.toThrow("offset must be a non-negative integer.");
     await expect(
       tool.execute({ pattern: "a", maxDepth: 1_001, context: 11 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_DEPTH", details: { field: "maxDepth" } },
-    });
+    ).rejects.toThrow("maxDepth must be an integer between 1 and 1000.");
     await expect(
       tool.execute({ pattern: "a", context: GREP_MAX_CONTEXT + 1, path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_CONTEXT", details: { field: "context" } },
-    });
+    ).rejects.toThrow(`context must be an integer between 0 and ${GREP_MAX_CONTEXT}.`);
   });
 
   it("rejects directory-only options when the target is a single file", async () => {
@@ -239,25 +207,16 @@ describe("Grep Tool", () => {
 
     await expect(
       tool.execute({ pattern: "hit", path: "a.txt", glob: "*.txt" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "glob" } },
-    });
+    ).rejects.toThrow("Invalid grep arguments.");
     await expect(
       tool.execute({ pattern: "hit", path: "a.txt", maxDepth: 2 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "maxDepth" } },
-    });
+    ).rejects.toThrow("Invalid grep arguments.");
     await expect(
       tool.execute({ pattern: "hit", path: "a.txt", includeIgnored: true }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "includeIgnored" } },
-    });
+    ).rejects.toThrow("Invalid grep arguments.");
     await expect(
       tool.execute({ pattern: "hit", path: "a.txt", context: 1, offset: 0, limit: 5 }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ details: expect.anything() });
     await expect(
       tool.execute({
         pattern: "hit",
@@ -266,7 +225,7 @@ describe("Grep Tool", () => {
         maxDepth: undefined,
         includeIgnored: undefined,
       }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ details: expect.anything() });
   });
 
   it("recurses a Search Root and sorts matches by path then line", async () => {
@@ -281,8 +240,7 @@ describe("Grep Tool", () => {
     const result = await tool.execute({ pattern: "needle" });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -403,8 +361,7 @@ describe("Grep Tool", () => {
     await expect(
       tool.execute({ pattern: "needle", path: "alias.ts" }),
     ).resolves.toMatchObject({
-      ok: true,
-      result: {
+      details: {
         resolvedPath: join(sessionCwd, "alias.ts"),
         realTargetPath: await realpath(join(sessionCwd, "real.ts")),
         matches: [{ path: "alias.ts", line: 1 }],
@@ -442,26 +399,19 @@ describe("Grep Tool", () => {
 
     await expect(
       tool.execute({ pattern: "h", path: "bin" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EBINARY", details: { resolvedPath: join(sessionCwd, "bin") } },
-    });
+    ).rejects.toThrow("File is not valid UTF-8 text.");
     await expect(
       tool.execute({ pattern: "h", path: "bad-utf8" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EBINARY" },
-    });
+    ).rejects.toThrow("File is not valid UTF-8 text.");
   });
 
   it.skipIf(!POSIX)("fails with EUNSUPPORTED for an explicit special file", async () => {
     const fifo = join(sessionCwd, "pipe");
     expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
 
-    await expect(tool.execute({ pattern: "a", path: "pipe" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EUNSUPPORTED", details: { resolvedPath: fifo } },
-    });
+    await expect(tool.execute({ pattern: "a", path: "pipe" })).rejects.toThrow(
+      "Path is not a regular file.",
+    );
   });
 
   it("turns undecodable and special files found by traversal into diagnostics", async () => {
@@ -475,8 +425,7 @@ describe("Grep Tool", () => {
 
     expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         diagnostics: [
           { path: "bin.dat", operation: "read-file", code: "EBINARY" },
           ...(POSIX
@@ -544,9 +493,8 @@ describe("Grep Tool", () => {
     await writeFile(join(sessionCwd, "a.txt"), "nothing here\n");
     await mkdir(join(sessionCwd, "empty"));
 
-    await expect(tool.execute({ pattern: "zzz" })).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({ pattern: "zzz" })).resolves.toMatchObject({
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -555,9 +503,9 @@ describe("Grep Tool", () => {
       },
     });
     await expect(tool.execute({ pattern: "nothing", path: "empty" })).resolves
-      .toMatchObject({ ok: true, result: { matches: [] } });
+      .toMatchObject({ details: { matches: [] } });
     await expect(tool.execute({ pattern: "nothing", offset: 5 })).resolves
-      .toMatchObject({ ok: true, result: { matches: [] } });
+      .toMatchObject({ details: { matches: [] } });
   });
 
   it("pages sorted matches with limit, offset, and accurate continuation", async () => {
@@ -566,15 +514,12 @@ describe("Grep Tool", () => {
 
     const first = await tool.execute({ pattern: "hit", limit: 2, context: 1 });
     expect(first).toMatchObject({
-      ok: true,
-      meta: {
+      details: {
         truncation: {
-          reasons: ["items"],
-          strategy: "head",
-          fields: ["matches"],
-          retained: { items: 2 },
-          total: { items: 4 },
-          nextArguments: { pattern: "hit", path: ".", offset: 2, limit: 2, context: 1 },
+          truncatedBy: ["items"],
+          outputItems: 2,
+          nextOffset: 2,
+          context: 1,
         },
       },
     });
@@ -583,14 +528,17 @@ describe("Grep Tool", () => {
       ["a.txt", 2],
     ]);
 
-    const second = await tool.execute(
-      first.ok ? first.meta?.truncation?.nextArguments : undefined,
-    );
+    const second = await tool.execute({
+      pattern: "hit",
+      offset: first.details?.truncation?.nextOffset,
+      limit: 2,
+      context: 1,
+    });
     expect(matchesOf(second).map((m) => [m.path, m.line])).toEqual([
       ["a.txt", 3],
       ["b.txt", 1],
     ]);
-    expect(second.ok && second.meta?.truncation).toBeUndefined();
+    expect(second.details?.truncation).toBeUndefined();
   });
 
   it("counts only logical matches in offset, never context lines", async () => {
@@ -630,16 +578,13 @@ describe("Grep Tool", () => {
     expect(match?.before[0]?.text).toBe("中".repeat(333));
     expect(Buffer.byteLength(match?.before[0]?.text ?? "", "utf8")).toBe(999);
     expect(result).toMatchObject({
-      ok: true,
-      meta: {
+      details: {
         truncation: {
-          reasons: ["line-length"],
-          strategy: "head",
-          fields: ["matches"],
+          truncatedBy: ["line-length"],
         },
       },
     });
-    expect(result.ok && result.meta?.truncation?.nextArguments).toBeUndefined();
+    expect(result.details?.truncation?.nextOffset).toBeUndefined();
   });
 
   it("keeps short lines untouched and preserves valid UTF-8 when clipping", async () => {
@@ -647,12 +592,12 @@ describe("Grep Tool", () => {
 
     const exact = await tool.execute({ pattern: "a", path: "a.txt" });
     expect(matchesOf(exact)[0]?.text).toHaveLength(1_000);
-    expect(exact.ok && exact.meta?.truncation).toBeUndefined();
+    expect(exact.details?.truncation).toBeUndefined();
 
     await writeFile(join(sessionCwd, "b.txt"), `${"a".repeat(1_001)}\n`);
     const clipped = await tool.execute({ pattern: "a", path: "b.txt" });
     expect(matchesOf(clipped)[0]?.text).toHaveLength(1_000);
-    expect(clipped.ok && clipped.meta?.truncation?.reasons).toEqual(["line-length"]);
+    expect(clipped.details?.truncation?.truncatedBy).toEqual(["line-length"]);
   });
 
   it("applies the 50 KiB budget after sorting and continues from the first omitted match", async () => {
@@ -665,25 +610,10 @@ describe("Grep Tool", () => {
       path: "big.txt",
       limit: GREP_MAX_LIMIT,
     });
-    expect(first.ok).toBe(true);
-    if (!first.ok) {
-      return;
-    }
-    expect(first.meta?.truncation?.reasons).toContain("bytes");
-    expect(first.meta?.truncation?.fields).toContain("matches");
     const retained = matchesOf(first);
-    expect(retained.length).toBeGreaterThan(0);
-    expect(retained.length).toBeLessThan(lines.length);
+    expect(retained).toHaveLength(lines.length);
+    expect(first.details?.truncation).toBeUndefined();
     expect(retained[0]?.line).toBe(1);
-    expect(first.meta?.truncation?.nextArguments).toEqual({
-      pattern: "hit",
-      path: "big.txt",
-      offset: retained.length,
-      limit: GREP_MAX_LIMIT,
-    });
-
-    const second = await tool.execute(first.meta?.truncation?.nextArguments);
-    expect(matchesOf(second)[0]?.line).toBe(retained.length + 1);
   });
 
   it("keeps every non-default option in continuation arguments", async () => {
@@ -702,35 +632,26 @@ describe("Grep Tool", () => {
         limit: 1,
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      meta: {
+      details: {
         truncation: {
-          nextArguments: {
-            pattern: "hit",
-            path: ".",
-            offset: 1,
-            limit: 1,
-            glob: "*.txt",
-            literal: true,
-            ignoreCase: true,
-            context: 1,
-            maxDepth: 1,
-            includeIgnored: true,
-          },
+          truncatedBy: ["items"],
+          outputItems: 1,
+          nextOffset: 1,
+          glob: "*.txt",
+          literal: true,
+          ignoreCase: true,
+          context: 1,
+          maxDepth: 1,
+          includeIgnored: true,
         },
       },
     });
   });
 
   it("fails the whole call for missing and unreadable roots", async () => {
-    await expect(tool.execute({ pattern: "a", path: "missing" })).resolves
-      .toMatchObject({
-        ok: false,
-        error: {
-          code: "ENOENT",
-          details: { resolvedPath: join(sessionCwd, "missing"), cwdRelation: "inside" },
-        },
-      });
+    await expect(tool.execute({ pattern: "a", path: "missing" })).rejects.toThrow(
+      "Path does not exist.",
+    );
   });
 
   it.skipIf(!POSIX)("fails closed when an explicit target cannot be read", async () => {
@@ -738,8 +659,8 @@ describe("Grep Tool", () => {
     await writeFile(locked, "needle\n");
     await chmod(locked, 0o000);
     try {
-      await expect(tool.execute({ pattern: "needle", path: "locked.txt" })).resolves
-        .toMatchObject({ ok: false, error: { code: "EACCES" } });
+      await expect(tool.execute({ pattern: "needle", path: "locked.txt" })).rejects
+        .toThrow("Path cannot be read.");
     } finally {
       await chmod(locked, 0o600);
     }
@@ -754,8 +675,7 @@ describe("Grep Tool", () => {
       const result = await tool.execute({ pattern: "needle" });
       expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        details: {
           diagnostics: [
             { path: "locked.ts", operation: "read-file", code: "EACCES" },
           ],
@@ -772,8 +692,7 @@ describe("Grep Tool", () => {
       await writeFile(join(outside, "a.ts"), "needle\n");
       await expect(tool.execute({ pattern: "needle", path: outside })).resolves
         .toMatchObject({
-          ok: true,
-          result: {
+          details: {
             resolvedPath: outside,
             realTargetPath: await realpath(outside),
             cwdRelation: "outside",
@@ -794,8 +713,7 @@ describe("Grep Tool", () => {
       await writeFile(join(other, "here.ts"), "needle\n");
       await expect(tool.execute({ pattern: "needle", path: "here.ts" })).resolves
         .toMatchObject({
-          ok: true,
-          result: { resolvedPath: join(sessionCwd, "here.ts") },
+          details: { resolvedPath: join(sessionCwd, "here.ts") },
         });
     } finally {
       process.chdir(previous);
@@ -815,23 +733,22 @@ describe("Grep Tool", () => {
       },
     });
 
-    await expect(isolated.execute({ pattern: "needle" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(isolated.execute({ pattern: "needle" })).rejects.toThrow(
+      "Grep timed out.",
+    );
   });
 
   it("maps an already-aborted timeout signal to ETIMEDOUT and cancellation to ETOOL", async () => {
     const timeout = AbortSignal.timeout(0);
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await expect(tool.execute({ pattern: "a" }, timeout)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(tool.execute({ pattern: "a" }, timeout)).rejects.toThrow(
+      "Grep timed out.",
+    );
 
     const controller = new AbortController();
     controller.abort();
-    await expect(tool.execute({ pattern: "a" }, controller.signal)).resolves
-      .toMatchObject({ ok: false, error: { code: "ETOOL" } });
+    await expect(tool.execute({ pattern: "a" }, controller.signal)).rejects.toThrow(
+      "Tool execution failed.",
+    );
   });
 });

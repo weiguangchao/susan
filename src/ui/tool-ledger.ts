@@ -2,10 +2,8 @@ import { posix, win32 } from "node:path";
 import { isRecord } from "../core/json.js";
 import type { ProviderToolCall } from "../core/provider.js";
 import {
-  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
+  toolResultText,
   type ToolResult,
-  type ToolResultMeta,
-  type ToolTruncationReason,
 } from "../core/tool-result.js";
 
 export type TuiToolStatus =
@@ -47,14 +45,17 @@ export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
 }
 
 type ToolPresenter = {
-  readonly summary: (result: Record<string, unknown>) => string;
+  readonly summary: (
+    result: ToolResult,
+    payload: Record<string, unknown> | undefined,
+  ) => string;
   readonly invocationLabel?: (
     arguments_: Record<string, unknown>,
     path: string,
   ) => string;
   readonly supplementalLines?: (
-    result: Record<string, unknown>,
-    strategy: "head" | "tail" | "full",
+    result: ToolResult,
+    payload: Record<string, unknown> | undefined,
   ) => readonly string[];
   readonly failurePrefix?: (
     payload: Record<string, unknown> | undefined,
@@ -66,35 +67,32 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
   read: {
     summary: readSummary,
     supplementalLines: (result) => {
-      const content = stringField(result, "content");
-      return content === undefined ? [] : content === "" ? ["空文件"] : content.split("\n");
+      const content = toolResultText(result.content);
+      return content === "" ? ["空文件"] : content.split("\n");
     },
-  },
-  read_file: {
-    summary: readSummary,
   },
   write: {
-    summary: (result) =>
-      `${stringField(result, "operation") ?? "completed"} · ${formatNumber(numericField(result, "bytesWritten") ?? 0)} B`,
+    summary: (result, payload) =>
+      `${stringField(payload, "operation") ?? "completed"} · ${formatNumber(numericField(payload, "bytesWritten") ?? 0)} B`,
   },
   edit: {
-    summary: (result) => {
-      const edits = numericField(result, "editsApplied") ?? 0;
-      const replacements = numericField(result, "replacementsApplied") ?? 0;
-      const bytes = numericField(result, "bytesWritten") ?? 0;
+    summary: (result, payload) => {
+      const edits = numericField(payload, "editsApplied") ?? 0;
+      const replacements = numericField(payload, "replacementsApplied") ?? 0;
+      const bytes = numericField(payload, "bytesWritten") ?? 0;
       return `${edits} ${plural(edits, "edit")} · ${replacements} ${plural(replacements, "replacement")} · ${formatNumber(bytes)} B`;
     },
-    supplementalLines: (result) => {
-      const diff = stringField(result, "diff");
+    supplementalLines: (result, payload) => {
+      const diff = stringField(payload, "diff");
       return diff === undefined || diff === "" ? [] : diff.split("\n");
     },
   },
   bash: {
-    summary: (result) => {
-      const exit = numericField(result, "exitCode");
+    summary: (result, payload) => {
+      const exit = numericField(payload, "exitCode");
       return exit === undefined ? "completed" : `exit ${exit}`;
     },
-    supplementalLines: bashSupplementalLines,
+    supplementalLines: (result, payload) => bashSupplementalLines(payload),
     invocationLabel: (arguments_) =>
       stringField(arguments_, "command") ?? "bash",
     failurePrefix: bashFailurePrefix,
@@ -107,8 +105,8 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     ],
   },
   grep: {
-    summary: (result) =>
-      `${arrayLength(result, "matches")} matches${diagnosticSuffix(result)}`,
+    summary: (result, payload) =>
+      `${arrayLength(payload, "matches")} matches${diagnosticSuffix(payload)}`,
     invocationLabel: (arguments_, path) => {
       const pattern = stringField(arguments_, "pattern") ?? "";
       const query = arguments_.literal === true
@@ -118,22 +116,22 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   find: {
-    summary: (result) =>
-      `${arrayLength(result, "entries")} entries${diagnosticSuffix(result)}`,
+    summary: (result, payload) =>
+      `${arrayLength(payload, "entries")} entries${diagnosticSuffix(payload)}`,
     invocationLabel: (arguments_, path) =>
       `${path} · ${stringField(arguments_, "pattern") ?? ""}`,
   },
   ls: {
-    summary: (result) =>
-      `${arrayLength(result, "entries")} entries${diagnosticSuffix(result)}`,
-    supplementalLines: (result) => {
-      if (!Array.isArray(result.entries)) {
+    summary: (result, payload) =>
+      `${arrayLength(payload, "entries")} entries${diagnosticSuffix(payload)}`,
+    supplementalLines: (result, payload) => {
+      if (!Array.isArray(payload?.entries)) {
         return [];
       }
-      if (result.entries.length === 0) {
+      if (payload.entries.length === 0) {
         return ["空目录"];
       }
-      return result.entries.flatMap((entry: unknown) => {
+      return payload.entries.flatMap((entry: unknown) => {
         const name = stringField(entry, "name");
         const type = stringField(entry, "type");
         return name === undefined ? [] : [
@@ -142,12 +140,6 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       });
     },
   },
-};
-
-const itemLimits: Readonly<Record<string, number>> = {
-  grep: 100,
-  find: 1_000,
-  ls: 500,
 };
 
 export function createToolCard(
@@ -175,18 +167,25 @@ export function createToolCard(
 export function createCompletedToolCard(
   toolCall: ProviderToolCall,
   result: ToolResult,
+  isError: boolean,
   sessionCwd: string,
 ): TuiToolCard {
-  const payload = asRecord(result.ok ? result.result : result.error.details);
+  const payload = asRecord(result.details);
   const invocationLabel = formatToolCallDetail(toolCall, payload, sessionCwd);
   const outside = outsideSuffix(payload);
-  const supplementalLines = buildSupplementalLines(toolCall, result, payload);
-  if (!result.ok) {
-    const failurePrefix = toolPresenters[toolCall.name]?.failurePrefix?.(payload) ?? "";
+  const supplementalLines = buildSupplementalLines(
+    toolCall,
+    result,
+    payload,
+    isError,
+  );
+  if (isError) {
+    const failurePrefix =
+      toolPresenters[toolCall.name]?.failurePrefix?.(payload) ?? "";
     return {
       ...createToolCard(toolCall, "failed"),
       invocationLabel,
-      summary: `${failurePrefix}${result.error.code} · ${result.error.message}${outside}`,
+      summary: `${failurePrefix}${toolResultText(result.content)}${outside}`,
       supplementalLines,
     };
   }
@@ -195,7 +194,7 @@ export function createCompletedToolCard(
   return {
     ...createToolCard(toolCall, "completed"),
     invocationLabel,
-    summary: `${presenter?.summary(result.result) ?? "completed"}${outside}`,
+    summary: `${presenter?.summary(result, payload) ?? "completed"}${outside}`,
     supplementalLines,
   };
 }
@@ -215,21 +214,13 @@ export function formatToolCallDetail(
   return toolPresenters[toolCall.name]?.invocationLabel?.(arguments_, path) ?? path;
 }
 
-function readSummary(result: Record<string, unknown>): string {
-  const content = stringField(result, "content") ?? "";
-  const range = asRecord(result.range);
-  const returnedLines =
-    range === undefined
-      ? content === ""
-        ? 0
-        : content.split("\n").length
-      : Math.max(
-          0,
-          (numericField(range, "endLine") ?? 0) -
-            (numericField(range, "startLine") ?? 1) +
-            1,
-        );
-  const totalLines = numericField(result, "totalLines");
+function readSummary(
+  result: ToolResult,
+  payload: Record<string, unknown> | undefined,
+): string {
+  const content = toolResultText(result.content);
+  const returnedLines = content === "" ? 0 : content.split("\n").length;
+  const totalLines = numericField(payload, "totalLines");
   const lineSummary =
     totalLines === undefined || totalLines === returnedLines
       ? `${returnedLines}`
@@ -242,6 +233,7 @@ function buildSupplementalLines(
   toolCall: ProviderToolCall,
   result: ToolResult,
   payload: Record<string, unknown> | undefined,
+  isError: boolean,
 ): readonly string[] {
   const lines: string[] = [];
   const resolvedPath = stringField(payload, "resolvedPath");
@@ -256,13 +248,12 @@ function buildSupplementalLines(
     );
   }
 
-  const strategy = result.meta?.truncation?.strategy ?? "full";
   const presenter = toolPresenters[toolCall.name];
-  if (payload !== undefined && presenter?.supplementalLines !== undefined) {
-    lines.push(...presenter.supplementalLines(payload, strategy));
+  if (presenter?.supplementalLines !== undefined) {
+    lines.push(...presenter.supplementalLines(result, payload));
   }
 
-  if (!result.ok) {
+  if (isError) {
     const supplemental = failureSupplement(
       payload,
       presenter?.hiddenFailureFields ?? [],
@@ -272,89 +263,32 @@ function buildSupplementalLines(
     }
   }
 
-  const truncation = result.meta?.truncation;
+  const truncation = asRecord(payload?.truncation);
   if (truncation !== undefined) {
-    lines.push(formatTruncation(toolCall, truncation));
-    lines.push(
-      truncation.nextArguments === undefined
-        ? "next arguments · unavailable"
-        : `next arguments · ${JSON.stringify(truncation.nextArguments)}`,
-    );
+    lines.push(`truncation · ${JSON.stringify(truncation)}`);
   }
   return lines;
 }
 
 function bashSupplementalLines(
-  payload: Record<string, unknown>,
-  strategy: "head" | "tail" | "full",
+  payload: Record<string, unknown> | undefined,
 ): readonly string[] {
   const lines: string[] = [];
   for (const field of ["stdout", "stderr"] as const) {
     const output = stringField(payload, field)?.trimEnd();
     if (output !== undefined && output !== "") {
       lines.push(
-        ...output.split("\n").map((line) => `${field} (${strategy}) · ${line}`),
+        ...output.split("\n").map((line) => `${field} (full) · ${line}`),
       );
     }
   }
-  const termination = asRecord(payload.termination);
+  const termination = asRecord(payload?.termination);
   if (termination !== undefined) {
     lines.push(
       `termination · ${String(termination.scope)} · ${termination.forced === true ? "forced" : "graceful"} · ${termination.cleanupConfirmed === true ? "cleanup confirmed" : "cleanup unconfirmed"}`,
     );
   }
   return lines;
-}
-
-function formatTruncation(
-  toolCall: ProviderToolCall,
-  truncation: NonNullable<ToolResultMeta["truncation"]>,
-): string {
-  const retained = [
-    `${formatNumber(truncation.retained.bytes)} B`,
-    truncation.retained.lines === undefined
-      ? undefined
-      : `${formatNumber(truncation.retained.lines)} lines`,
-    truncation.retained.items === undefined
-      ? undefined
-      : `${formatNumber(truncation.retained.items)} items`,
-  ].filter((part): part is string => part !== undefined);
-  const limits = truncationLimits(toolCall, truncation.reasons);
-  const total = truncation.total === undefined
-    ? ""
-    : ` · total ${[
-        truncation.total.bytes === undefined
-          ? undefined
-          : `${formatNumber(truncation.total.bytes)} B`,
-        truncation.total.lines === undefined
-          ? undefined
-          : `${formatNumber(truncation.total.lines)} lines`,
-        truncation.total.items === undefined
-          ? undefined
-          : `${formatNumber(truncation.total.items)} items`,
-      ].filter((part): part is string => part !== undefined).join(", ")}`;
-  return `truncation · ${truncation.strategy} · retained ${retained.join(", ")} / limit ${limits.join(", ")} · fields ${truncation.fields.join(", ")}${total}`;
-}
-
-function truncationLimits(
-  toolCall: ProviderToolCall,
-  reasons: readonly ToolTruncationReason[],
-): readonly string[] {
-  const arguments_ = asRecord(toolCall.arguments);
-  const limits = [`${formatNumber(TOOL_RESULT_OUTPUT_BUDGET_BYTES)} B output`];
-  if (reasons.includes("lines")) {
-    limits.push(`${formatNumber(numericField(arguments_, "limit") ?? 2_000)} lines`);
-  }
-  if (reasons.includes("items")) {
-    const limit = numericField(arguments_, "limit") ?? itemLimits[toolCall.name];
-    if (limit !== undefined) {
-      limits.push(`${formatNumber(limit)} items`);
-    }
-  }
-  if (reasons.includes("line-length") && toolCall.name === "grep") {
-    limits.push("1,000 B per line");
-  }
-  return limits;
 }
 
 function lexicalPathPresentation(

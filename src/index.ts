@@ -75,26 +75,17 @@ export type {
   JsonValue,
 } from "./core/json.js";
 export {
-  SHARED_TOOL_ERROR_CODES,
-  TOOL_RESULT_FIXED_BUDGET_BYTES,
-  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
-  boundToolFailure,
-  boundToolResult,
+  createErrorToolResult,
   isToolResult,
-  normalizeToolResult,
+  isToolResultContent,
+  textToolResult,
+  toolResultText,
 } from "./core/tool-result.js";
 export type {
-  BoundToolFailureOptions,
-  BoundToolResultOptions,
-  SharedToolErrorCode,
-  ToolError,
-  ToolResultContinuationContext,
-  ToolResultField,
-  ToolResultRecord,
-  ToolResultStrategy,
+  ImageContent,
+  TextContent,
   ToolResult,
-  ToolResultMeta,
-  ToolTruncationReason,
+  ToolResultContent,
 } from "./core/tool-result.js";
 export { observeReplacementTarget, replaceFile } from "./core/file-replacement.js";
 export type {
@@ -188,9 +179,9 @@ export {
   executeRead,
 } from "./core/read.js";
 export type {
-  ReadErrorCode,
   ReadLineEnding,
   ReadTool,
+  ReadToolDetails,
   ReadToolOptions,
 } from "./core/read.js";
 export {
@@ -200,9 +191,9 @@ export {
   executeWrite,
 } from "./core/write.js";
 export type {
-  WriteErrorCode,
   WriteLineEnding,
   WriteTool,
+  WriteToolDetails,
   WriteToolOptions,
 } from "./core/write.js";
 export {
@@ -213,9 +204,9 @@ export {
   executeEdit,
 } from "./core/edit.js";
 export type {
-  EditErrorCode,
   EditLineEnding,
   EditTool,
+  EditToolDetails,
   EditToolOptions,
 } from "./core/edit.js";
 export type { LineEnding } from "./core/text-file.js";
@@ -225,11 +216,11 @@ export {
   BASH_KILL_GRACE_MS,
   BASH_MAX_TIMEOUT_MS,
   BASH_MIN_TIMEOUT_MS,
+  BASH_OUTPUT_BUDGET_BYTES,
   createBashTool,
   executeBash,
 } from "./core/bash.js";
 export type {
-  BashErrorCode,
   BashTermination,
   BashTerminationScope,
   BashTool,
@@ -243,8 +234,9 @@ export {
   executeLs,
 } from "./core/ls.js";
 export type {
-  LsErrorCode,
+  LsEntry,
   LsTool,
+  LsToolDetails,
   LsToolOptions,
 } from "./core/ls.js";
 export {
@@ -258,8 +250,9 @@ export {
   executeGrep,
 } from "./core/grep.js";
 export type {
-  GrepErrorCode,
+  GrepMatch,
   GrepTool,
+  GrepToolDetails,
   GrepToolOptions,
 } from "./core/grep.js";
 export {
@@ -270,8 +263,8 @@ export {
   executeFind,
 } from "./core/find.js";
 export type {
-  FindErrorCode,
   FindTool,
+  FindToolDetails,
   FindToolOptions,
 } from "./core/find.js";
 export {

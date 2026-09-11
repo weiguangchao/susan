@@ -47,8 +47,8 @@ describe("Ls Tool", () => {
     const result = await tool.execute({});
 
     expect(result).toEqual({
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "" }],
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -72,8 +72,8 @@ describe("Ls Tool", () => {
     const result = await tool.execute({ path: "." });
 
     expect(result).toEqual({
-      ok: true,
-      result: {
+      content: [{ type: "text", text: ".hidden\nREADME.md\nlink@\nsrc/" }],
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -100,9 +100,8 @@ describe("Ls Tool", () => {
     await writeFile(join(sessionCwd, "src", "keep.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "src", "nested.log"), "noise\n");
 
-    await expect(tool.execute({ path: "." })).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({ path: "." })).resolves.toMatchObject({
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -116,8 +115,7 @@ describe("Ls Tool", () => {
     });
 
     await expect(tool.execute({ path: "src" })).resolves.toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [
           { name: ".gitignore", type: "file" },
           { name: "nested.log", type: "file" },
@@ -126,8 +124,7 @@ describe("Ls Tool", () => {
     });
 
     await expect(tool.execute({ includeIgnored: true })).resolves.toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [
           { name: ".git", type: "directory" },
           { name: ".gitignore", type: "file" },
@@ -141,34 +138,23 @@ describe("Ls Tool", () => {
   });
 
   it("rejects unknown fields, wrong types, and out-of-range pagination", async () => {
-    await expect(tool.execute({ path: ".", glob: "*" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "glob" } },
-    });
-    await expect(tool.execute({ path: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ includeIgnored: "yes" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "includeIgnored" } },
-    });
-    await expect(tool.execute({ limit: 1.5 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ limit: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ limit: LS_MAX_LIMIT + 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ offset: -1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_OFFSET", details: { field: "offset" } },
-    });
+    await expect(tool.execute({ path: ".", glob: "*" })).rejects.toThrow(
+      "Invalid ls arguments.",
+    );
+    await expect(tool.execute({ path: 1 })).rejects.toThrow("Invalid ls arguments.");
+    await expect(tool.execute({ includeIgnored: "yes" })).rejects.toThrow(
+      "Invalid ls arguments.",
+    );
+    await expect(tool.execute({ limit: 1.5 })).rejects.toThrow("Invalid ls arguments.");
+    await expect(tool.execute({ limit: 0 })).rejects.toThrow(
+      `limit must be an integer between 1 and ${LS_MAX_LIMIT}.`,
+    );
+    await expect(tool.execute({ limit: LS_MAX_LIMIT + 1 })).rejects.toThrow(
+      `limit must be an integer between 1 and ${LS_MAX_LIMIT}.`,
+    );
+    await expect(tool.execute({ offset: -1 })).rejects.toThrow(
+      "offset must be a non-negative integer.",
+    );
   });
 
   it("returns typed failures for missing, non-directory, and unreadable roots", async () => {
@@ -176,24 +162,12 @@ describe("Ls Tool", () => {
     const file = join(sessionCwd, "file.txt");
     await writeFile(file, "not a dir\n");
 
-    await expect(tool.execute({ path: "missing" })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOENT",
-        details: { resolvedPath: missing, cwdRelation: "inside" },
-      },
-    });
-    await expect(tool.execute({ path: "file.txt" })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOTDIR",
-        details: {
-          resolvedPath: file,
-          realTargetPath: await realpath(file),
-          cwdRelation: "inside",
-        },
-      },
-    });
+    await expect(tool.execute({ path: "missing" })).rejects.toThrow(
+      "Path does not exist.",
+    );
+    await expect(tool.execute({ path: "file.txt" })).rejects.toThrow(
+      "Path is not a directory.",
+    );
   });
 
   it.skipIf(!POSIX)("fails closed when the target directory cannot be read", async () => {
@@ -201,16 +175,9 @@ describe("Ls Tool", () => {
     await mkdir(locked);
     await chmod(locked, 0o000);
     try {
-      await expect(tool.execute({ path: "locked" })).resolves.toMatchObject({
-        ok: false,
-        error: {
-          code: "EACCES",
-          details: {
-            resolvedPath: locked,
-            cwdRelation: "inside",
-          },
-        },
-      });
+      await expect(tool.execute({ path: "locked" })).rejects.toThrow(
+        "Path cannot be read.",
+      );
     } finally {
       await chmod(locked, 0o700);
     }
@@ -224,47 +191,43 @@ describe("Ls Tool", () => {
 
     const first = await tool.execute({ limit: 2 });
     expect(first).toMatchObject({
-      ok: true,
-      result: {
+      content: [{
+        type: "text",
+        text: "a.ts\nb.ts\n\n[2 more entries. Use offset=2 to continue.]",
+      }],
+      details: {
         entries: [
           { name: "a.ts", type: "file" },
           { name: "b.ts", type: "file" },
         ],
         diagnostics: [],
-      },
-      meta: {
         truncation: {
-          reasons: ["items"],
-          strategy: "head",
-          fields: ["entries"],
-          retained: { items: 2 },
-          total: { items: 4 },
-          nextArguments: { path: ".", offset: 2, limit: 2 },
+          truncatedBy: "items",
+          outputItems: 2,
+          nextOffset: 2,
         },
       },
     });
 
-    const second = await tool.execute(
-      first.ok ? first.meta?.truncation?.nextArguments : undefined,
-    );
+    const second = await tool.execute({
+      offset: first.details?.truncation?.nextOffset,
+      limit: 2,
+    });
     expect(second).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [
           { name: "c.ts", type: "file" },
           { name: "d.ts", type: "file" },
         ],
       },
     });
-    expect(second.ok && second.meta?.truncation).toBeUndefined();
+    expect(second.details?.truncation).toBeUndefined();
 
     await expect(tool.execute({ offset: 4 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [], diagnostics: [] },
+      details: { entries: [], diagnostics: [] },
     });
     await expect(tool.execute({ offset: 100 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [] },
+      details: { entries: [] },
     });
   });
 
@@ -272,9 +235,8 @@ describe("Ls Tool", () => {
     await writeFile(join(sessionCwd, ".gitignore"), Buffer.from([0xff, 0xfe, 0xfd]));
     await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
 
-    await expect(tool.execute({})).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({})).resolves.toMatchObject({
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -295,9 +257,8 @@ describe("Ls Tool", () => {
     expect(created.status).toBe(0);
     await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
 
-    await expect(tool.execute({})).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({})).resolves.toMatchObject({
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -320,9 +281,8 @@ describe("Ls Tool", () => {
         process.platform === "win32" ? "junction" : undefined,
       );
 
-      await expect(tool.execute({ path: "linked" })).resolves.toEqual({
-        ok: true,
-        result: {
+      await expect(tool.execute({ path: "linked" })).resolves.toMatchObject({
+        details: {
           resolvedPath: entry,
           realTargetPath: await realpath(outside),
           cwdRelation: "outside",
@@ -340,8 +300,7 @@ describe("Ls Tool", () => {
     try {
       await writeFile(join(outside, "abs.ts"), "export {}\n");
       await expect(tool.execute({ path: outside })).resolves.toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: outside,
           realTargetPath: await realpath(outside),
           cwdRelation: "outside",
@@ -353,7 +312,7 @@ describe("Ls Tool", () => {
     }
   });
 
-  it("truncates oversized pages at 50 KiB and continues from the first omitted entry", async () => {
+  it("returns the full page without a truncation note when it fits the limit", async () => {
     const names = Array.from({ length: 300 }, (_, index) =>
       `${"x".repeat(180)}-${String(index).padStart(3, "0")}`,
     );
@@ -362,41 +321,16 @@ describe("Ls Tool", () => {
     }
 
     const first = await tool.execute({});
-    expect(first.ok).toBe(true);
-    if (!first.ok) {
-      return;
-    }
-    expect(first.meta?.truncation?.reasons).toContain("bytes");
-    expect(first.meta?.truncation?.fields).toContain("entries");
-    expect(first.meta?.truncation?.nextArguments).toMatchObject({
-      path: ".",
-      limit: LS_DEFAULT_LIMIT,
-    });
-    const retained = first.result.entries as readonly { readonly name: string }[];
-    expect(retained.length).toBeGreaterThan(0);
-    expect(retained.length).toBeLessThan(names.length);
-    expect(retained[0]?.name).toBe(names[0]);
-
-    const nextOffset = first.meta?.truncation?.nextArguments?.offset;
-    expect(nextOffset).toBe(retained.length);
-
-    const second = await tool.execute(first.meta?.truncation?.nextArguments);
-    expect(second.ok).toBe(true);
-    if (!second.ok) {
-      return;
-    }
-    const next = second.result.entries as readonly { readonly name: string }[];
-    expect(next[0]?.name).toBe(names[retained.length]);
+    expect(first.details?.entries).toHaveLength(names.length);
+    expect(first.details?.truncation).toBeUndefined();
+    expect(first.details?.entries[0]?.name).toBe(names[0]);
   });
 
   it("maps an already-aborted timeout signal to ETIMEDOUT", async () => {
     const signal = AbortSignal.timeout(0);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    await expect(tool.execute({}, signal)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(tool.execute({}, signal)).rejects.toThrow("Ls timed out.");
   });
 
   it("resolves a relative path against Session cwd, not process cwd", async () => {
@@ -410,8 +344,7 @@ describe("Ls Tool", () => {
       await writeFile(join(other, "nested", "here.ts"), "wrong\n");
       const result = await tool.execute({ path: "nested" });
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: join(sessionCwd, "nested"),
           cwdRelation: "inside",
           entries: [{ name: "here.ts", type: "file" }],
@@ -431,16 +364,13 @@ describe("Ls Tool", () => {
 
     const first = await tool.execute({ includeIgnored: true, limit: 1 });
     expect(first).toMatchObject({
-      ok: true,
-      result: { entries: [{ name: ".gitignore", type: "file" }] },
-      meta: {
+      details: {
+        entries: [{ name: ".gitignore", type: "file" }],
         truncation: {
-          nextArguments: {
-            path: ".",
-            offset: 1,
-            limit: 1,
-            includeIgnored: true,
-          },
+          truncatedBy: "items",
+          outputItems: 1,
+          nextOffset: 1,
+          includeIgnored: true,
         },
       },
     });
@@ -458,19 +388,15 @@ describe("Ls Tool", () => {
       },
     });
 
-    await expect(isolated.execute({})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(isolated.execute({})).rejects.toThrow("Ls timed out.");
   });
 
   it("maps a cancelled AbortSignal to ETOOL", async () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(tool.execute({}, controller.signal)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETOOL" },
-    });
+    await expect(tool.execute({}, controller.signal)).rejects.toThrow(
+      "Tool execution failed.",
+    );
   });
 });

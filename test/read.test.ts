@@ -43,19 +43,18 @@ describe("Read Tool", () => {
     expect(tool.name).not.toBe("read_file");
   });
 
-  it("reads a UTF-8 regular file and returns path facts with file facts", async () => {
+  it("reads a UTF-8 regular file and returns text content with file details", async () => {
     const path = join(sessionCwd, "notes.txt");
     await writeFile(path, "first\nsecond\nthird\n", "utf8");
 
     const result = await tool.execute({ path });
 
     expect(result).toEqual({
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "first\nsecond\nthird\n" }],
+      details: {
         resolvedPath: path,
         realTargetPath: await realpath(path),
         cwdRelation: "inside",
-        content: "first\nsecond\nthird\n",
         range: { startLine: 1, endLine: 3 },
         totalLines: 3,
         sizeBytes: Buffer.byteLength("first\nsecond\nthird\n", "utf8"),
@@ -70,12 +69,11 @@ describe("Read Tool", () => {
     await writeFile(path, Buffer.alloc(0));
 
     await expect(tool.execute({ path })).resolves.toEqual({
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "" }],
+      details: {
         resolvedPath: path,
         realTargetPath: await realpath(path),
         cwdRelation: "inside",
-        content: "",
         range: null,
         totalLines: 0,
         sizeBytes: 0,
@@ -94,10 +92,9 @@ describe("Read Tool", () => {
       await writeFile(join(other, "relative.txt"), "process\n", "utf8");
       const result = await tool.execute({ path: "relative.txt" });
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        content: [{ type: "text", text: "session\n" }],
+        details: {
           resolvedPath: join(sessionCwd, "relative.txt"),
-          content: "session\n",
           cwdRelation: "inside",
         },
       });
@@ -116,9 +113,8 @@ describe("Read Tool", () => {
 
     const result = await tool.execute({ path });
     expect(result).toMatchObject({
-      ok: true,
-      result: {
-        content: "hello\n",
+      content: [{ type: "text", text: "hello\n" }],
+      details: {
         bom: true,
         sizeBytes: 9,
         totalLines: 1,
@@ -138,53 +134,50 @@ describe("Read Tool", () => {
     await writeFile(none, "a\nb");
 
     await expect(tool.execute({ path: lf })).resolves.toMatchObject({
-      ok: true,
-      result: { content: "a\nb\n", lineEnding: "lf", totalLines: 2 },
+      content: [{ type: "text", text: "a\nb\n" }],
+      details: { lineEnding: "lf" },
     });
     await expect(tool.execute({ path: crlf })).resolves.toMatchObject({
-      ok: true,
-      result: { content: "a\r\nb\r\n", lineEnding: "crlf", totalLines: 2 },
+      content: [{ type: "text", text: "a\r\nb\r\n" }],
+      details: { lineEnding: "crlf" },
     });
     await expect(tool.execute({ path: mixed })).resolves.toMatchObject({
-      ok: true,
-      result: { content: "a\r\nb\n", lineEnding: "mixed", totalLines: 2 },
+      content: [{ type: "text", text: "a\r\nb\n" }],
+      details: { lineEnding: "mixed" },
     });
     await expect(tool.execute({ path: none })).resolves.toMatchObject({
-      ok: true,
-      result: { content: "a\nb", lineEnding: "lf", totalLines: 2, range: { startLine: 1, endLine: 2 } },
+      content: [{ type: "text", text: "a\nb" }],
+      details: { lineEnding: "lf" },
     });
   });
 
-  it("pages from a 1-based offset and offers complete nextArguments", async () => {
+  it("pages from a 1-based offset and appends a Pi-style continuation note", async () => {
     const path = join(sessionCwd, "lines.txt");
     const lines = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
     await writeFile(path, `${lines.join("\n")}\n`, "utf8");
 
     const result = await tool.execute({ path, offset: 4, limit: 3 });
-    const page = "line-4\nline-5\nline-6\n";
-    expect(result).toMatchObject({
-      ok: true,
-      result: {
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "line-4\nline-5\nline-6\n\n[6 more lines in file. Use offset=7 to continue.]",
+        },
+      ],
+      details: {
         resolvedPath: path,
         realTargetPath: await realpath(path),
         cwdRelation: "inside",
-        content: page,
         range: { startLine: 4, endLine: 6 },
         totalLines: 12,
         sizeBytes: Buffer.byteLength(`${lines.join("\n")}\n`, "utf8"),
         bom: false,
         lineEnding: "lf",
-      },
-      meta: {
         truncation: {
-          reasons: ["lines"],
-          strategy: "head",
-          fields: ["content"],
-          retained: {
-            bytes: Buffer.byteLength(JSON.stringify(page), "utf8"),
-            lines: 3,
-          },
-          nextArguments: { path, offset: 7, limit: 3 },
+          truncatedBy: "lines",
+          totalLines: 9,
+          outputLines: 3,
+          nextOffset: 7,
         },
       },
     });
@@ -197,121 +190,63 @@ describe("Read Tool", () => {
 
     const result = await tool.execute({ path });
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      content: [
+        {
+          type: "text",
+          text: `${lines.slice(0, 2000).join("\n")}\n\n[1 more lines in file. Use offset=2001 to continue.]`,
+        },
+      ],
+      details: {
         range: { startLine: 1, endLine: 2000 },
         totalLines: 2001,
-        content: `${lines.slice(0, 2000).join("\n")}\n`,
-      },
-      meta: {
         truncation: {
-          reasons: ["lines"],
-          nextArguments: { path, offset: 2001, limit: READ_MAX_LINES },
+          truncatedBy: "lines",
+          outputLines: 2000,
+          nextOffset: 2001,
         },
       },
     });
   });
 
-  it("stops at the 50 KiB JSON-byte budget and continues from the next complete line", async () => {
-    const path = join(sessionCwd, "bytes.txt");
-    const line = `${"a".repeat(100)}\n`;
-    await writeFile(path, line.repeat(600));
+  it("returns the full file without a truncation note when it fits the limit", async () => {
+    const path = join(sessionCwd, "fits.txt");
+    await writeFile(path, "one\ntwo\n", "utf8");
 
     const result = await tool.execute({ path });
-    expect(result).toMatchObject({
-      ok: true,
-      result: {
-        content: line.repeat(501),
-        range: { startLine: 1, endLine: 501 },
-        totalLines: 600,
-      },
-      meta: {
-        truncation: {
-          reasons: ["bytes"],
-          strategy: "head",
-          fields: ["content"],
-          nextArguments: { path, offset: 502, limit: 2000 },
-        },
-      },
-    });
+    expect(result.content).toEqual([{ type: "text", text: "one\ntwo\n" }]);
+    expect(result.details?.truncation).toBeUndefined();
   });
 
-  it("clips an oversized line with line-length and does not invent continuation", async () => {
-    const path = join(sessionCwd, "long-line.txt");
-    await writeFile(path, `${"a".repeat(60_000)}\n`);
-
-    const result = await tool.execute({ path });
-    expect(result).toMatchObject({
-      ok: true,
-      result: {
-        content: "a".repeat(51_198),
-        range: { startLine: 1, endLine: 1 },
-        totalLines: 1,
-      },
-      meta: {
-        truncation: {
-          reasons: ["bytes", "line-length"],
-          strategy: "head",
-          fields: ["content"],
-        },
-      },
-    });
-    if (result.ok) {
-      expect(result.meta?.truncation?.nextArguments).toBeUndefined();
-    }
+  it("rejects unknown fields and illegal argument types", async () => {
+    await expect(tool.execute("nope")).rejects.toThrow("Invalid read arguments.");
+    await expect(tool.execute({ path: 1 })).rejects.toThrow("Invalid read arguments.");
+    await expect(tool.execute({ path: "a.txt", extra: 1 })).rejects.toThrow(
+      "Invalid read arguments.",
+    );
+    await expect(tool.execute({ path: "a.txt", offset: 1.5 })).rejects.toThrow(
+      "Invalid read arguments.",
+    );
+    await expect(tool.execute({ path: "a.txt", limit: Number.NaN })).rejects.toThrow(
+      "Invalid read arguments.",
+    );
   });
 
-  it("rejects unknown fields and illegal argument types with EINVAL", async () => {
-    await expect(tool.execute("nope")).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ path: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ path: "a.txt", extra: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "extra" } },
-    });
-    await expect(tool.execute({ path: "a.txt", offset: 1.5 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "offset" } },
-    });
-    await expect(tool.execute({ path: "a.txt", limit: Number.NaN })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "limit" } },
-    });
-  });
-
-  it("rejects out-of-range integers with EINVAL_OFFSET and EINVAL_LIMIT", async () => {
+  it("rejects out-of-range integers", async () => {
     const path = join(sessionCwd, "range.txt");
     await writeFile(path, "one\n", "utf8");
 
-    await expect(tool.execute({ path, offset: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_OFFSET", details: { field: "offset" } },
-    });
-    await expect(tool.execute({ path, limit: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ path, limit: 2001 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ path, offset: 2 })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "EINVAL_OFFSET",
-        details: {
-          resolvedPath: path,
-          realTargetPath: await realpath(path),
-          cwdRelation: "inside",
-          totalLines: 1,
-        },
-      },
-    });
+    await expect(tool.execute({ path, offset: 0 })).rejects.toThrow(
+      "offset must be a positive integer.",
+    );
+    await expect(tool.execute({ path, limit: 0 })).rejects.toThrow(
+      `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
+    );
+    await expect(tool.execute({ path, limit: 2001 })).rejects.toThrow(
+      `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
+    );
+    await expect(tool.execute({ path, offset: 2 })).rejects.toThrow(
+      "offset is beyond the end of the file.",
+    );
   });
 
   it("follows an entry symlink and marks a Real Target Path outside Session cwd", async () => {
@@ -324,12 +259,11 @@ describe("Read Tool", () => {
 
       const result = await tool.execute({ path: "link.txt" });
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        content: [{ type: "text", text: "outside\n" }],
+        details: {
           resolvedPath: entry,
           realTargetPath: await realpath(target),
           cwdRelation: "outside",
-          content: "outside\n",
         },
       });
     } finally {
@@ -344,12 +278,11 @@ describe("Read Tool", () => {
       await writeFile(path, "abs\n", "utf8");
       const result = await tool.execute({ path });
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        content: [{ type: "text", text: "abs\n" }],
+        details: {
           resolvedPath: path,
           realTargetPath: await realpath(path),
           cwdRelation: "outside",
-          content: "abs\n",
         },
       });
     } finally {
@@ -357,7 +290,7 @@ describe("Read Tool", () => {
     }
   });
 
-  it("returns typed path, file-type, size, and UTF-8 errors", async () => {
+  it("throws free-text path, file-type, size, and UTF-8 errors", async () => {
     const missing = join(sessionCwd, "missing.txt");
     const directory = join(sessionCwd, "directory");
     await mkdir(directory);
@@ -369,59 +302,41 @@ describe("Read Tool", () => {
     await writeFile(huge, Buffer.alloc(0));
     await truncate(huge, READ_MAX_FILE_BYTES + 1);
 
-    await expect(tool.execute({ path: missing })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOENT",
-        details: { resolvedPath: missing, cwdRelation: "inside" },
-      },
-    });
-    await expect(tool.execute({ path: directory })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EISDIR", details: { resolvedPath: directory } },
-    });
-    await expect(tool.execute({ path: nulPath })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EBINARY", details: { resolvedPath: nulPath } },
-    });
-    await expect(tool.execute({ path: invalidPath })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EBINARY", details: { resolvedPath: invalidPath } },
-    });
-    await expect(tool.execute({ path: huge })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "EFILE_TOO_LARGE",
-        details: {
-          resolvedPath: huge,
-          actualBytes: READ_MAX_FILE_BYTES + 1,
-          limitBytes: READ_MAX_FILE_BYTES,
-        },
-      },
-    });
-    await expect(tool.execute({ path: "" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_PATH" },
-    });
+    await expect(tool.execute({ path: missing })).rejects.toThrow(
+      "Path does not exist.",
+    );
+    await expect(tool.execute({ path: directory })).rejects.toThrow(
+      "Path is a directory.",
+    );
+    await expect(tool.execute({ path: nulPath })).rejects.toThrow(
+      "File is not valid UTF-8 text.",
+    );
+    await expect(tool.execute({ path: invalidPath })).rejects.toThrow(
+      "File is not valid UTF-8 text.",
+    );
+    await expect(tool.execute({ path: huge })).rejects.toThrow(
+      "File exceeds the 100 MiB size limit.",
+    );
+    await expect(tool.execute({ path: "" })).rejects.toThrow(
+      "Path syntax is invalid.",
+    );
 
     if (POSIX) {
       const forbidden = join(sessionCwd, "forbidden.txt");
       await writeFile(forbidden, "secret\n", "utf8");
       await chmod(forbidden, 0o000);
-      await expect(tool.execute({ path: forbidden })).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EACCES", details: { resolvedPath: forbidden } },
-      });
+      await expect(tool.execute({ path: forbidden })).rejects.toThrow(
+        "File cannot be read.",
+      );
       await chmod(forbidden, 0o644);
 
-      await expect(tool.execute({ path: "/dev/null" })).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EUNSUPPORTED" },
-      });
+      await expect(tool.execute({ path: "/dev/null" })).rejects.toThrow(
+        "Path is not a regular file.",
+      );
     }
   });
 
-  it("applies typed-error precedence from schema through conflict", async () => {
+  it("applies error precedence from schema through conflict", async () => {
     const directory = join(sessionCwd, "dir");
     await mkdir(directory);
     const hugeBinary = join(sessionCwd, "huge-binary.txt");
@@ -430,43 +345,32 @@ describe("Read Tool", () => {
 
     await expect(
       tool.execute({ path: directory, extra: true }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "extra" } },
-    });
+    ).rejects.toThrow("Invalid read arguments.");
     await expect(
       tool.execute({ path: directory, offset: 99 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EISDIR" },
-    });
-    await expect(tool.execute({ path: hugeBinary })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EFILE_TOO_LARGE" },
-    });
+    ).rejects.toThrow("Path is a directory.");
+    await expect(tool.execute({ path: hugeBinary })).rejects.toThrow(
+      "File exceeds the 100 MiB size limit.",
+    );
   });
 
-  it("maps an already-aborted timeout signal to ETIMEDOUT", async () => {
+  it("maps an already-aborted timeout signal to a timeout error", async () => {
     const path = join(sessionCwd, "timeout.txt");
     await writeFile(path, "ok\n", "utf8");
     const signal = AbortSignal.timeout(0);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    await expect(tool.execute({ path }, signal)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(tool.execute({ path }, signal)).rejects.toThrow("Read timed out.");
   });
 
-  it("maps a cancelled AbortSignal to ETOOL", async () => {
+  it("maps a cancelled AbortSignal to a tool failure", async () => {
     const path = join(sessionCwd, "cancel.txt");
     await writeFile(path, "ok\n", "utf8");
     const controller = new AbortController();
     controller.abort();
 
-    await expect(tool.execute({ path }, controller.signal)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETOOL" },
-    });
+    await expect(tool.execute({ path }, controller.signal)).rejects.toThrow(
+      "Tool execution failed.",
+    );
   });
 });

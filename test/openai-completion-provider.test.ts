@@ -39,7 +39,7 @@ const request = {
     {
       role: "tool",
       toolCallId: "call-1",
-      content: { ok: true, result: { content: "example" } },
+      content: [{ type: "text", text: "example" }],
     },
   ],
   tools: [
@@ -182,7 +182,7 @@ describe("openai-completion provider adapter", () => {
         {
           role: "tool",
           tool_call_id: "call-1",
-          content: '{"ok":true,"result":{"content":"example"}}',
+          content: "example",
         },
       ],
       tools: [

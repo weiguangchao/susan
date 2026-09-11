@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
+  BASH_OUTPUT_BUDGET_BYTES,
   createBashTool,
   type BashTool,
 } from "../src/index.js";
@@ -46,72 +46,45 @@ describe("Bash Tool", () => {
   });
 
   it("rejects empty, NUL, oversized, and non-string commands", async () => {
-    await expect(tool.execute({})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "command" } },
-    });
-    await expect(tool.execute({ command: "" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "command" } },
-    });
-    await expect(tool.execute({ command: "echo\0hi" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "command" } },
-    });
+    await expect(tool.execute({})).rejects.toThrow("Invalid bash arguments.");
+    await expect(tool.execute({ command: "" })).rejects.toThrow(
+      "Invalid bash arguments.",
+    );
+    await expect(tool.execute({ command: "echo\0hi" })).rejects.toThrow(
+      "Invalid bash arguments.",
+    );
     await expect(
       tool.execute({ command: "a".repeat(256 * 1024 + 1) }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "command" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
   });
 
   it("rejects illegal timeout and env overlay values without correcting them", async () => {
     for (const timeoutMs of [0, 1.5, 3_600_001, -1, Number.NaN]) {
-      await expect(tool.execute({ command: "true", timeoutMs })).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EINVAL", details: { field: "timeoutMs" } },
-      });
+      await expect(tool.execute({ command: "true", timeoutMs })).rejects.toThrow(
+        "Invalid bash arguments.",
+      );
     }
     await expect(
       tool.execute({ command: "true", env: { "FOO=BAR": "1" } }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "env" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
     await expect(
       tool.execute({ command: "true", env: { FOO: "a\0b" } }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "env" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
     await expect(
       createBashTool({ sessionCwd, platform: "win32" }).execute({
         command: "true",
         env: { Path: "a", PATH: "b" },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "env" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
     await expect(
       tool.execute({ command: "true", env: { "": "x" } }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "env" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
     await expect(
       tool.execute({ command: "true", env: { "FOO\0BAR": "1" } }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "env" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
     await expect(
       tool.execute({ command: "true", extra: 1 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "command" } },
-    });
+    ).rejects.toThrow("Invalid bash arguments.");
   });
 
   it("runs a successful one-shot command with separated streams", async () => {
@@ -120,25 +93,21 @@ describe("Bash Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         stdout: "out",
         stderr: "err",
         exitCode: 0,
         cwdRelation: "inside",
       },
     });
-    if (result.ok) {
-      expect(result.result.resolvedPath).toBeDefined();
-      expect(typeof result.result.bashPath).toBe("string");
-      expect(result.meta).toBeUndefined();
-    }
+    expect(result.details?.resolvedPath).toBeDefined();
+    expect(typeof result.details?.bashPath).toBe("string");
+    expect(result.details?.truncation).toBeUndefined();
   });
 
   it("treats a whitespace-only command as a Bash no-op", async () => {
     await expect(tool.execute({ command: " \t\n" })).resolves.toMatchObject({
-      ok: true,
-      result: { stdout: "", stderr: "", exitCode: 0 },
+      details: { stdout: "", stderr: "", exitCode: 0 },
     });
   });
 
@@ -147,8 +116,7 @@ describe("Bash Tool", () => {
       command: " printf %s '  kept  ' ",
     });
     expect(result).toMatchObject({
-      ok: true,
-      result: { stdout: "  kept  ", exitCode: 0 },
+      details: { stdout: "  kept  ", exitCode: 0 },
     });
   });
 
@@ -157,18 +125,14 @@ describe("Bash Tool", () => {
       command: "printf %s failed; printf %s boom >&2; exit 7",
     });
     expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "EEXIT",
-        details: {
-          stdout: "failed",
-          stderr: "boom",
-          exitCode: 7,
-          signal: null,
-          termination: {
-            scope: POSIX ? "process-group" : "process-tree-best-effort",
-            forced: false,
-          },
+      details: {
+        stdout: "failed",
+        stderr: "boom",
+        exitCode: 7,
+        signal: null,
+        termination: {
+          scope: POSIX ? "process-group" : "process-tree-best-effort",
+          forced: false,
         },
       },
     });
@@ -188,8 +152,7 @@ describe("Bash Tool", () => {
         cwd: "link",
       });
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        details: {
           stdout: await realpath(outside),
           cwdRelation: "outside",
           resolvedPath: join(sessionCwd, "link"),
@@ -203,29 +166,25 @@ describe("Bash Tool", () => {
 
   it("maps missing, non-directory, and looping cwd values to stable codes", async () => {
     await writeFile(join(sessionCwd, "file.txt"), "not a dir\n");
-    await expect(tool.execute({ command: "true", cwd: "missing" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ENOENT" },
-    });
-    await expect(tool.execute({ command: "true", cwd: "file.txt" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ENOTDIR" },
-    });
+    await expect(tool.execute({ command: "true", cwd: "missing" })).rejects.toThrow(
+      "Working directory does not exist.",
+    );
+    await expect(tool.execute({ command: "true", cwd: "file.txt" })).rejects.toThrow(
+      "Working directory is not a directory.",
+    );
     if (POSIX) {
       await symlink("loop-b", join(sessionCwd, "loop-a"));
       await symlink("loop-a", join(sessionCwd, "loop-b"));
-      await expect(tool.execute({ command: "true", cwd: "loop-a" })).resolves.toMatchObject({
-        ok: false,
-        error: { code: "ELOOP" },
-      });
+      await expect(tool.execute({ command: "true", cwd: "loop-a" })).rejects.toThrow(
+        "Working directory contains a symlink loop.",
+      );
       const denied = join(sessionCwd, "denied");
       await mkdir(denied);
       await chmod(denied, 0o000);
       try {
-        await expect(tool.execute({ command: "true", cwd: "denied" })).resolves.toMatchObject({
-          ok: false,
-          error: { code: "EACCES" },
-        });
+        await expect(tool.execute({ command: "true", cwd: "denied" })).rejects.toThrow(
+          "Working directory cannot be accessed.",
+        );
       } finally {
         await chmod(denied, 0o755);
       }
@@ -236,10 +195,9 @@ describe("Bash Tool", () => {
     await mkdir(join(sessionCwd, "child"));
     const first = await tool.execute({ command: "cd child; printf %s \"$PWD\"" });
     const second = await tool.execute({ command: "printf %s \"$PWD\"" });
-    expect(first).toMatchObject({ ok: true });
+    expect(first.details?.exitCode).toBe(0);
     expect(second).toMatchObject({
-      ok: true,
-      result: { stdout: await realpath(sessionCwd) },
+      details: { stdout: await realpath(sessionCwd) },
     });
   });
 
@@ -249,8 +207,7 @@ describe("Bash Tool", () => {
       env: { FOO: "bar", DELETED: null },
     });
     expect(result).toMatchObject({
-      ok: true,
-      result: { stdout: "bar|unset|unset" },
+      details: { stdout: "bar|unset|unset" },
     });
   });
 
@@ -266,10 +223,9 @@ describe("Bash Tool", () => {
         LOCALAPPDATA: join(sessionCwd, "local"),
       },
     });
-    await expect(isolated.execute({ command: "true" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EUNSUPPORTED" },
-    });
+    await expect(isolated.execute({ command: "true" })).rejects.toThrow(
+      "Bash is not available.",
+    );
   });
 
   it("returns EACCES when Bash candidates exist but are not executable", async () => {
@@ -287,10 +243,9 @@ describe("Bash Tool", () => {
         LOCALAPPDATA: join(sessionCwd, "local"),
       },
     });
-    await expect(isolated.execute({ command: "true" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EACCES" },
-    });
+    await expect(isolated.execute({ command: "true" })).rejects.toThrow(
+      "Bash is not executable.",
+    );
   });
 
   it("keeps a UTF-8 character that arrives across chunk boundaries", async () => {
@@ -303,12 +258,9 @@ describe("Bash Tool", () => {
       command: `node ${JSON.stringify(script)}`,
     });
     expect(result).toMatchObject({
-      ok: true,
-      result: { stdout: "你", exitCode: 0 },
+      details: { stdout: "你", exitCode: 0 },
     });
-    if (result.ok) {
-      expect(result.result.decodeLoss).toBeUndefined();
-    }
+    expect(result.details?.decodeLoss).toBeUndefined();
   });
 
   it("replaces illegal UTF-8 and marks the affected stream", async () => {
@@ -321,8 +273,7 @@ describe("Bash Tool", () => {
       command: `node ${JSON.stringify(script)}`,
     });
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         stdout: "\uFFFD" + "A",
         stderr: "B",
         decodeLoss: ["stdout"],
@@ -348,12 +299,8 @@ describe("Bash Tool", () => {
     const result = await tool.execute({
       command: `node ${JSON.stringify(script)}`,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("expected success");
-    }
-    const stdout = result.result.stdout;
-    const stderr = result.result.stderr;
+    const stdout = result.details?.stdout;
+    const stderr = result.details?.stderr;
     if (typeof stdout !== "string" || typeof stderr !== "string") {
       throw new Error("expected string output fields");
     }
@@ -362,14 +309,12 @@ describe("Bash Tool", () => {
     expect(stdout).toBe("c".repeat(20_000));
     expect(stdout.includes("a")).toBe(false);
     const outputBytes =
-      Buffer.byteLength(JSON.stringify(result.result.stdout), "utf8") +
-      Buffer.byteLength(JSON.stringify(result.result.stderr), "utf8");
-    expect(outputBytes).toBeLessThanOrEqual(TOOL_RESULT_OUTPUT_BUDGET_BYTES);
-    expect(result.meta?.truncation).toMatchObject({
-      strategy: "tail",
-      reasons: ["bytes"],
+      Buffer.byteLength(JSON.stringify(result.details?.stdout), "utf8") +
+      Buffer.byteLength(JSON.stringify(result.details?.stderr), "utf8");
+    expect(outputBytes).toBeLessThanOrEqual(BASH_OUTPUT_BUDGET_BYTES);
+    expect(result.details?.truncation).toMatchObject({
+      truncatedBy: "bytes",
     });
-    expect(result.meta?.truncation?.nextArguments).toBeUndefined();
   });
 
   it("locks timeout as ETIMEDOUT and kills the managed POSIX process group", async () => {
@@ -395,23 +340,17 @@ describe("Bash Tool", () => {
       timeoutMs: 200,
     });
     expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "ETIMEDOUT",
-        details: {
-          timeoutMs: 200,
-          termination: {
-            scope: POSIX ? "process-group" : "process-tree-best-effort",
-            forced: true,
-          },
+      details: {
+        timeoutMs: 200,
+        termination: {
+          scope: POSIX ? "process-group" : "process-tree-best-effort",
+          forced: true,
         },
       },
     });
-    if (!result.ok) {
-      expect(result.error.details?.termination).toMatchObject({
-        cleanupConfirmed: POSIX ? true : false,
-      });
-    }
+    expect(result.details?.termination).toMatchObject({
+      cleanupConfirmed: POSIX ? true : false,
+    });
     const pids = (await readFile(join(sessionCwd, "pids.txt"), "utf8"))
       .trim()
       .split("\n")
@@ -450,10 +389,7 @@ describe("Bash Tool", () => {
       command: "node escape.js",
       timeoutMs: 800,
     });
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    expect(result.details?.timeoutMs).toBe(800);
     const pid = Number(await readFile(join(sessionCwd, "escaped.pid"), "utf8"));
     leftoverPids.add(pid);
     expect(Number.isInteger(pid)).toBe(true);
@@ -479,7 +415,7 @@ describe("Bash Tool", () => {
     const pid = Number(await readFile(join(sessionCwd, "cancel.pid"), "utf8"));
     leftoverPids.add(pid);
     controller.abort();
-    await running;
+    await expect(running).rejects.toThrow("Tool execution failed.");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(() => process.kill(pid, 0)).toThrow();
     leftoverPids.delete(pid);
@@ -488,15 +424,11 @@ describe("Bash Tool", () => {
   it("maps an uncaught signal exit to ESIGNAL without reclassifying it as EEXIT", async () => {
     const result = await tool.execute({ command: "kill -s KILL $$" });
     expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "ESIGNAL",
-        details: {
-          signal: "SIGKILL",
-          termination: {
-            scope: POSIX ? "process-group" : "process-tree-best-effort",
-            forced: false,
-          },
+      details: {
+        signal: "SIGKILL",
+        termination: {
+          scope: POSIX ? "process-group" : "process-tree-best-effort",
+          forced: false,
         },
       },
     });

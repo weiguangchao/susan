@@ -5,6 +5,7 @@ import OpenAI, {
   APIError,
 } from "openai";
 import { isJsonValue, isRecord, type JsonValue } from "../core/json.js";
+import { toolResultText } from "../core/tool-result.js";
 import { SUSAN_USER_AGENT } from "../version.js";
 import type {
   ProviderAdapter,
@@ -85,7 +86,7 @@ function toChatCompletionsRequest(
       return {
         role: "tool",
         tool_call_id: message.toolCallId,
-        content: JSON.stringify(message.content),
+        content: toolResultText(message.content),
       };
     }
 

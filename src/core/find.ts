@@ -5,14 +5,7 @@ import {
   type PathResolution,
   type PathResolutionError,
 } from "./path-resolver.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  normalizeToolResult,
-  type ToolResult,
-  type ToolResultContinuationContext,
-  type ToolTruncationReason,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
 import {
   TRAVERSAL_DEFAULT_TIMEOUT_MS,
   TRAVERSAL_MAX_DEPTH,
@@ -39,33 +32,10 @@ const ALLOWED_FIELDS = new Set([
   "limit",
   "offset",
 ]);
-const TRUNCATION_REASON_ORDER: readonly ToolTruncationReason[] = [
-  "bytes",
-  "lines",
-  "items",
-  "line-length",
-];
 
 const FIND_TYPES = ["file", "directory", "symlink", "all"] as const;
 
 export type FindEntryType = (typeof FIND_TYPES)[number];
-
-export type FindErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "EINVAL_GLOB"
-  | "EINVAL_TYPE"
-  | "EINVAL_DEPTH"
-  | "EINVAL_LIMIT"
-  | "EINVAL_OFFSET"
-  | "ENOENT"
-  | "ENOTDIR"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EQUERY_TOO_LARGE"
-  | "ETIMEDOUT"
-  | "ETOOL";
 
 export type FindToolOptions = {
   readonly sessionCwd: string;
@@ -73,11 +43,27 @@ export type FindToolOptions = {
   readonly now?: () => number;
 };
 
+export type FindToolDetails = {
+  readonly resolvedPath: string;
+  readonly realTargetPath: string;
+  readonly cwdRelation: CwdRelation;
+  readonly entries: readonly TraversalEntry[];
+  readonly diagnostics: readonly TraversalDiagnostic[];
+  readonly truncation?: {
+    readonly truncatedBy: "items";
+    readonly outputItems: number;
+    readonly nextOffset: number;
+    readonly type?: Exclude<FindEntryType, "all">;
+    readonly maxDepth?: number;
+    readonly includeIgnored?: true;
+  };
+};
+
 export type FindTool = {
   readonly name: "find";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<FindToolDetails>>;
 };
 
 type ValidatedArguments = {
@@ -90,41 +76,18 @@ type ValidatedArguments = {
   readonly offset: number;
 };
 
-type ArgumentValidationResult =
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult };
-
 type PathFacts = {
   readonly resolvedPath: string;
   readonly realTargetPath: string;
   readonly cwdRelation: CwdRelation;
 };
 
-function fail(
-  code: FindErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
+function fail(message: string): never {
+  throw new Error(message);
 }
 
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid find arguments.", { field });
+function invalid(_field: string): never {
+  fail("Invalid find arguments.");
 }
 
 function isSafeInteger(value: unknown): value is number {
@@ -135,99 +98,67 @@ function isFindEntryType(value: unknown): value is FindEntryType {
   return FIND_TYPES.includes(value as FindEntryType);
 }
 
-function validateArguments(input: unknown): ArgumentValidationResult {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("pattern") };
+    invalid("pattern");
   }
   const extra = Object.keys(input).find((key) => !ALLOWED_FIELDS.has(key));
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    invalid(extra);
   }
   if (typeof input.pattern !== "string") {
-    return { ok: false, result: invalid("pattern") };
+    invalid("pattern");
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    invalid("path");
   }
   if (input.type !== undefined && typeof input.type !== "string") {
-    return { ok: false, result: invalid("type") };
+    invalid("type");
   }
   if (
     input.includeIgnored !== undefined &&
     typeof input.includeIgnored !== "boolean"
   ) {
-    return { ok: false, result: invalid("includeIgnored") };
+    invalid("includeIgnored");
   }
   if (input.maxDepth !== undefined && !isSafeInteger(input.maxDepth)) {
-    return { ok: false, result: invalid("maxDepth") };
+    invalid("maxDepth");
   }
   if (input.limit !== undefined && !isSafeInteger(input.limit)) {
-    return { ok: false, result: invalid("limit") };
+    invalid("limit");
   }
   if (input.offset !== undefined && !isSafeInteger(input.offset)) {
-    return { ok: false, result: invalid("offset") };
+    invalid("offset");
   }
   if (!compileGlob(input.pattern).ok) {
-    return {
-      ok: false,
-      result: fail("EINVAL_GLOB", "pattern must be a valid glob.", {
-        field: "pattern",
-      }),
-    };
+    fail("pattern must be a valid glob.");
   }
   if (input.type !== undefined && !isFindEntryType(input.type)) {
-    return {
-      ok: false,
-      result: fail("EINVAL_TYPE", `type must be one of ${FIND_TYPES.join(", ")}.`, {
-        field: "type",
-      }),
-    };
+    fail(`type must be one of ${FIND_TYPES.join(", ")}.`);
   }
   if (
     input.limit !== undefined &&
     (input.limit < 1 || input.limit > FIND_MAX_LIMIT)
   ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_LIMIT",
-        `limit must be an integer between 1 and ${FIND_MAX_LIMIT}.`,
-        { field: "limit" },
-      ),
-    };
+    fail(`limit must be an integer between 1 and ${FIND_MAX_LIMIT}.`);
   }
   if (input.offset !== undefined && input.offset < 0) {
-    return {
-      ok: false,
-      result: fail("EINVAL_OFFSET", "offset must be a non-negative integer.", {
-        field: "offset",
-      }),
-    };
+    fail("offset must be a non-negative integer.");
   }
   if (
     input.maxDepth !== undefined &&
     (input.maxDepth < 1 || input.maxDepth > TRAVERSAL_MAX_DEPTH)
   ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_DEPTH",
-        `maxDepth must be an integer between 1 and ${TRAVERSAL_MAX_DEPTH}.`,
-        { field: "maxDepth" },
-      ),
-    };
+    fail(`maxDepth must be an integer between 1 and ${TRAVERSAL_MAX_DEPTH}.`);
   }
   return {
-    ok: true,
-    value: {
-      pattern: input.pattern,
-      path: input.path ?? ".",
-      type: isFindEntryType(input.type) ? input.type : "all",
-      maxDepth: input.maxDepth,
-      includeIgnored: input.includeIgnored === true,
-      limit: input.limit ?? FIND_DEFAULT_LIMIT,
-      offset: input.offset ?? 0,
-    },
+    pattern: input.pattern,
+    path: input.path ?? ".",
+    type: isFindEntryType(input.type) ? input.type : "all",
+    maxDepth: input.maxDepth,
+    includeIgnored: input.includeIgnored === true,
+    limit: input.limit ?? FIND_DEFAULT_LIMIT,
+    offset: input.offset ?? 0,
   };
 }
 
@@ -243,10 +174,9 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
+function mapPathError(error: PathResolutionError): never {
   if (error.code === "ESYMLINK") {
-    return fail("EIO", "Path cannot be resolved.", details);
+    fail("Path cannot be resolved.");
   }
   const messages: Record<Exclude<PathResolutionError["code"], "ESYMLINK">, string> = {
     EINVAL_PATH: "Path syntax is invalid.",
@@ -255,180 +185,73 @@ function mapPathError(error: PathResolutionError): ToolResult {
     EACCES: "Path cannot be read.",
     EIO: "Path cannot be resolved.",
   };
-  return fail(error.code, messages[error.code], details);
+  fail(messages[error.code]);
 }
 
-function mapTraversalError(error: TraversalError, facts: PathFacts): ToolResult {
-  const details = {
-    ...facts,
-    ...(error.details === undefined ? {} : error.details),
-  };
+function mapTraversalError(error: TraversalError): never {
   if (error.code === "ENOTDIR") {
-    return fail("ENOTDIR", "Path is not a directory.", details);
+    fail("Path is not a directory.");
   }
   if (error.code === "ENOENT") {
-    return fail("ENOENT", "Path does not exist.", details);
+    fail("Path does not exist.");
   }
   if (error.code === "EACCES") {
-    return fail("EACCES", "Path cannot be read.", details);
+    fail("Path cannot be read.");
   }
   if (error.code === "ELOOP") {
-    return fail("ELOOP", "Path contains a symlink loop.", details);
+    fail("Path contains a symlink loop.");
   }
   if (error.code === "EQUERY_TOO_LARGE") {
-    return fail("EQUERY_TOO_LARGE", "Query exceeded the entry budget.", details);
+    fail("Query exceeded the entry budget.");
   }
   if (error.code === "ETIMEDOUT") {
-    return fail("ETIMEDOUT", "Find timed out.", details);
+    fail("Find timed out.");
   }
-  return fail("EIO", "Search Root cannot be traversed.", details);
+  fail("Search Root cannot be traversed.");
 }
 
 function isTimeoutReason(reason: unknown): boolean {
   return reason instanceof Error && reason.name === "TimeoutError";
 }
 
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Find timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
+function abortResult(signal: AbortSignal): never {
+  if (isTimeoutReason(signal.reason)) {
+    fail("Find timed out.");
+  }
+  fail("Tool execution failed.");
 }
 
-function continuationArguments(
-  args: ValidatedArguments,
-  offset: number,
-): JsonObject {
-  return {
-    pattern: args.pattern,
-    path: args.path,
-    offset,
-    limit: args.limit,
-    ...(args.type === "all" ? {} : { type: args.type }),
-    ...(args.maxDepth === undefined ? {} : { maxDepth: args.maxDepth }),
-    ...(args.includeIgnored ? { includeIgnored: true } : {}),
-  };
+function formatFindEntry(entry: TraversalEntry): string {
+  if (entry.type === "directory") {
+    return `${entry.path}/`;
+  }
+  if (entry.type === "symlink") {
+    return `${entry.path}@`;
+  }
+  return entry.path;
 }
 
-function fieldBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function mergeLimitContinuation(
-  bounded: ToolResult,
-  args: ValidatedArguments,
-  paged: readonly TraversalEntry[],
-  remaining: readonly TraversalEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  if (!bounded.ok || remaining.length <= paged.length) {
-    return bounded;
+function formatFindContent(
+  entries: readonly TraversalEntry[],
+  remaining: number,
+  nextOffset: number,
+): string {
+  const listing = entries.map(formatFindEntry).join("\n");
+  if (remaining <= 0) {
+    return listing;
   }
-  const retainedEntries = Array.isArray(bounded.result.entries)
-    ? bounded.result.entries.length
-    : 0;
-  if (retainedEntries !== paged.length) {
-    return bounded;
+  const note = `[${remaining} more entries. Use offset=${nextOffset} to continue.]`;
+  if (listing === "") {
+    return note;
   }
-  const existing = bounded.meta?.truncation;
-  if (
-    existing?.reasons.includes("items") === true &&
-    existing.fields.includes("entries") &&
-    existing.nextArguments !== undefined
-  ) {
-    return bounded;
-  }
-  const reasons = TRUNCATION_REASON_ORDER.filter(
-    (reason) => reason === "items" || existing?.reasons.includes(reason) === true,
-  );
-  const fields = ["entries", "diagnostics"].filter(
-    (field) => field === "entries" || existing?.fields.includes(field) === true,
-  );
-  return normalizeToolResult({
-    ok: true,
-    result: bounded.result,
-    meta: {
-      truncation: {
-        reasons,
-        strategy: "head",
-        fields,
-        retained: {
-          bytes: existing?.retained.bytes ??
-            fieldBytes(bounded.result.entries) +
-              fieldBytes(bounded.result.diagnostics),
-          items: retainedEntries,
-        },
-        total: {
-          bytes: fieldBytes(remaining) + fieldBytes(diagnostics),
-          items: remaining.length,
-        },
-        nextArguments: existing?.nextArguments ??
-          continuationArguments(args, args.offset + paged.length),
-      },
-    },
-  });
-}
-
-function boundFindResult(
-  facts: PathFacts,
-  args: ValidatedArguments,
-  remaining: readonly TraversalEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  const paged = remaining.slice(0, args.limit);
-  try {
-    const bounded = boundToolResult({
-      result: { ...facts },
-      fields: [
-        { name: "entries", kind: "items" },
-        { name: "diagnostics", kind: "items" },
-      ],
-      records: [
-        ...paged.map((entry) => ({
-          field: "entries",
-          value: entry,
-          items: 1 as const,
-        })),
-        ...diagnostics.map((diagnostic) => ({
-          field: "diagnostics",
-          value: diagnostic,
-        })),
-      ],
-      strategy: "head" as const,
-      includeTotal: ["bytes", "items"],
-      continuation({
-        firstOmittedRecordIndex,
-        retainedRecordIndices,
-      }: ToolResultContinuationContext) {
-        if (
-          firstOmittedRecordIndex !== undefined &&
-          firstOmittedRecordIndex < paged.length
-        ) {
-          const retainedEntries = retainedRecordIndices.filter(
-            (index) => index < paged.length,
-          ).length;
-          return retainedEntries === 0
-            ? undefined
-            : continuationArguments(args, args.offset + firstOmittedRecordIndex);
-        }
-        return remaining.length > paged.length
-          ? continuationArguments(args, args.offset + paged.length)
-          : undefined;
-      },
-    });
-    return mergeLimitContinuation(bounded, args, paged, remaining, diagnostics);
-  } catch {
-    return fail("ETOOL", "Tool result exceeds its size limit.", facts);
-  }
+  return `${listing}\n\n${note}`;
 }
 
 export async function executeFind(
   input: unknown,
   options: FindToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<FindToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
 
   const timeoutMs = options.timeoutMs ?? FIND_DEFAULT_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -436,56 +259,76 @@ export async function executeFind(
     ? timeout
     : AbortSignal.any([timeout, options.signal]);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
+    mapPathError(resolverResult.error);
   }
 
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
+  const resolved = await resolverResult.value.resolve(validated.path, {
     existence: "required",
     symlinks: "follow",
   });
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolved.ok) {
-    return mapPathError(resolved.error);
+    mapPathError(resolved.error);
   }
 
   const facts = pathFacts(resolved.value);
   const walked = await traverse({
     searchRoot: facts.realTargetPath,
-    glob: validated.value.pattern,
-    ...(validated.value.maxDepth === undefined
+    glob: validated.pattern,
+    ...(validated.maxDepth === undefined
       ? {}
-      : { maxDepth: validated.value.maxDepth }),
-    includeIgnored: validated.value.includeIgnored,
+      : { maxDepth: validated.maxDepth }),
+    includeIgnored: validated.includeIgnored,
     timeoutMs,
     signal,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   if (!walked.ok) {
     if (signal.aborted) {
-      return abortResult(signal, facts);
+      abortResult(signal);
     }
-    return mapTraversalError(walked.error, facts);
+    mapTraversalError(walked.error);
   }
 
   const remaining = walked.value.entries
-    .filter((entry) => matchesType(entry, validated.value.type))
-    .slice(validated.value.offset);
-  return boundFindResult(
-    facts,
-    validated.value,
-    remaining,
-    walked.value.diagnostics,
-  );
+    .filter((entry) => matchesType(entry, validated.type))
+    .slice(validated.offset);
+  const paged = remaining.slice(0, validated.limit);
+  const omitted = remaining.length - paged.length;
+  const nextOffset = validated.offset + paged.length;
+  const details: FindToolDetails = {
+    ...facts,
+    entries: paged,
+    diagnostics: walked.value.diagnostics,
+    ...(omitted > 0
+      ? {
+          truncation: {
+            truncatedBy: "items" as const,
+            outputItems: paged.length,
+            nextOffset,
+            ...(validated.type === "all" ? {} : { type: validated.type }),
+            ...(validated.maxDepth === undefined
+              ? {}
+              : { maxDepth: validated.maxDepth }),
+            ...(validated.includeIgnored ? { includeIgnored: true as const } : {}),
+          },
+        }
+      : {}),
+  };
+  return {
+    content: [{ type: "text", text: formatFindContent(paged, omitted, nextOffset) }],
+    details,
+  };
 }
 
 export function createFindTool(options: FindToolOptions): FindTool {

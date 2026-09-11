@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from "./json.js";
+import type { ToolResultContent } from "./tool-result.js";
 
 export type ProviderType =
   | "anthropic"
@@ -56,7 +57,13 @@ export type CompletionMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string }
   | AssistantMessage
-  | { role: "tool"; toolCallId: string; content: JsonValue };
+  | {
+      role: "tool";
+      toolCallId: string;
+      content: ToolResultContent;
+      isError?: boolean;
+      details?: JsonValue;
+    };
 
 export type ProviderToolDefinition = {
   name: string;

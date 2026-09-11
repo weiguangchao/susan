@@ -10,7 +10,7 @@ import {
 } from "./context.js";
 import type { JsonValue } from "./json.js";
 import {
-  normalizeToolResult,
+  createErrorToolResult,
   type ToolResult,
 } from "./tool-result.js";
 import type {
@@ -52,14 +52,13 @@ export function buildSystemPrompt(cwd: string): string {
 }
 
 export type HarnessTool = ProviderToolDefinition & {
-  execute(input: unknown, signal?: AbortSignal): Promise<unknown>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
 };
 
 export type HarnessStatus =
   | "idle"
   | "running"
   | "pending"
-  | "compatibility"
   | "failed";
 
 export type PendingAgentLoop = {
@@ -67,8 +66,7 @@ export type PendingAgentLoop = {
     | "provider-failure"
     | "interrupted"
     | "restored"
-    | "user-interrupt"
-    | "compatibility";
+    | "user-interrupt";
   readonly failure?: ProviderFailure;
 };
 
@@ -112,6 +110,7 @@ export type HarnessEvent =
       readonly type: "tool-completed";
       readonly toolCall: ProviderToolCall;
       readonly result: ToolResult;
+      readonly isError: boolean;
     }
   | {
       readonly type: "tool-batch-completed";
@@ -217,22 +216,9 @@ export type Harness = {
   subscribe(listener: (event: HarnessEvent) => void): () => void;
 };
 
-function hasUnexecutedLegacyReadFile(
-  messages: readonly CompletionMessage[],
-): boolean {
-  return (
-    restoredToolBatch(messages)?.remaining.some(
-      (toolCall) => toolCall.name === "read_file",
-    ) ?? false
-  );
-}
-
 function restoredPending(
   messages: readonly CompletionMessage[],
 ): PendingAgentLoop | null {
-  if (hasUnexecutedLegacyReadFile(messages)) {
-    return { reason: "compatibility" };
-  }
   const last = messages.at(-1);
   if (
     last === undefined ||
@@ -394,17 +380,9 @@ export function createHarness(options: HarnessOptions): Harness {
     0,
   );
   let pending = restoredPending(messages);
-  let status: HarnessStatus =
-    pending === null
-      ? "idle"
-      : pending.reason === "compatibility"
-        ? "compatibility"
-        : "pending";
+  let status: HarnessStatus = pending === null ? "idle" : "pending";
   let activeRunController: AbortController | undefined;
-  let pendingToolBatch =
-    pending?.reason === "compatibility"
-      ? undefined
-      : restoredToolBatch(messages);
+  let pendingToolBatch = restoredToolBatch(messages);
   const clock = options.clock ?? systemClock;
   const random = options.random ?? Math.random;
   let provider = options.provider;
@@ -877,7 +855,11 @@ export function createHarness(options: HarnessOptions): Harness {
   const executeToolCall = async (
     toolCall: ProviderToolCall,
   ): Promise<
-    | { readonly kind: "completed"; readonly result: ToolResult }
+    | {
+        readonly kind: "completed";
+        readonly result: ToolResult;
+        readonly isError: boolean;
+      }
     | { readonly kind: "interrupted" }
   > => {
     if (activeRunController?.signal.aborted) {
@@ -889,10 +871,8 @@ export function createHarness(options: HarnessOptions): Harness {
     if (tool === undefined) {
       return {
         kind: "completed",
-        result: {
-          ok: false,
-          error: { code: "ETOOL", message: "Tool is not registered." },
-        },
+        result: createErrorToolResult("Tool is not registered."),
+        isError: true,
       };
     }
     emit({ type: "tool-started", toolCall });
@@ -915,10 +895,9 @@ export function createHarness(options: HarnessOptions): Harness {
     );
     try {
       const outcome = await Promise.race([
-        tool.execute(toolCall.arguments, controller.signal).then((value) => ({
-          type: "result" as const,
-          value,
-        })),
+        tool.execute(toolCall.arguments, controller.signal).then(
+          (value) => ({ type: "result" as const, value }),
+        ),
         clock
           .sleep(10_000, timerController.signal)
           .then(() => ({ type: "timeout" as const })),
@@ -933,25 +912,24 @@ export function createHarness(options: HarnessOptions): Harness {
         controller.abort();
         return {
           kind: "completed",
-          result: {
-            ok: false,
-            error: {
-              code: "ETIMEDOUT",
-              message: "Tool execution timed out.",
-            },
-          },
+          result: createErrorToolResult("Tool execution timed out."),
+          isError: true,
         };
       }
       timerController.abort();
-      return { kind: "completed", result: normalizeToolResult(outcome.value) };
-    } catch {
+      return {
+        kind: "completed",
+        result: outcome.value,
+        isError: false,
+      };
+    } catch (error) {
       timerController.abort();
       return {
         kind: "completed",
-        result: {
-          ok: false,
-          error: { code: "ETOOL", message: "Tool execution failed." },
-        },
+        result: createErrorToolResult(
+          error instanceof Error ? error.message : String(error),
+        ),
+        isError: true,
       };
     } finally {
       runSignal?.removeEventListener("abort", interruptTool);
@@ -980,11 +958,16 @@ export function createHarness(options: HarnessOptions): Harness {
         return interruptAgentLoop();
       }
       const result = outcome.result;
-      emit({ type: "tool-completed", toolCall, result });
+      const isError = outcome.isError;
+      emit({ type: "tool-completed", toolCall, result, isError });
       const appendedResult = await appendMessage({
         role: "tool",
         toolCallId: toolCall.id,
-        content: result,
+        content: result.content,
+        ...(result.details === undefined
+          ? {}
+          : { details: result.details as JsonValue }),
+        ...(isError ? { isError: true } : {}),
       });
       if (!appendedResult.ok) {
         return appendedResult;
@@ -1096,15 +1079,6 @@ export function createHarness(options: HarnessOptions): Harness {
         return { ok: true };
       }
       if (command.type === "retry") {
-        if (status === "compatibility") {
-          return {
-            ok: false,
-            error: {
-              code: "HARNESS_INVALID_COMMAND",
-              message: "Legacy Tool Call cannot be replayed.",
-            },
-          };
-        }
         if (status !== "pending") {
           return {
             ok: false,
@@ -1126,11 +1100,7 @@ export function createHarness(options: HarnessOptions): Harness {
         return result;
       }
       if (command.type === "configure-model") {
-        if (
-          status !== "idle" &&
-          status !== "pending" &&
-          status !== "compatibility"
-        ) {
+        if (status !== "idle" && status !== "pending") {
           return {
             ok: false,
             error: {
@@ -1146,7 +1116,7 @@ export function createHarness(options: HarnessOptions): Harness {
         maxOutputTokens = command.maxOutputTokens;
         return { ok: true };
       }
-      if (status !== "idle" && status !== "compatibility") {
+      if (status !== "idle") {
         return {
           ok: false,
           error: { code: "HARNESS_BUSY", message: "Harness is not idle." },

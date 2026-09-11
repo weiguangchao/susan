@@ -81,8 +81,11 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toEqual({
-      ok: true,
-      result: {
+      content: [{
+        type: "text",
+        text: `Successfully replaced 1 block(s) in ${path}.`,
+      }],
+      details: {
         resolvedPath: path,
         realTargetPath: await realpath(path),
         cwdRelation: "inside",
@@ -110,8 +113,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         editsApplied: 2,
         replacementsApplied: 2,
         diff: "@@ -1,2 +1,2 @@\n-a\n-b\n+b\n+c",
@@ -130,8 +132,7 @@ describe("Edit Tool", () => {
         edits: [{ oldText: "x", newText: "y", replaceAll: true }],
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      result: {
+      details: {
         editsApplied: 1,
         replacementsApplied: 3,
         diff: "@@ -1 +1 @@\n-x x x\n+y y y",
@@ -145,8 +146,7 @@ describe("Edit Tool", () => {
         edits: [{ oldText: "aa", newText: "b", replaceAll: true }],
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      result: { replacementsApplied: 2 },
+      details: { replacementsApplied: 2 },
     });
     await expect(readFile(packed, "utf8")).resolves.toBe("bb");
   });
@@ -166,8 +166,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         editsApplied: EDIT_MAX_EDITS,
         replacementsApplied: EDIT_MAX_EDITS,
       },
@@ -186,8 +185,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         bytesWritten: 16,
         lineEnding: "mixed",
         diff: "@@ -1,3 +1,3 @@\n-alpha\n-beta\n+one\n+two\n gamma",
@@ -204,22 +202,22 @@ describe("Edit Tool", () => {
 
     await expect(
       tool.execute({ path: dominant, edits: [{ oldText: "c", newText: "x\ny" }] }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ details: expect.anything() });
     await expect(readFile(dominant, "utf8")).resolves.toBe("a\r\nb\r\nx\r\ny\n");
 
     await expect(
       tool.execute({ path: tieCrlf, edits: [{ oldText: "a\nb", newText: "p\nq" }] }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ details: expect.anything() });
     await expect(readFile(tieCrlf, "utf8")).resolves.toBe("p\r\nq\nc\r\nd\n");
 
     await expect(
       tool.execute({ path: tieLf, edits: [{ oldText: "b\nc", newText: "p\nq" }] }),
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ details: expect.anything() });
     await expect(readFile(tieLf, "utf8")).resolves.toBe("a\r\np\nq\r\nd\n");
 
     await expect(
       tool.execute({ path: single, edits: [{ oldText: "solo", newText: "one\ntwo" }] }),
-    ).resolves.toMatchObject({ ok: true, result: { lineEnding: "lf" } });
+    ).resolves.toMatchObject({ details: { lineEnding: "lf" } });
     await expect(readFile(single, "utf8")).resolves.toBe("one\ntwo");
   });
 
@@ -235,7 +233,7 @@ describe("Edit Tool", () => {
     ]) {
       await expect(
         tool.execute({ path, edits: [{ oldText, newText: "replaced" }] }),
-      ).resolves.toMatchObject({ ok: false, error: { code: "ENOMATCH" } });
+      ).rejects.toThrow("oldText does not appear in the file.");
     }
     await expect(readFile(path, "utf8")).resolves.toBe(
       "café “quoted” — dash\ttab\n",
@@ -251,8 +249,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         bom: true,
         bytesWritten: 8,
         diff: "@@ -1 +1 @@\n-alpha\n+beta",
@@ -272,8 +269,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         bytesWritten: 11,
         diff:
           "@@ -1,2 +1,2 @@\n alpha\n-beta\n\\ No newline at end of file\n+beta",
@@ -291,8 +287,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         bytesWritten: 0,
         lineEnding: "none",
         diff: "@@ -1 +0,0 @@\n-only",
@@ -314,8 +309,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         diff: [
           "@@ -2,7 +2,7 @@",
           " line1",
@@ -353,8 +347,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         diff: [
           "@@ -2,12 +2,12 @@",
           " line1",
@@ -385,8 +378,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         diff:
           "@@ -1,3 +1,3 @@\n-alpha\n+ALPHA\n beta\n gamma\n\\ No newline at end of file",
       },
@@ -406,11 +398,8 @@ describe("Edit Tool", () => {
       [{ path, edits: {} }, "edits"],
       [null, "path"],
     ] as const;
-    for (const [input, field] of invalidArguments) {
-      await expect(tool.execute(input)).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EINVAL", details: { field } },
-      });
+    for (const [input] of invalidArguments) {
+      await expect(tool.execute(input)).rejects.toThrow("Invalid edit arguments.");
     }
 
     const invalidEdits: readonly unknown[][] = [
@@ -425,10 +414,7 @@ describe("Edit Tool", () => {
       [{ oldText: "alpha", newText: "beta", replaceAll: "yes" }],
     ];
     for (const edits of invalidEdits) {
-      await expect(tool.execute({ path, edits })).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EINVAL_EDIT" },
-      });
+      await expect(tool.execute({ path, edits })).rejects.toThrow();
     }
     await expect(readFile(path, "utf8")).resolves.toBe("alpha\n");
   });
@@ -439,19 +425,10 @@ describe("Edit Tool", () => {
 
     await expect(
       tool.execute({ path, edits: [{ oldText: "zzz", newText: "y" }] }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOMATCH",
-        details: { editIndex: 0, resolvedPath: path },
-      },
-    });
+    ).rejects.toThrow("oldText does not appear in the file.");
     await expect(
       tool.execute({ path, edits: [{ oldText: "a", newText: "b" }] }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ENONUNIQUE", details: { editIndex: 0, matches: 2 } },
-    });
+    ).rejects.toThrow("oldText appears more than once.");
     await expect(
       tool.execute({
         path: overlapping,
@@ -460,16 +437,13 @@ describe("Edit Tool", () => {
           { oldText: "bcd", newText: "y" },
         ],
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EOVERLAP", details: { editIndexes: [0, 1] } },
-    });
+    ).rejects.toThrow("Two edits replace the same source text.");
     await expect(
       tool.execute({
         path,
         edits: [{ oldText: "a", newText: "a", replaceAll: true }],
       }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "ENOCHANGE" } });
+    ).rejects.toThrow("The batch leaves the file unchanged.");
     await expect(readFile(path, "utf8")).resolves.toBe("a a\n");
     await expect(readFile(overlapping, "utf8")).resolves.toBe("abcd");
   });
@@ -485,10 +459,7 @@ describe("Edit Tool", () => {
           { oldText: "a", newText: "b" },
         ],
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ENOMATCH", details: { editIndex: 0 } },
-    });
+    ).rejects.toThrow("oldText does not appear in the file.");
     await expect(
       tool.execute({
         path,
@@ -497,7 +468,7 @@ describe("Edit Tool", () => {
           { oldText: "a a", newText: "a a" },
         ],
       }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "EOVERLAP" } });
+    ).rejects.toThrow("Two edits replace the same source text.");
   });
 
   it("uses stable schema, path, file type, size, and UTF-8 precedence", async () => {
@@ -513,31 +484,22 @@ describe("Edit Tool", () => {
 
     await expect(
       tool.execute({ path: directory, edits: [{ oldText: "", newText: "b" }] }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "EINVAL_EDIT" } });
+    ).rejects.toThrow("oldText must be a non-empty string.");
     await expect(
       tool.execute({ path: join(sessionCwd, "missing.txt"), edits }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "ENOENT" } });
+    ).rejects.toThrow("Path does not exist.");
     await expect(
       tool.execute({ path: directory, edits }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "EISDIR" } });
+    ).rejects.toThrow("Path is a directory.");
     await expect(
       tool.execute({ path: oversized, edits }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "EFILE_TOO_LARGE",
-        details: {
-          actualBytes: EDIT_MAX_CONTENT_BYTES + 1,
-          limitBytes: EDIT_MAX_CONTENT_BYTES,
-        },
-      },
-    });
+    ).rejects.toThrow("File exceeds the 10 MiB size limit.");
     await expect(
       tool.execute({ path: binary, edits }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "EBINARY" } });
+    ).rejects.toThrow("File is not valid UTF-8 text.");
     await expect(
       tool.execute({ path: invalidUtf8, edits }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "EBINARY" } });
+    ).rejects.toThrow("File is not valid UTF-8 text.");
   });
 
   it("rejects newText that is not valid UTF-8 text", async () => {
@@ -552,13 +514,7 @@ describe("Edit Tool", () => {
             { oldText: "alpha", newText },
           ],
         }),
-      ).resolves.toMatchObject({
-        ok: false,
-        error: {
-          code: "EBINARY",
-          details: { editIndex: 1, field: "newText", resolvedPath: path },
-        },
-      });
+      ).rejects.toThrow("newText must be valid UTF-8 text without NUL bytes.");
     }
     await expect(readFile(path, "utf8")).resolves.toBe("alpha\n");
   });
@@ -567,31 +523,19 @@ describe("Edit Tool", () => {
     const original = `x${"a".repeat(EDIT_MAX_CONTENT_BYTES - 1)}`;
     const path = await seed("grown.txt", original);
 
-    const result = await tool.execute({
-      path,
-      edits: [{ oldText: "x", newText: "xy" }],
-    });
-
-    expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "EFILE_TOO_LARGE",
-        details: {
-          actualBytes: EDIT_MAX_CONTENT_BYTES + 1,
-          limitBytes: EDIT_MAX_CONTENT_BYTES,
-        },
-      },
-    });
+    await expect(
+      tool.execute({
+        path,
+        edits: [{ oldText: "x", newText: "xy" }],
+      }),
+    ).rejects.toThrow("Edit result exceeds the 10 MiB size limit.");
     expect((await stat(path)).size).toBe(EDIT_MAX_CONTENT_BYTES);
   });
 
   it.skipIf(!POSIX)("rejects special-file targets", async () => {
     await expect(
       tool.execute({ path: "/dev/null", edits: [{ oldText: "a", newText: "b" }] }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EUNSUPPORTED", details: { cwdRelation: "outside" } },
-    });
+    ).rejects.toThrow("Path is not a regular file.");
   });
 
   it("rejects final symlinks, including dangling symlinks", async () => {
@@ -606,14 +550,12 @@ describe("Edit Tool", () => {
     );
     const edits = [{ oldText: "kept", newText: "changed" }];
 
-    await expect(tool.execute({ path: linked, edits })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ESYMLINK", details: { resolvedPath: linked } },
-    });
-    await expect(tool.execute({ path: dangling, edits })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ESYMLINK", details: { resolvedPath: dangling } },
-    });
+    await expect(tool.execute({ path: linked, edits })).rejects.toThrow(
+      "Final path component is a symlink.",
+    );
+    await expect(tool.execute({ path: dangling, edits })).rejects.toThrow(
+      "Final path component is a symlink.",
+    );
     await expect(readFile(target, "utf8")).resolves.toBe("kept\n");
     expect((await lstat(dangling)).isSymbolicLink()).toBe(true);
   });
@@ -632,8 +574,7 @@ describe("Edit Tool", () => {
       });
 
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: join(sessionCwd, "nested/notes.txt"),
           cwdRelation: "inside",
         },
@@ -660,8 +601,7 @@ describe("Edit Tool", () => {
       });
 
       expect(result).toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: join(linkedParent, "notes.txt"),
           realTargetPath: join(await realpath(outside), "notes.txt"),
           cwdRelation: "outside",
@@ -689,8 +629,7 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: { detachedHardLinks: true, bytesWritten: 4 },
+      details: { detachedHardLinks: true, bytesWritten: 4 },
     });
     expect((await stat(path)).mode & 0o777).toBe(0o755);
     expect((await stat(path)).ino).not.toBe(before.ino);
@@ -712,23 +651,9 @@ describe("Edit Tool", () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      result: { editsApplied: 1, replacementsApplied: 1_200 },
-      meta: {
-        truncation: {
-          reasons: ["bytes"],
-          strategy: "head",
-          fields: ["diff"],
-        },
-      },
+      details: { editsApplied: 1, replacementsApplied: 1_200 },
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const truncation = result.meta?.truncation;
-      expect(truncation?.retained.bytes).toBeLessThanOrEqual(50 * 1024);
-      expect(truncation?.total?.bytes).toBeGreaterThan(50 * 1024);
-      expect(String(result.result.diff).startsWith("@@ -1,")).toBe(true);
-    }
+    expect(result.details?.diff.startsWith("@@ -1,")).toBe(true);
     await expect(readFile(path, "utf8")).resolves.toBe(
       `${lines.map((line) => line.replace("old value", "new value")).join("\n")}\n`,
     );
@@ -745,15 +670,12 @@ describe("Edit Tool", () => {
       },
     });
 
-    const result = await tool.execute({
-      path,
-      edits: [{ oldText: "original", newText: "replacement" }],
-    });
-
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "ECONFLICT", details: { resolvedPath: path } },
-    });
+    await expect(
+      tool.execute({
+        path,
+        edits: [{ oldText: "original", newText: "replacement" }],
+      }),
+    ).rejects.toThrow("Target changed before commit.");
     await expect(readFile(path, "utf8")).resolves.toBe("external content\n");
   });
 
@@ -769,15 +691,12 @@ describe("Edit Tool", () => {
       },
     });
 
-    const result = await tool.execute(
-      { path, edits: [{ oldText: "original", newText: "replacement" }] },
-      controller.signal,
-    );
-
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "ETOOL", details: { resolvedPath: path } },
-    });
+    await expect(
+      tool.execute(
+        { path, edits: [{ oldText: "original", newText: "replacement" }] },
+        controller.signal,
+      ),
+    ).rejects.toThrow("File replacement was cancelled.");
     await expect(readFile(path, "utf8")).resolves.toBe("original\n");
     await expect(readdir(sessionCwd)).resolves.toEqual(["cancelled.txt"]);
   });
@@ -794,15 +713,12 @@ describe("Edit Tool", () => {
       },
     });
 
-    const result = await tool.execute({
-      path,
-      edits: [{ oldText: "original", newText: "replacement" }],
-    });
-
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT", details: { resolvedPath: path } },
-    });
+    await expect(
+      tool.execute({
+        path,
+        edits: [{ oldText: "original", newText: "replacement" }],
+      }),
+    ).rejects.toThrow("File replacement timed out.");
     await expect(readFile(path, "utf8")).resolves.toBe("original\n");
   });
 
@@ -824,8 +740,7 @@ describe("Edit Tool", () => {
     );
 
     expect(result).toMatchObject({
-      ok: true,
-      result: { editsApplied: 1, replacementsApplied: 1, bytesWritten: 10 },
+      details: { editsApplied: 1, replacementsApplied: 1, bytesWritten: 10 },
     });
     await expect(readFile(path, "utf8")).resolves.toBe("committed\n");
   });
@@ -846,22 +761,12 @@ describe("Edit Tool", () => {
       },
     });
 
-    const result = await tool.execute({
-      path,
-      edits: [{ oldText: "original", newText: "replacement" }],
-    });
-
-    expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: "ECONFLICT",
-        details: {
-          resolvedPath: path,
-          temporaryResidue: true,
-          temporaryPath,
-        },
-      },
-    });
+    await expect(
+      tool.execute({
+        path,
+        edits: [{ oldText: "original", newText: "replacement" }],
+      }),
+    ).rejects.toThrow("Target changed before commit.");
     await expect(readFile(path, "utf8")).resolves.toBe("external content\n");
     await expect(readFile(temporaryPath!, "utf8")).resolves.toBe("replacement\n");
   });

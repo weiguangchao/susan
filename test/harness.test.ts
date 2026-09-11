@@ -53,7 +53,7 @@ function transcript(
   return {
     header: {
       type: "session",
-      version: 2,
+      version: 4,
       id: "00000000-0000-4000-8000-000000000001",
       createdAt: "2026-09-03T00:00:00.000Z",
       cwd: "/workspace",
@@ -584,7 +584,7 @@ describe("Harness", () => {
       parameters: { type: "object" },
       async execute(input) {
         executionOrder.push(name);
-        return { ok: true, result: { input } };
+        return { content: [{ type: "text", text: "" }], details: { input } };
       },
     });
     const events: HarnessEvent[] = [];
@@ -625,12 +625,14 @@ describe("Harness", () => {
       {
         role: "tool",
         toolCallId: "call-1",
-        content: { ok: true, result: { input: { value: 1 } } },
+        content: [{ type: "text", text: "" }],
+        details: { input: { value: 1 } },
       },
       {
         role: "tool",
         toolCallId: "call-2",
-        content: { ok: true, result: { input: { value: 2 } } },
+        content: [{ type: "text", text: "" }],
+        details: { input: { value: 2 } },
       },
     ]);
   });
@@ -674,14 +676,7 @@ describe("Harness", () => {
         description: "typed",
         parameters: {},
         async execute() {
-          return {
-            ok: false,
-            error: {
-              code: "ENOENT",
-              message: "Missing",
-              details: { path: "/x" },
-            },
-          };
+          throw new Error("Missing");
         },
       },
       {
@@ -699,7 +694,7 @@ describe("Harness", () => {
         execute(_input, signal) {
           return new Promise((resolve) => {
             signal?.addEventListener("abort", () =>
-              resolve({ ok: true, result: "too late" }),
+              resolve({ content: [{ type: "text", text: "too late" }] }),
             );
           });
         },
@@ -729,23 +724,15 @@ describe("Harness", () => {
         .filter((message) => message.role === "tool")
         .map((message) => message.content),
     ).toEqual([
-      {
-        ok: false,
-        error: {
-          code: "ENOENT",
-          message: "Missing",
-          details: { path: "/x" },
-        },
-      },
-      {
-        ok: false,
-        error: { code: "ETOOL", message: "Tool execution failed." },
-      },
-      {
-        ok: false,
-        error: { code: "ETIMEDOUT", message: "Tool execution timed out." },
-      },
+      [{ type: "text", text: "Missing" }],
+      [{ type: "text", text: "secret stack" }],
+      [{ type: "text", text: "Tool execution timed out." }],
     ]);
+    expect(
+      appended
+        .filter((message) => message.role === "tool")
+        .map((message) => message.isError),
+    ).toEqual([true, true, true]);
   });
 
   it("executes an oversized Tool Batch serially in full", async () => {
@@ -795,7 +782,7 @@ describe("Harness", () => {
           parameters: {},
           async execute(input) {
             executions.push((input as { path: string }).path);
-            return { ok: true, result: {} };
+            return { content: [{ type: "text", text: "" }] };
           },
         },
       ],
@@ -810,7 +797,7 @@ describe("Harness", () => {
     const results = appended.filter((message) => message.role === "tool");
     expect(results).toHaveLength(9);
     expect(results.map((message) => message.content)).toEqual(
-      Array.from({ length: 9 }, () => ({ ok: true, result: {} })),
+      Array.from({ length: 9 }, () => [{ type: "text", text: "" }]),
     );
     expect(requests).toHaveLength(2);
   });
@@ -863,7 +850,7 @@ describe("Harness", () => {
           description: "read",
           parameters: {},
           async execute() {
-            return { ok: true, result: { content: "x" } };
+            return { content: [{ type: "text", text: "x" }] };
           },
         },
       ],
@@ -1085,97 +1072,16 @@ describe("Harness", () => {
     ]);
   });
 
-  it("enters compatibility stop for a pending legacy read_file Tool Call", async () => {
-    const requests: ProviderRequest[] = [];
-    const appended: CompletionMessage[] = [];
-    let executions = 0;
-    const harness = createHarness({
-      provider: fakeProvider(
-        [
-          [
-            {
-              type: "response-complete",
-              response: {
-                assistant: { role: "assistant", content: "should not run" },
-                finishReason: "stop",
-              },
-            },
-          ],
-        ],
-        requests,
-      ),
-      sessionStore: fakeSessionStore(appended),
-      session: await transcriptFromFixture("pending-legacy-read-file.jsonl"),
-      model: "model",
-      reasoningEffort: "high",
-      contextWindow: 1_000_000,
-      maxOutputTokens: 1_000,
-      tools: [
-        {
-          name: "read",
-          description: "read",
-          parameters: {},
-          async execute() {
-            executions += 1;
-            return { ok: true, result: { content: "x" } };
-          },
-        },
-      ],
-    });
-
-    expect(requests).toEqual([]);
-    expect(harness.getSnapshot()).toMatchObject({
-      status: "compatibility",
-      pending: { reason: "compatibility" },
-    });
-    expect(await harness.dispatch({ type: "retry" })).toMatchObject({
-      ok: false,
-      error: {
-        code: "HARNESS_INVALID_COMMAND",
-        message: "Legacy Tool Call cannot be replayed.",
-      },
-    });
-    expect(requests).toEqual([]);
-    expect(executions).toBe(0);
-    expect(appended).toEqual([]);
-  });
-
-  it("applies the same compatibility stop to an old awaiting-approval exit", async () => {
-    const requests: ProviderRequest[] = [];
-    const appended: CompletionMessage[] = [];
-    let executions = 0;
-    const harness = createHarness({
-      provider: fakeProvider([], requests),
-      sessionStore: fakeSessionStore(appended),
-      session: await transcriptFromFixture("awaiting-approval-exit.jsonl"),
-      model: "model",
-      reasoningEffort: "high",
-      contextWindow: 1_000_000,
-      maxOutputTokens: 1_000,
-      tools: [
-        {
-          name: "read",
-          description: "read",
-          parameters: {},
-          async execute() {
-            executions += 1;
-            return { ok: true, result: { content: "secret" } };
-          },
-        },
-      ],
-    });
-
-    expect(harness.getSnapshot()).toMatchObject({
-      status: "compatibility",
-      pending: { reason: "compatibility" },
-    });
-    expect(await harness.dispatch({ type: "retry" })).toMatchObject({
-      ok: false,
-      error: { message: "Legacy Tool Call cannot be replayed." },
-    });
-    expect(requests).toEqual([]);
-    expect(executions).toBe(0);
-    expect(appended).toEqual([]);
+  it("refuses to restore a retired Session Format Version into the Harness", async () => {
+    await expect(
+      transcriptFromFixture("pending-legacy-read-file.jsonl"),
+    ).rejects.toThrow("Unsupported Session Format Version");
+    await expect(
+      transcriptFromFixture("awaiting-approval-exit.jsonl"),
+    ).rejects.toThrow("Unsupported Session Format Version");
+    await expect(
+      transcriptFromFixture("completed-legacy-read-file.jsonl"),
+    ).rejects.toThrow("Unsupported Session Format Version");
   });
 
   it("keeps a restored new read Pending Agent Loop retryable without contacting the Provider", async () => {
@@ -1210,7 +1116,7 @@ describe("Harness", () => {
           parameters: {},
           async execute() {
             executions += 1;
-            return { ok: true, result: { content: "# Agents\n" } };
+            return { content: [{ type: "text", text: "# Agents\n" }] };
           },
         },
       ],
@@ -1228,134 +1134,9 @@ describe("Harness", () => {
       {
         role: "tool",
         toolCallId: "call-1",
-        content: { ok: true, result: { content: "# Agents\n" } },
+        content: [{ type: "text", text: "# Agents\n" }],
       },
     ]);
-  });
-
-  it("lets a compatibility stop accept a new instruction without replaying the legacy Tool Call", async () => {
-    const requests: ProviderRequest[] = [];
-    const appended: CompletionMessage[] = [];
-    let executions = 0;
-    const harness = createHarness({
-      provider: fakeProvider(
-        [
-          [
-            {
-              type: "response-complete",
-              response: {
-                assistant: { role: "assistant", content: "Understood." },
-                finishReason: "stop",
-              },
-            },
-          ],
-        ],
-        requests,
-      ),
-      sessionStore: fakeSessionStore(appended),
-      session: await transcriptFromFixture("pending-legacy-read-file.jsonl"),
-      model: "model",
-      reasoningEffort: "high",
-      contextWindow: 1_000_000,
-      maxOutputTokens: 1_000,
-      tools: [
-        {
-          name: "read",
-          description: "read",
-          parameters: {},
-          async execute() {
-            executions += 1;
-            return { ok: true, result: { content: "x" } };
-          },
-        },
-      ],
-    });
-
-    expect(await harness.dispatch({ type: "submit", content: "Continue without that file." })).toEqual({
-      ok: true,
-    });
-    expect(executions).toBe(0);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.messages).toEqual(
-      expect.arrayContaining([
-        { role: "user", content: "Read AGENTS.md" },
-        expect.objectContaining({
-          role: "assistant",
-          toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "AGENTS.md" } },
-          ],
-        }),
-        { role: "user", content: "Continue without that file." },
-      ]),
-    );
-    expect(appended).toEqual([
-      { role: "user", content: "Continue without that file." },
-      { role: "assistant", content: "Understood." },
-    ]);
-  });
-
-  it("restores completed legacy read_file records into the next Model Context", async () => {
-    const requests: ProviderRequest[] = [];
-    const harness = createHarness({
-      provider: fakeProvider(
-        [
-          [
-            {
-              type: "response-complete",
-              response: {
-                assistant: { role: "assistant", content: "Still here." },
-                finishReason: "stop",
-              },
-            },
-          ],
-        ],
-        requests,
-      ),
-      sessionStore: fakeSessionStore([]),
-      session: await transcriptFromFixture("completed-legacy-read-file.jsonl"),
-      model: "model",
-      reasoningEffort: "high",
-      contextWindow: 1_000_000,
-      maxOutputTokens: 1_000,
-      tools: [],
-    });
-
-    expect(requests).toEqual([]);
-    expect(harness.getSnapshot()).toMatchObject({
-      status: "idle",
-      pending: null,
-    });
-    expect(await harness.dispatch({ type: "submit", content: "Summarize that." })).toEqual({
-      ok: true,
-    });
-    expect(requests[0]?.messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          role: "assistant",
-          toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
-            { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
-          ],
-        }),
-        {
-          role: "tool",
-          toolCallId: "call-1",
-          content: {
-            ok: false,
-            error: {
-              code: "ENOENT",
-              message: "File not found",
-              path: "/workspace/missing.txt",
-            },
-          },
-        },
-        {
-          role: "tool",
-          toolCallId: "call-2",
-          content: { ok: true, result: { content: "# Agents\n" } },
-        },
-      ]),
-    );
   });
 
   it("interrupts active streaming and preserves only the last stable boundary", async () => {
@@ -1551,10 +1332,8 @@ describe("Harness", () => {
         await harness.dispatch({ type: "submit", content: "Read note.txt" }),
       ).toEqual({ ok: true });
       expect(appended.find((message) => message.role === "tool")).toMatchObject({
-        content: {
-          ok: true,
-          result: { resolvedPath: path, content: "confirmed content\n" },
-        },
+        content: [{ type: "text", text: "confirmed content\n" }],
+        details: { resolvedPath: path },
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -1617,10 +1396,10 @@ describe("Harness", () => {
         await harness.dispatch({ type: "submit", content: "Write created.txt" }),
       ).toEqual({ ok: true });
       expect(appended.find((message) => message.role === "tool")).toMatchObject({
-        content: {
-          ok: true,
-          result: { resolvedPath: path, operation: "created", bytesWritten: 8 },
-        },
+        content: [
+          { type: "text", text: `Successfully wrote to ${path}` },
+        ],
+        details: { resolvedPath: path, operation: "created", bytesWritten: 8 },
       });
       await expect(readFile(path, "utf8")).resolves.toBe("created\n");
     } finally {
@@ -1689,7 +1468,7 @@ describe("Harness", () => {
         {
           role: "tool",
           toolCallId: id,
-          content: { ok: true, result: { content: "x" } },
+          content: [{ type: "text", text: "x" }],
         },
       );
     }
@@ -1740,7 +1519,7 @@ describe("Harness", () => {
       {
         role: "tool",
         toolCallId: "done",
-        content: { ok: true, result: { content: "already read" } },
+        content: [{ type: "text", text: "already read" }],
       },
     ];
     const requests: ProviderRequest[] = [];
@@ -1775,7 +1554,7 @@ describe("Harness", () => {
           async execute(input) {
             const path = (input as { path: string }).path;
             executed.push(path);
-            return { ok: true, result: { content: path } };
+            return { content: [{ type: "text", text: path }] };
           },
         },
       ],
@@ -1786,7 +1565,7 @@ describe("Harness", () => {
       {
         role: "tool",
         toolCallId: "pending",
-        content: { ok: true, result: { content: "/pending" } },
+        content: [{ type: "text", text: "/pending" }],
       },
       { role: "assistant", content: "Both complete" },
     ]);
@@ -1839,7 +1618,7 @@ describe("Harness", () => {
                 "abort",
                 () => {
                   toolAborted = true;
-                  resolve({ ok: true, result: "late" });
+                  resolve({ content: [{ type: "text", text: "late" }] });
                 },
                 { once: true },
               );

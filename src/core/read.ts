@@ -8,11 +8,7 @@ import {
   type PathResolutionError,
 } from "./path-resolver.js";
 import { decodeUtf8Text, type LineEnding } from "./text-file.js";
-import {
-  boundToolResult,
-  normalizeToolResult,
-  type ToolResult,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
 
 export const READ_MAX_LINES = 2000;
 export const READ_MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -23,33 +19,36 @@ const READ_DESCRIPTION =
 
 export type ReadLineEnding = LineEnding;
 
-export type ReadErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "ENOENT"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EISDIR"
-  | "EUNSUPPORTED"
-  | "EFILE_TOO_LARGE"
-  | "EBINARY"
-  | "EINVAL_OFFSET"
-  | "EINVAL_LIMIT"
-  | "ECONFLICT"
-  | "ETIMEDOUT"
-  | "ETOOL";
-
 export type ReadToolOptions = {
   readonly sessionCwd: string;
   readonly timeoutMs?: number;
+};
+
+export type ReadToolDetails = {
+  readonly resolvedPath: string;
+  readonly realTargetPath: string;
+  readonly cwdRelation: CwdRelation;
+  readonly totalLines: number;
+  readonly sizeBytes: number;
+  readonly bom: boolean;
+  readonly lineEnding: ReadLineEnding;
+  readonly range: {
+    readonly startLine: number;
+    readonly endLine: number;
+  } | null;
+  readonly truncation?: {
+    readonly truncatedBy: "lines";
+    readonly totalLines: number;
+    readonly outputLines: number;
+    readonly nextOffset: number;
+  };
 };
 
 export type ReadTool = {
   readonly name: "read";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<ReadToolDetails>>;
 };
 
 type ValidatedArguments = {
@@ -57,10 +56,6 @@ type ValidatedArguments = {
   readonly offset: number;
   readonly limit: number;
 };
-
-type ArgumentValidationResult =
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult };
 
 type PathFacts = {
   readonly resolvedPath: string;
@@ -80,22 +75,6 @@ type LineScan = {
   readonly lineEnding: ReadLineEnding;
 };
 
-function fail(
-  code: ReadErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  return {
-    ok: false,
-    error:
-      details === undefined ? { code, message } : { code, message, details },
-  };
-}
-
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid read arguments.", { field });
-}
-
 function isIntegerNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value);
 }
@@ -106,53 +85,40 @@ function nodeErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function validateArguments(input: unknown): ArgumentValidationResult {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("path") };
+    throw new Error("Invalid read arguments.");
   }
   const extra = Object.keys(input).find(
     (key) => key !== "path" && key !== "offset" && key !== "limit",
   );
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    throw new Error("Invalid read arguments.");
   }
   if (typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    throw new Error("Invalid read arguments.");
   }
   if (input.offset !== undefined && !isIntegerNumber(input.offset)) {
-    return { ok: false, result: invalid("offset") };
+    throw new Error("Invalid read arguments.");
   }
   if (input.limit !== undefined && !isIntegerNumber(input.limit)) {
-    return { ok: false, result: invalid("limit") };
+    throw new Error("Invalid read arguments.");
   }
   if (input.offset !== undefined && input.offset < 1) {
-    return {
-      ok: false,
-      result: fail("EINVAL_OFFSET", "offset must be a positive integer.", {
-        field: "offset",
-      }),
-    };
+    throw new Error("offset must be a positive integer.");
   }
   if (
     input.limit !== undefined &&
     (input.limit < 1 || input.limit > READ_MAX_LINES)
   ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_LIMIT",
-        `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
-        { field: "limit" },
-      ),
-    };
+    throw new Error(
+      `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
+    );
   }
   return {
-    ok: true,
-    value: {
-      path: input.path,
-      offset: input.offset ?? 1,
-      limit: input.limit ?? READ_MAX_LINES,
-    },
+    path: input.path,
+    offset: input.offset ?? 1,
+    limit: input.limit ?? READ_MAX_LINES,
   };
 }
 
@@ -164,21 +130,20 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
+function mapPathError(error: PathResolutionError): never {
   if (error.code === "ENOENT") {
-    return fail("ENOENT", "Path does not exist.", details);
+    throw new Error("Path does not exist.");
   }
   if (error.code === "ELOOP") {
-    return fail("ELOOP", "Path contains a symlink loop.", details);
+    throw new Error("Path contains a symlink loop.");
   }
   if (error.code === "EACCES") {
-    return fail("EACCES", "Path cannot be read.", details);
+    throw new Error("Path cannot be read.");
   }
   if (error.code === "EINVAL_PATH") {
-    return fail("EINVAL_PATH", "Path syntax is invalid.", details);
+    throw new Error("Path syntax is invalid.");
   }
-  return fail("EIO", "Path cannot be resolved.", details);
+  throw new Error("Path cannot be resolved.");
 }
 
 function fileIdentity(stats: Stats): FileIdentity {
@@ -206,24 +171,25 @@ function isTimeoutReason(reason: unknown): boolean {
   );
 }
 
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Read timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
+function abortResult(signal: AbortSignal): never {
+  if (isTimeoutReason(signal.reason)) {
+    throw new Error("Read timed out.");
+  }
+  throw new Error("Tool execution failed.");
 }
 
-function mapObservedIoError(error: unknown, facts: PathFacts): ToolResult {
+function mapObservedIoError(error: unknown): never {
   const code = nodeErrorCode(error);
   if (code === "ENOENT") {
-    return fail("ECONFLICT", "File changed during read.", facts);
+    throw new Error("File changed during read.");
   }
   if (code === "EACCES" || code === "EPERM") {
-    return fail("EACCES", "File cannot be read.", facts);
+    throw new Error("File cannot be read.");
   }
   if (code === "EISDIR") {
-    return fail("EISDIR", "Path is a directory.", facts);
+    throw new Error("Path is a directory.");
   }
-  return fail("EIO", "File cannot be read.", facts);
+  throw new Error("File cannot be read.");
 }
 
 function scanLines(text: string): LineScan {
@@ -260,33 +226,11 @@ function scanLines(text: string): LineScan {
   return { lines, lineEnding };
 }
 
-function finalizeReadResult(
-  bounded: ToolResult,
-  offset: number,
-  recordCount: number,
-): ToolResult {
-  if (!bounded.ok) {
-    return bounded;
-  }
-  const retainedLines = bounded.meta?.truncation?.retained.lines ?? recordCount;
-  const range =
-    retainedLines === 0
-      ? null
-      : { startLine: offset, endLine: offset + retainedLines - 1 };
-  return normalizeToolResult({
-    ...bounded,
-    result: { ...bounded.result, range },
-  });
-}
-
 export async function executeRead(
   input: unknown,
   options: ReadToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<ReadToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
 
   const timeoutMs = options.timeoutMs ?? READ_DEFAULT_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -294,77 +238,74 @@ export async function executeRead(
     ? timeout
     : AbortSignal.any([timeout, options.signal]);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
 
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
+    mapPathError(resolverResult.error);
   }
 
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
+  const resolved = await resolverResult.value.resolve(validated.path, {
     existence: "required",
     symlinks: "follow",
   });
   if (signal.aborted) {
-    return abortResult(signal);
+    abortResult(signal);
   }
   if (!resolved.ok) {
-    return mapPathError(resolved.error);
+    mapPathError(resolved.error);
   }
 
   const facts = pathFacts(resolved.value);
   let identity: FileIdentity;
+  let stats: Stats;
   try {
-    const stats = await stat(facts.realTargetPath);
-    if (stats.isDirectory()) {
-      return fail("EISDIR", "Path is a directory.", facts);
-    }
-    if (!stats.isFile()) {
-      return fail("EUNSUPPORTED", "Path is not a regular file.", facts);
-    }
-    if (stats.size > READ_MAX_FILE_BYTES) {
-      return fail("EFILE_TOO_LARGE", "File exceeds the 100 MiB size limit.", {
-        ...facts,
-        actualBytes: stats.size,
-        limitBytes: READ_MAX_FILE_BYTES,
-      });
-    }
-    identity = fileIdentity(stats);
+    stats = await stat(facts.realTargetPath);
   } catch (error) {
     if (signal.aborted) {
-      return abortResult(signal, facts);
+      abortResult(signal);
     }
-    return mapObservedIoError(error, facts);
+    mapObservedIoError(error);
   }
+  if (stats.isDirectory()) {
+    throw new Error("Path is a directory.");
+  }
+  if (!stats.isFile()) {
+    throw new Error("Path is not a regular file.");
+  }
+  if (stats.size > READ_MAX_FILE_BYTES) {
+    throw new Error("File exceeds the 100 MiB size limit.");
+  }
+  identity = fileIdentity(stats);
 
   let bytes: Buffer;
   try {
     bytes = await readFile(facts.realTargetPath, { signal });
   } catch (error) {
     if (signal.aborted) {
-      return abortResult(signal, facts);
+      abortResult(signal);
     }
-    return mapObservedIoError(error, facts);
+    mapObservedIoError(error);
   }
 
   const decoded = decodeUtf8Text(bytes);
   if (!decoded.ok) {
-    return fail("EBINARY", "File is not valid UTF-8 text.", facts);
+    throw new Error("File is not valid UTF-8 text.");
   }
 
   if (signal.aborted) {
-    return abortResult(signal, facts);
+    abortResult(signal);
   }
-  const afterResolution = await resolverResult.value.resolve(validated.value.path, {
+  const afterResolution = await resolverResult.value.resolve(validated.path, {
     existence: "required",
     symlinks: "follow",
   });
   if (!afterResolution.ok) {
-    return fail("ECONFLICT", "File changed during read.", facts);
+    throw new Error("File changed during read.");
   }
   try {
     const afterStats = await stat(afterResolution.value.realTargetPath);
@@ -374,63 +315,55 @@ export async function executeRead(
       !sameIdentity(identity, fileIdentity(afterStats)) ||
       afterStats.size !== bytes.length
     ) {
-      return fail("ECONFLICT", "File changed during read.", facts);
+      throw new Error("File changed during read.");
     }
   } catch {
-    return fail("ECONFLICT", "File changed during read.", facts);
+    throw new Error("File changed during read.");
   }
 
   const { lines, lineEnding } = scanLines(decoded.text);
-  if (lines.length === 0 && validated.value.offset > 1) {
-    return fail("EINVAL_OFFSET", "offset is beyond the end of the file.", {
-      ...facts,
-      totalLines: 0,
-    });
+  if (lines.length === 0 && validated.offset > 1) {
+    throw new Error("offset is beyond the end of the file.");
   }
-  if (lines.length > 0 && validated.value.offset > lines.length) {
-    return fail("EINVAL_OFFSET", "offset is beyond the end of the file.", {
-      ...facts,
-      totalLines: lines.length,
-    });
+  if (lines.length > 0 && validated.offset > lines.length) {
+    throw new Error("offset is beyond the end of the file.");
   }
 
-  const records = lines.slice(validated.value.offset - 1).map((line) => ({
-    field: "content",
-    value: line,
-    lines: 1 as const,
-  }));
-  return finalizeReadResult(
-    boundToolResult({
-      result: {
-        ...facts,
-        totalLines: lines.length,
-        sizeBytes: identity.size,
-        bom: decoded.bom,
-        lineEnding,
-      },
-      fields: [
-        {
-          name: "content",
-          kind: "text",
-          truncateOversizedRecords: true,
-        },
-      ],
-      records,
-      strategy: "head",
-      limits: { lines: validated.value.limit },
-      continuation({ firstOmittedRecordIndex }) {
-        return firstOmittedRecordIndex === undefined
-          ? undefined
-          : {
-              path: validated.value.path,
-              offset: validated.value.offset + firstOmittedRecordIndex,
-              limit: validated.value.limit,
-            };
-      },
-    }),
-    validated.value.offset,
-    records.length,
-  );
+  const selected = lines.slice(validated.offset - 1);
+  const retained = selected.slice(0, validated.limit);
+  const remaining = selected.length - retained.length;
+  const outputLines = retained.length;
+  const nextOffset = validated.offset + outputLines;
+  const base = retained.join("");
+  const outputText =
+    remaining > 0
+      ? `${base}${base.endsWith("\n") ? "" : "\n"}\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`
+      : base;
+  const details: ReadToolDetails = {
+    ...facts,
+    totalLines: lines.length,
+    sizeBytes: identity.size,
+    bom: decoded.bom,
+    lineEnding,
+    range:
+      outputLines === 0
+        ? null
+        : { startLine: validated.offset, endLine: nextOffset - 1 },
+    ...(remaining > 0
+      ? {
+          truncation: {
+            truncatedBy: "lines" as const,
+            totalLines: selected.length,
+            outputLines,
+            nextOffset,
+          },
+        }
+      : {}),
+  };
+  return {
+    content: [{ type: "text", text: outputText }],
+    details,
+  };
 }
 
 export function createReadTool(options: ReadToolOptions): ReadTool {

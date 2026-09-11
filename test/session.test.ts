@@ -66,7 +66,7 @@ describe("session store", () => {
     }
     const { header, filePath, records } = result.value;
     expect(header.type).toBe("session");
-    expect(header.version).toBe(3);
+    expect(header.version).toBe(4);
     expect(header.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -104,7 +104,7 @@ describe("session store", () => {
       {
         role: "tool",
         toolCallId: "call-1",
-        content: { ok: true, result: { content: "example" } },
+        content: [{ type: "text", text: "example" }],
       },
       { role: "assistant", content: "Done." },
     ];
@@ -122,7 +122,7 @@ describe("session store", () => {
     );
   });
 
-  it("restores only canonical bounded Tool Results", async () => {
+  it("restores Pi-form Tool Results and rejects the retired envelope", async () => {
     const store = createSessionStore({
       sessionsDirectory: join(root, "sessions"),
     });
@@ -130,33 +130,22 @@ describe("session store", () => {
     if (!created.ok) {
       throw new Error("session was not created");
     }
-    const result = {
-      ok: true,
-      result: { content: "甲" },
-      meta: {
+    const message = {
+      role: "tool" as const,
+      toolCallId: "call-1",
+      content: [{ type: "text" as const, text: "甲" }],
+      details: {
         truncation: {
-          reasons: ["bytes"] as const,
-          strategy: "head" as const,
-          fields: ["content"],
-          retained: { bytes: 5 },
-          total: { bytes: 8 },
-          nextArguments: { path: "a.txt", offset: 2 },
+          truncatedBy: "lines",
+          nextOffset: 2,
         },
       },
     };
-    await store.appendMessage(created.value.header.id, {
-      role: "tool",
-      toolCallId: "call-1",
-      content: result,
-    });
+    await store.appendMessage(created.value.header.id, message);
     const loaded = await store.loadSession(created.value.header.id);
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
-      expect(loaded.value.messages[0]).toEqual({
-        role: "tool",
-        toolCallId: "call-1",
-        content: result,
-      });
+      expect(loaded.value.messages[0]).toEqual(message);
     }
 
     await writeFile(
@@ -269,7 +258,7 @@ describe("session store", () => {
     }
   });
 
-  it("strips Cached Input Tokens when appending usage to a legacy format Session", async () => {
+  it("persists Cached Input Tokens on the current Session Format Version", async () => {
     const { store, filePath, sessionId } = await installSessionFixture(
       "pending-read.jsonl",
     );
@@ -289,7 +278,12 @@ describe("session store", () => {
     const lastLine = text.trimEnd().split("\n").at(-1)!;
     expect(JSON.parse(lastLine)).toEqual({
       type: "usage",
-      usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125 },
+      usage: {
+        inputTokens: 120,
+        outputTokens: 5,
+        totalTokens: 125,
+        cachedInputTokens: 60,
+      },
     });
   });
 
@@ -512,9 +506,46 @@ describe("session store", () => {
     });
   });
 
-  it("loads completed legacy read_file records from a Session Format Version 1 fixture without rewriting it", async () => {
+  it("does not load or rewrite a retired Session Format Version fixture", async () => {
     const { store, filePath, raw, sessionId } = await installSessionFixture(
       "completed-legacy-read-file.jsonl",
+    );
+
+    expect(await store.loadSession(sessionId)).toMatchObject({
+      ok: false,
+      error: {
+        code: "SUSAN_SESSION_SCHEMA",
+        message: "Unsupported Session Format Version",
+      },
+    });
+    expect(await readFile(filePath, "utf8")).toBe(raw);
+  });
+
+  it.each([
+    "pending-legacy-read-file.jsonl",
+    "awaiting-approval-exit.jsonl",
+  ] as const)(
+    "skips the retired %s fixture when listing sessions",
+    async (name) => {
+      const { store, filePath, raw, sessionId } =
+        await installSessionFixture(name);
+
+      expect(await store.loadSession(sessionId)).toMatchObject({
+        ok: false,
+        error: { code: "SUSAN_SESSION_SCHEMA" },
+      });
+      const listed = await store.listSessions();
+      expect(listed.ok).toBe(true);
+      if (listed.ok) {
+        expect(listed.value).toEqual([]);
+      }
+      expect(await readFile(filePath, "utf8")).toBe(raw);
+    },
+  );
+
+  it("loads the current pending-read fixture without rewriting historical JSONL", async () => {
+    const { store, filePath, raw, sessionId } = await installSessionFixture(
+      "pending-read.jsonl",
     );
 
     const loaded = await store.loadSession(sessionId);
@@ -523,59 +554,9 @@ describe("session store", () => {
     if (!loaded.ok) {
       return;
     }
-    expect(loaded.value.header.version).toBe(1);
-    expect(loaded.value.messages).toEqual([
-      { role: "user", content: "Read the missing file and AGENTS.md" },
-      {
-        role: "assistant",
-        content: "I will read both.",
-        toolCalls: [
-          { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
-          { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
-        ],
-      },
-      {
-        role: "tool",
-        toolCallId: "call-1",
-        content: {
-          ok: false,
-          error: {
-            code: "ENOENT",
-            message: "File not found",
-            path: "/workspace/missing.txt",
-          },
-        },
-      },
-      {
-        role: "tool",
-        toolCallId: "call-2",
-        content: { ok: true, result: { content: "# Agents\n" } },
-      },
-      { role: "assistant", content: "AGENTS.md describes the workflow." },
-    ]);
+    expect(loaded.value.header.version).toBe(4);
     expect(await readFile(filePath, "utf8")).toBe(raw);
   });
-
-  it.each([
-    ["pending-legacy-read-file.jsonl", 1],
-    ["awaiting-approval-exit.jsonl", 1],
-    ["pending-read.jsonl", 2],
-  ] as const)(
-    "loads the %s fixture without rewriting historical JSONL",
-    async (name, version) => {
-      const { store, filePath, raw, sessionId } =
-        await installSessionFixture(name);
-
-      const loaded = await store.loadSession(sessionId);
-
-      expect(loaded.ok).toBe(true);
-      if (!loaded.ok) {
-        return;
-      }
-      expect(loaded.value.header.version).toBe(version);
-      expect(await readFile(filePath, "utf8")).toBe(raw);
-    },
-  );
 
   it("rejects an unknown future Session Format Version fixture", async () => {
     const { store, sessionId } = await installSessionFixture(

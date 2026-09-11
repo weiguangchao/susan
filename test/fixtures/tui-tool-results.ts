@@ -3,6 +3,7 @@ import type { ProviderToolCall, ToolResult } from "../../src/index.js";
 export type CanonicalToolFixture = {
   readonly call: ProviderToolCall;
   readonly result: ToolResult;
+  readonly isError: boolean;
   readonly summary: string;
 };
 
@@ -20,10 +21,9 @@ export const canonicalToolFixtures = [
       arguments: { path: "src/link.ts", offset: 1, limit: 2000 },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "export const x = 1;" }],
+      details: {
         ...insidePath,
-        content: "export const x = 1;",
         range: { startLine: 1, endLine: 1 },
         totalLines: 1,
         sizeBytes: 19,
@@ -31,6 +31,7 @@ export const canonicalToolFixtures = [
         lineEnding: "none",
       },
     },
+    isError: false,
     summary: "已读 1 行 · 19 B",
   },
   {
@@ -40,8 +41,8 @@ export const canonicalToolFixtures = [
       arguments: { path: "/outside/report.txt", content: "hello world\n" },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "Successfully wrote to /outside/report.txt" }],
+      details: {
         resolvedPath: "/outside/report.txt",
         realTargetPath: "/outside/report.txt",
         cwdRelation: "outside",
@@ -52,6 +53,7 @@ export const canonicalToolFixtures = [
         detachedHardLinks: false,
       },
     },
+    isError: false,
     summary: "overwritten · 12 B · outside cwd",
   },
   {
@@ -64,8 +66,8 @@ export const canonicalToolFixtures = [
       },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "Successfully replaced 1 block(s) in /workspace/src/real.ts." }],
+      details: {
         resolvedPath: "/workspace/src/real.ts",
         realTargetPath: "/workspace/src/real.ts",
         cwdRelation: "inside",
@@ -76,17 +78,13 @@ export const canonicalToolFixtures = [
         lineEnding: "lf",
         detachedHardLinks: false,
         diff: "@@ -1 +1 @@\n-old\n+new",
-      },
-      meta: {
         truncation: {
-          reasons: ["bytes"],
-          strategy: "head",
+          truncatedBy: "bytes",
           fields: ["diff"],
-          retained: { bytes: 24, lines: 3 },
-          total: { bytes: 96, lines: 12 },
         },
       },
     },
+    isError: false,
     summary: "1 edit · 2 replacements · 24 B",
   },
   {
@@ -96,35 +94,28 @@ export const canonicalToolFixtures = [
       arguments: { command: "pnpm test", cwd: "." },
     },
     result: {
-      ok: false,
-      error: {
-        code: "EEXIT",
-        message: "Command exited with a non-zero status.",
-        details: {
-          resolvedPath: "/workspace",
-          realTargetPath: "/workspace",
-          cwdRelation: "inside",
-          exitCode: 7,
-          signal: null,
-          stdout: "tests started\n",
-          stderr: "one failure\n",
-          termination: {
-            scope: "process-group",
-            forced: false,
-            cleanupConfirmed: true,
-          },
+      content: [{ type: "text", text: "Command exited with a non-zero status." }],
+      details: {
+        resolvedPath: "/workspace",
+        realTargetPath: "/workspace",
+        cwdRelation: "inside",
+        exitCode: 7,
+        signal: null,
+        stdout: "tests started\n",
+        stderr: "one failure\n",
+        termination: {
+          scope: "process-group",
+          forced: false,
+          cleanupConfirmed: true,
         },
-      },
-      meta: {
         truncation: {
-          reasons: ["bytes"],
-          strategy: "tail",
+          truncatedBy: "bytes",
           fields: ["stdout", "stderr"],
-          retained: { bytes: 28 },
         },
       },
     },
-    summary: "exit 7 · EEXIT · Command exited with a non-zero status.",
+    isError: true,
+    summary: "exit 7 · Command exited with a non-zero status.",
   },
   {
     call: {
@@ -133,8 +124,8 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "needle", path: "src" },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "a.ts:1:needle\nb.ts:2:needle" }],
+      details: {
         resolvedPath: "/workspace/src",
         realTargetPath: "/workspace/src",
         cwdRelation: "inside",
@@ -143,22 +134,14 @@ export const canonicalToolFixtures = [
           { path: "b.ts", line: 2, text: "needle", before: [], after: [] },
         ],
         diagnostics: [],
-      },
-      meta: {
         truncation: {
-          reasons: ["items", "line-length"],
-          strategy: "head",
-          fields: ["matches"],
-          retained: { bytes: 128, items: 2 },
-          total: { items: 6 },
-          nextArguments: {
-            pattern: "needle",
-            path: "src",
-            offset: 2,
-          },
+          truncatedBy: ["items", "line-length"],
+          outputItems: 2,
+          nextOffset: 2,
         },
       },
     },
+    isError: false,
     summary: "2 matches",
   },
   {
@@ -168,8 +151,8 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "**/*.ts", path: "." },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "No files found" }],
+      details: {
         resolvedPath: "/workspace",
         realTargetPath: "/workspace",
         cwdRelation: "inside",
@@ -177,6 +160,7 @@ export const canonicalToolFixtures = [
         diagnostics: [],
       },
     },
+    isError: false,
     summary: "0 entries",
   },
   {
@@ -186,8 +170,8 @@ export const canonicalToolFixtures = [
       arguments: { path: "src" },
     },
     result: {
-      ok: true,
-      result: {
+      content: [{ type: "text", text: "index.ts\nui/" }],
+      details: {
         resolvedPath: "/workspace/src",
         realTargetPath: "/workspace/src",
         cwdRelation: "inside",
@@ -198,6 +182,7 @@ export const canonicalToolFixtures = [
         diagnostics: [],
       },
     },
+    isError: false,
     summary: "2 entries",
   },
 ] as const satisfies readonly CanonicalToolFixture[];

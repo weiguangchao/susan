@@ -371,10 +371,7 @@ export function TuiApp({
         width={columns}
       >
         {state.pending !== null && (
-          <PendingBanner
-            notice={state.notice}
-            allowRetry={state.pending.reason !== "compatibility"}
-          />
+          <PendingBanner notice={state.notice} allowRetry={true} />
         )}
         <Box
           flexDirection="column"

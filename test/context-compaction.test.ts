@@ -22,7 +22,7 @@ function transcript(messages: readonly CompletionMessage[]): SessionTranscript {
   return {
     header: {
       type: "session",
-      version: 2,
+      version: 4,
       id: "00000000-0000-4000-8000-000000000028",
       createdAt: "2026-09-03T00:00:00.000Z",
       cwd: "/workspace",
@@ -280,7 +280,7 @@ describe("Model Context compaction", () => {
           parameters: { type: "object" },
           async execute() {
             executions += 1;
-            return { ok: true, result: { content: "file" } };
+            return { content: [{ type: "text", text: "file" }] };
           },
         },
       ],
@@ -527,7 +527,11 @@ describe("Model Context compaction", () => {
         role: "assistant",
         toolCalls: [{ id: "call-1", name: "read_file", arguments: {} }],
       },
-      { role: "tool", toolCallId: "call-1", content: "x".repeat(20_000) },
+      {
+        role: "tool",
+        toolCallId: "call-1",
+        content: [{ type: "text", text: "x".repeat(20_000) }],
+      },
       { role: "user", content: "Recent turn." },
     ];
 

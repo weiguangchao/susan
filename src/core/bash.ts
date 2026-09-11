@@ -12,13 +12,9 @@ import {
   type PathResolutionError,
   type SessionPathResolver,
 } from "./path-resolver.js";
-import {
-  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
-  boundToolFailure,
-  boundToolResult,
-  normalizeToolResult,
-  type ToolResult,
-} from "./tool-result.js";
+import { type ToolResult } from "./tool-result.js";
+
+export const BASH_OUTPUT_BUDGET_BYTES = 50 * 1024;
 
 export const BASH_COMMAND_MAX_BYTES = 256 * 1024;
 export const BASH_DEFAULT_TIMEOUT_MS = 120_000;
@@ -29,21 +25,6 @@ export const BASH_KILL_GRACE_MS = 2_000;
 const BASH_PROBE_TIMEOUT_MS = 3_000;
 const BASH_DESCRIPTION =
   "Run one non-interactive, non-login Bash command as a one-shot process. Use bash for program execution, builds, tests, real Bash semantics, or work the dedicated Tools cannot express; do not use it as a substitute for read, write, edit, grep, find, or ls merely because a shell command is familiar. It supports an execution cwd, timeout, and environment overlay, but no PTY, persistent session, background-process contract, or later stdin. The command runs with Susan's process permissions, and bash.cwd does not restrict paths accessed by the command.";
-
-export type BashErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "ENOENT"
-  | "ENOTDIR"
-  | "ELOOP"
-  | "EACCES"
-  | "EUNSUPPORTED"
-  | "ESPAWN"
-  | "EEXIT"
-  | "ESIGNAL"
-  | "ETIMEDOUT"
-  | "EIO"
-  | "ETOOL";
 
 export type BashTerminationScope =
   | "process-group"
@@ -62,11 +43,29 @@ export type BashToolOptions = {
   readonly platform?: NodeJS.Platform;
 };
 
+export type BashToolDetails = {
+  readonly bashPath: string;
+  readonly resolvedPath: string;
+  readonly realTargetPath?: string;
+  readonly cwdRelation: CwdRelation;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly decodeLoss?: readonly ("stdout" | "stderr")[];
+  readonly timeoutMs?: number;
+  readonly termination: BashTermination;
+  readonly truncation?: {
+    readonly truncatedBy: "bytes";
+    readonly fields: readonly ("stdout" | "stderr")[];
+  };
+};
+
 export type BashTool = {
   readonly name: "bash";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<BashToolDetails>>;
 };
 
 type ValidatedArguments = {
@@ -75,10 +74,6 @@ type ValidatedArguments = {
   readonly timeoutMs: number;
   readonly env?: Record<string, string | null>;
 };
-
-type ArgumentValidationResult =
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult };
 
 type OutputChunk = {
   field: "stdout" | "stderr";
@@ -93,9 +88,6 @@ type PathFacts = {
 
 type ExecutionCwd = PathFacts & { readonly spawnCwd: string };
 
-type ExecutionCwdResult =
-  | { readonly ok: true; readonly value: ExecutionCwd }
-  | { readonly ok: false; readonly result: ToolResult };
 
 type ExecutionLock = "timeout" | "cancel" | "exit";
 
@@ -105,20 +97,12 @@ function nodeErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function fail(
-  code: BashErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  return {
-    ok: false,
-    error:
-      details === undefined ? { code, message } : { code, message, details },
-  };
+function fail(message: string): never {
+  throw new Error(message);
 }
 
-function invalid(field: string, message = "Invalid bash arguments."): ToolResult {
-  return fail("EINVAL", message, { field });
+function invalid(_field: string, message = "Invalid bash arguments."): never {
+  fail(message);
 }
 
 function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
@@ -231,11 +215,11 @@ function trimJointTail(chunks: OutputChunk[]): Array<"stdout" | "stderr"> {
   const truncated: Array<"stdout" | "stderr"> = [];
   while (
     chunks.length > 0 &&
-    projectedOutputBytes(chunks) > TOOL_RESULT_OUTPUT_BUDGET_BYTES
+    projectedOutputBytes(chunks) > BASH_OUTPUT_BUDGET_BYTES
   ) {
     const first = chunks[0]!;
     const rest = chunks.slice(1);
-    if (projectedOutputBytes(rest) >= TOOL_RESULT_OUTPUT_BUDGET_BYTES) {
+    if (projectedOutputBytes(rest) >= BASH_OUTPUT_BUDGET_BYTES) {
       truncated.push(first.field);
       chunks.shift();
       continue;
@@ -251,7 +235,7 @@ function trimJointTail(chunks: OutputChunk[]): Array<"stdout" | "stderr"> {
         { field: first.field, text: candidate },
         ...rest,
       ]);
-      if (bytes <= TOOL_RESULT_OUTPUT_BUDGET_BYTES) {
+      if (bytes <= BASH_OUTPUT_BUDGET_BYTES) {
         kept = candidate;
         low = middle + 1;
       } else {
@@ -331,23 +315,21 @@ function applyEnvOverlay(
   base: NodeJS.ProcessEnv,
   overlay: Record<string, string | null>,
   platform: NodeJS.Platform,
-):
-  | { readonly ok: true; readonly env: NodeJS.ProcessEnv }
-  | { readonly ok: false; readonly result: ToolResult } {
+): NodeJS.ProcessEnv {
   const seen = new Map<string, string>();
   for (const key of Object.keys(overlay)) {
     if (key.length === 0 || key.includes("=") || key.includes("\0")) {
-      return { ok: false, result: invalid("env") };
+      invalid("env");
     }
     const value = overlay[key];
     if (value !== null && (typeof value !== "string" || value.includes("\0"))) {
-      return { ok: false, result: invalid("env") };
+      invalid("env");
     }
     if (platform === "win32") {
       const lower = key.toLowerCase();
       const previous = seen.get(lower);
       if (previous !== undefined && previous !== key) {
-        return { ok: false, result: invalid("env") };
+        invalid("env");
       }
       seen.set(lower, key);
     }
@@ -362,27 +344,27 @@ function applyEnvOverlay(
       env[key] = value;
     }
   }
-  return { ok: true, env };
+  return env;
 }
 
-function validateArguments(input: unknown): ArgumentValidationResult {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("command") };
+    invalid("command");
   }
   const allowed = new Set(["command", "cwd", "timeoutMs", "env"]);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
-    return { ok: false, result: invalid("command") };
+    invalid("command");
   }
   const command = input.command;
   if (typeof command !== "string" || command.length === 0 || command.includes("\0")) {
-    return { ok: false, result: invalid("command") };
+    invalid("command");
   }
   if (Buffer.byteLength(command, "utf8") > BASH_COMMAND_MAX_BYTES) {
-    return { ok: false, result: invalid("command") };
+    invalid("command");
   }
   const cwd = input.cwd;
   if (cwd !== undefined && typeof cwd !== "string") {
-    return { ok: false, result: invalid("cwd") };
+    invalid("cwd");
   }
   const timeoutMs = input.timeoutMs === undefined
     ? BASH_DEFAULT_TIMEOUT_MS
@@ -393,27 +375,24 @@ function validateArguments(input: unknown): ArgumentValidationResult {
     timeoutMs < BASH_MIN_TIMEOUT_MS ||
     timeoutMs > BASH_MAX_TIMEOUT_MS
   ) {
-    return { ok: false, result: invalid("timeoutMs") };
+    invalid("timeoutMs");
   }
   const env = input.env;
   if (env !== undefined) {
     if (!isRecord(env)) {
-      return { ok: false, result: invalid("env") };
+      invalid("env");
     }
     for (const value of Object.values(env)) {
       if (value !== null && typeof value !== "string") {
-        return { ok: false, result: invalid("env") };
+        invalid("env");
       }
     }
   }
   return {
-    ok: true,
-    value: {
-      command,
-      timeoutMs,
-      ...(cwd === undefined ? {} : { cwd }),
-      ...(env === undefined ? {} : { env: env as Record<string, string | null> }),
-    },
+    command,
+    timeoutMs,
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(env === undefined ? {} : { env: env as Record<string, string | null> }),
   };
 }
 
@@ -532,24 +511,23 @@ function pathFacts(resolution: PathResolution): PathFacts {
   };
 }
 
-function mapPathError(error: PathResolutionError, enotdir: boolean): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
+function mapPathError(error: PathResolutionError, enotdir: boolean): never {
   if (enotdir) {
-    return fail("ENOTDIR", "Working directory is not a directory.", details);
+    fail("Working directory is not a directory.");
   }
   if (error.code === "ENOENT") {
-    return fail("ENOENT", "Working directory does not exist.", details);
+    fail("Working directory does not exist.");
   }
   if (error.code === "ELOOP") {
-    return fail("ELOOP", "Working directory contains a symlink loop.", details);
+    fail("Working directory contains a symlink loop.");
   }
   if (error.code === "EACCES") {
-    return fail("EACCES", "Working directory cannot be accessed.", details);
+    fail("Working directory cannot be accessed.");
   }
   if (error.code === "EINVAL_PATH") {
-    return fail("EINVAL_PATH", "Working directory path is invalid.", details);
+    fail("Working directory path is invalid.");
   }
-  return fail("EIO", "Working directory cannot be resolved.", details);
+  fail("Working directory cannot be resolved.");
 }
 
 async function wasEnotdir(error: PathResolutionError): Promise<boolean> {
@@ -568,123 +546,99 @@ async function wasEnotdir(error: PathResolutionError): Promise<boolean> {
 async function resolveExecutionCwd(
   resolver: SessionPathResolver,
   cwd: string | undefined,
-): Promise<ExecutionCwdResult> {
+): Promise<ExecutionCwd> {
   if (cwd === undefined) {
     const resolution = {
       resolvedPath: resolver.sessionCwd,
       realTargetPath: resolver.canonicalSessionCwd,
       cwdRelation: "inside" as const,
     };
-    return {
-      ok: true,
-      value: { ...pathFacts(resolution), spawnCwd: resolution.realTargetPath },
-    };
+    return { ...pathFacts(resolution), spawnCwd: resolution.realTargetPath };
   }
   const resolved = await resolver.resolve(cwd, {
     existence: "required",
     symlinks: "follow",
   });
   if (!resolved.ok) {
-    return {
-      ok: false,
-      result: mapPathError(resolved.error, await wasEnotdir(resolved.error)),
-    };
+    mapPathError(resolved.error, await wasEnotdir(resolved.error));
   }
+  let stats: Awaited<ReturnType<typeof stat>>;
   try {
-    if (!(await stat(resolved.value.realTargetPath)).isDirectory()) {
-      return {
-        ok: false,
-        result: fail("ENOTDIR", "Working directory is not a directory.", {
-          ...resolved.value,
-        }),
-      };
-    }
-    await access(resolved.value.realTargetPath, constants.X_OK);
+    stats = await stat(resolved.value.realTargetPath);
   } catch (error) {
     const code = nodeErrorCode(error);
     if (code === "ENOTDIR") {
-      return {
-        ok: false,
-        result: fail("ENOTDIR", "Working directory is not a directory.", {
-          ...resolved.value,
-        }),
-      };
+      fail("Working directory is not a directory.");
     }
     if (code === "ENOENT") {
-      return {
-        ok: false,
-        result: fail("ENOENT", "Working directory does not exist.", {
-          ...resolved.value,
-        }),
-      };
+      fail("Working directory does not exist.");
     }
     if (code === "EACCES" || code === "EPERM") {
-      return {
-        ok: false,
-        result: fail("EACCES", "Working directory cannot be accessed.", {
-          ...resolved.value,
-        }),
-      };
+      fail("Working directory cannot be accessed.");
     }
-    return {
-      ok: false,
-      result: fail("EIO", "Working directory cannot be resolved.", {
-        resolvedPath: resolved.value.resolvedPath,
-      }),
-    };
+    fail("Working directory cannot be resolved.");
   }
-  return {
-    ok: true,
-    value: { ...pathFacts(resolved.value), spawnCwd: resolved.value.realTargetPath },
-  };
+  if (!stats.isDirectory()) {
+    fail("Working directory is not a directory.");
+  }
+  try {
+    await access(resolved.value.realTargetPath, constants.X_OK);
+  } catch (error) {
+    const code = nodeErrorCode(error);
+    if (code === "EACCES" || code === "EPERM") {
+      fail("Working directory cannot be accessed.");
+    }
+    fail("Working directory cannot be resolved.");
+  }
+  return { ...pathFacts(resolved.value), spawnCwd: resolved.value.realTargetPath };
 }
 
-function outputFields() {
-  return [
-    { name: "stdout", kind: "text" as const, truncateOversizedRecords: true },
-    { name: "stderr", kind: "text" as const, truncateOversizedRecords: true },
-  ];
+function formatBashContent(stdout: string, stderr: string): string {
+  if (stdout !== "" && stderr !== "") {
+    return `${stdout}\n${stderr}`;
+  }
+  return stdout !== "" ? stdout : stderr;
 }
 
-function outputRecords(chunks: readonly OutputChunk[]) {
-  return chunks.map((chunk) => ({ field: chunk.field, value: chunk.text }));
-}
-
-function projectedRecords(chunks: readonly OutputChunk[]) {
-  const { stdout, stderr } = projectChunks(chunks);
-  return outputRecords([
-    { field: "stdout", text: stdout },
-    { field: "stderr", text: stderr },
-  ]);
-}
-
-function withObservedTailTruncation(
-  result: ToolResult,
+function bashCommandResult(
+  facts: {
+    readonly bashPath: string;
+    readonly resolvedPath: string;
+    readonly realTargetPath?: string;
+    readonly cwdRelation: CwdRelation;
+    readonly decodeLoss?: readonly ("stdout" | "stderr")[];
+  },
+  stdout: string,
+  stderr: string,
+  exitCode: number | null,
+  signal: string | null,
+  termination: BashTermination,
   truncatedFields: ReadonlySet<"stdout" | "stderr">,
-): ToolResult {
-  if (truncatedFields.size === 0 || result.meta?.truncation !== undefined) {
-    return result;
-  }
-  const payload = result.ok ? result.result : result.error.details;
-  const stdout = typeof payload?.stdout === "string" ? payload.stdout : "";
-  const stderr = typeof payload?.stderr === "string" ? payload.stderr : "";
-  return normalizeToolResult({
-    ...result,
-    meta: {
-      truncation: {
-        reasons: ["bytes"],
-        strategy: "tail",
-        fields: (["stdout", "stderr"] as const).filter((field) =>
-          truncatedFields.has(field),
-        ),
-        retained: {
-          bytes:
-            Buffer.byteLength(JSON.stringify(stdout), "utf8") +
-            Buffer.byteLength(JSON.stringify(stderr), "utf8"),
-        },
-      },
-    },
-  });
+  timeoutMs?: number,
+): ToolResult<BashToolDetails> {
+  const details: BashToolDetails = {
+    ...facts,
+    stdout,
+    stderr,
+    exitCode,
+    signal,
+    termination,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(truncatedFields.size === 0
+      ? {}
+      : {
+          truncation: {
+            truncatedBy: "bytes" as const,
+            fields: (["stdout", "stderr"] as const).filter((field) =>
+              truncatedFields.has(field),
+            ),
+          },
+        }),
+  };
+  return {
+    content: [{ type: "text", text: formatBashContent(stdout, stderr) }],
+    details,
+  };
 }
 
 function decodeLossDetails(
@@ -744,44 +698,29 @@ async function killWindowsProcessTree(
   return "direct-process";
 }
 
-function spawnFailure(error: unknown): ToolResult {
-  const platformCode = nodeErrorCode(error);
-  return fail(
-    "ESPAWN",
-    "Failed to start Bash.",
-    platformCode === undefined ? undefined : { platformCode },
-  );
+function spawnFailure(_error: unknown): never {
+  fail("Failed to start Bash.");
 }
 
 export async function executeBash(
   input: unknown,
   options: BashToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
+): Promise<ToolResult<BashToolDetails>> {
   const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
   const platform = options.platform ?? processPlatform;
   const parentEnv = options.env ?? processEnv;
   const posix = platform !== "win32";
-  const childEnv = validated.value.env === undefined
-    ? { ok: true as const, env: copyEnv(parentEnv) }
-    : applyEnvOverlay(parentEnv, validated.value.env, platform);
-  if (!childEnv.ok) {
-    return childEnv.result;
-  }
+  const childEnv = validated.env === undefined
+    ? copyEnv(parentEnv)
+    : applyEnvOverlay(parentEnv, validated.env, platform);
   const resolverResult = await createSessionPathResolver(options.sessionCwd);
   if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error, false);
+    mapPathError(resolverResult.error, false);
   }
-  const cwd = await resolveExecutionCwd(resolverResult.value, validated.value.cwd);
-  if (!cwd.ok) {
-    return cwd.result;
-  }
+  const cwd = await resolveExecutionCwd(resolverResult.value, validated.cwd);
   const bash = await resolveBashExecutable(parentEnv, platform);
   if (!bash.ok) {
-    return fail(
-      bash.code,
+    fail(
       bash.code === "EACCES" ? "Bash is not executable." : "Bash is not available.",
     );
   }
@@ -792,10 +731,10 @@ export async function executeBash(
   const stderrDecoder = new Utf8StreamDecoder();
   const child = spawn(
     bash.path,
-    ["--noprofile", "--norc", "-c", validated.value.command],
+    ["--noprofile", "--norc", "-c", validated.command],
     {
-      cwd: cwd.value.spawnCwd,
-      env: childEnv.env,
+      cwd: cwd.spawnCwd,
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
       detached: posix,
       windowsHide: true,
@@ -821,13 +760,13 @@ export async function executeBash(
     await once(child, "spawn");
   } catch (error) {
     await Promise.all([stdoutDone, stderrDone]);
-    return spawnFailure(error);
+    spawnFailure(error);
   }
 
   const pid = child.pid;
   if (pid === undefined) {
     await Promise.all([stdoutDone, stderrDone]);
-    return fail("ESPAWN", "Failed to start Bash.");
+    fail("Failed to start Bash.");
   }
 
   let lock: ExecutionLock | undefined;
@@ -875,7 +814,7 @@ export async function executeBash(
 
   timeoutTimer = setTimeout(() => {
     beginTermination("timeout");
-  }, validated.value.timeoutMs);
+  }, validated.timeoutMs);
 
   const onAbort = () => beginTermination("cancel");
   if (options.signal?.aborted) {
@@ -909,14 +848,14 @@ export async function executeBash(
   const decodeLoss = decodeLossDetails(stdoutDecoder, stderrDecoder);
   const facts = {
     bashPath: bash.path,
-    resolvedPath: cwd.value.resolvedPath,
-    cwdRelation: cwd.value.cwdRelation,
-    ...(cwd.value.realTargetPath === undefined
+    resolvedPath: cwd.resolvedPath,
+    cwdRelation: cwd.cwdRelation,
+    ...(cwd.realTargetPath === undefined
       ? {}
-      : { realTargetPath: cwd.value.realTargetPath }),
+      : { realTargetPath: cwd.realTargetPath }),
     ...decodeLoss,
   };
-  const records = projectedRecords(chunks);
+  const { stdout, stderr } = projectChunks(chunks);
   const cleanupConfirmed = posix ? !posixGroupAlive(pid) : false;
   const termination: BashTermination = {
     scope: terminationScope,
@@ -925,84 +864,18 @@ export async function executeBash(
   };
 
   if (lock === "cancel") {
-    return fail("ETOOL", "Tool execution failed.");
+    fail("Tool execution failed.");
   }
 
-  if (lock === "timeout") {
-    return withObservedTailTruncation(
-      boundToolFailure({
-        error: {
-          code: "ETIMEDOUT",
-          message: "Command timed out.",
-          details: {
-            ...facts,
-            exitCode,
-            signal: exitSignal,
-            timeoutMs: validated.value.timeoutMs,
-            termination,
-          },
-        },
-        fields: outputFields(),
-        records,
-        strategy: "tail",
-      }),
-      truncatedFields,
-    );
-  }
-
-  if (exitSignal !== null) {
-    return withObservedTailTruncation(
-      boundToolFailure({
-        error: {
-          code: "ESIGNAL",
-          message: "Command terminated by a signal.",
-          details: {
-            ...facts,
-            exitCode,
-            signal: exitSignal,
-            termination,
-          },
-        },
-        fields: outputFields(),
-        records,
-        strategy: "tail",
-      }),
-      truncatedFields,
-    );
-  }
-
-  if (exitCode !== 0) {
-    return withObservedTailTruncation(
-      boundToolFailure({
-        error: {
-          code: "EEXIT",
-          message: "Command exited with a non-zero status.",
-          details: {
-            ...facts,
-            exitCode,
-            signal: null,
-            termination,
-          },
-        },
-        fields: outputFields(),
-        records,
-        strategy: "tail",
-      }),
-      truncatedFields,
-    );
-  }
-
-  return withObservedTailTruncation(
-    boundToolResult({
-      result: {
-        exitCode: 0,
-        ...facts,
-      },
-      fields: outputFields(),
-      records,
-      strategy: "tail",
-    }),
+  return bashCommandResult(
+    facts,
+    stdout,
+    stderr,
+    exitCode,
+    exitSignal,
+    termination,
     truncatedFields,
+    lock === "timeout" ? validated.timeoutMs : undefined,
   );
 }
 

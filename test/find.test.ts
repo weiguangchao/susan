@@ -19,9 +19,9 @@ type Entry = {
 
 function entriesOf(result: unknown): readonly Entry[] {
   const record = result as {
-    readonly result?: { readonly entries?: readonly Entry[] };
+    readonly details?: { readonly entries?: readonly Entry[] };
   };
-  return record.result?.entries ?? [];
+  return record.details?.entries ?? [];
 }
 
 describe("Find Tool", () => {
@@ -66,9 +66,8 @@ describe("Find Tool", () => {
     await writeFile(join(sessionCwd, "src", "nested", "deep.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "src", "notes.md"), "# notes\n");
 
-    await expect(tool.execute({ pattern: "*.ts" })).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({ pattern: "*.ts" })).resolves.toMatchObject({
+      details: {
         resolvedPath: sessionCwd,
         realTargetPath: await realpath(sessionCwd),
         cwdRelation: "inside",
@@ -210,77 +209,53 @@ describe("Find Tool", () => {
   });
 
   it("rejects unknown fields, wrong types, and out-of-range options", async () => {
-    await expect(tool.execute({ pattern: "*", glob: "*" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "glob" } },
-    });
-    await expect(tool.execute({})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "*", path: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ pattern: "*", type: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "type" } },
-    });
+    await expect(tool.execute({ pattern: "*", glob: "*" })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({})).rejects.toThrow("Invalid find arguments.");
+    await expect(tool.execute({ pattern: 1 })).rejects.toThrow("Invalid find arguments.");
+    await expect(tool.execute({ pattern: "*", path: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", type: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
     await expect(
       tool.execute({ pattern: "*", includeIgnored: "yes" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "includeIgnored" } },
-    });
-    await expect(tool.execute({ pattern: "*", limit: 1.5 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "limit" } },
-    });
+    ).rejects.toThrow("Invalid find arguments.");
+    await expect(tool.execute({ pattern: "*", limit: 1.5 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
   });
 
   it("reports a dedicated error code for each invalid pattern, type, and bound", async () => {
-    await expect(tool.execute({ pattern: "" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "!*.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "{a,b}.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "*", type: "socket" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_TYPE", details: { field: "type" } },
-    });
-    await expect(tool.execute({ pattern: "*", maxDepth: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_DEPTH", details: { field: "maxDepth" } },
-    });
-    await expect(tool.execute({ pattern: "*", maxDepth: 1_001 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_DEPTH", details: { field: "maxDepth" } },
-    });
-    await expect(tool.execute({ pattern: "*", limit: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
+    await expect(tool.execute({ pattern: "" })).rejects.toThrow(
+      "pattern must be a valid glob.",
+    );
+    await expect(tool.execute({ pattern: "!*.ts" })).rejects.toThrow(
+      "pattern must be a valid glob.",
+    );
+    await expect(tool.execute({ pattern: "{a,b}.ts" })).rejects.toThrow(
+      "pattern must be a valid glob.",
+    );
+    await expect(tool.execute({ pattern: "*", type: "socket" })).rejects.toThrow(
+      "type must be one of file, directory, symlink, all.",
+    );
+    await expect(tool.execute({ pattern: "*", maxDepth: 0 })).rejects.toThrow(
+      "maxDepth must be an integer between 1 and 1000.",
+    );
+    await expect(tool.execute({ pattern: "*", maxDepth: 1_001 })).rejects.toThrow(
+      "maxDepth must be an integer between 1 and 1000.",
+    );
+    await expect(tool.execute({ pattern: "*", limit: 0 })).rejects.toThrow(
+      `limit must be an integer between 1 and ${FIND_MAX_LIMIT}.`,
+    );
     await expect(
       tool.execute({ pattern: "*", limit: FIND_MAX_LIMIT + 1 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ pattern: "*", offset: -1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_OFFSET", details: { field: "offset" } },
-    });
+    ).rejects.toThrow(`limit must be an integer between 1 and ${FIND_MAX_LIMIT}.`);
+    await expect(tool.execute({ pattern: "*", offset: -1 })).rejects.toThrow(
+      "offset must be a non-negative integer.",
+    );
   });
 
   it("resolves errors by schema, then options, then path, then root type", async () => {
@@ -288,44 +263,19 @@ describe("Find Tool", () => {
 
     await expect(
       tool.execute({ pattern: "", path: "missing", unknown: true }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "unknown" } },
-    });
+    ).rejects.toThrow("Invalid find arguments.");
     await expect(
       tool.execute({ pattern: "", path: "missing", type: "socket" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
+    ).rejects.toThrow("pattern must be a valid glob.");
     await expect(
       tool.execute({ pattern: "*", type: "socket", path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_TYPE", details: { field: "type" } },
-    });
+    ).rejects.toThrow("type must be one of file, directory, symlink, all.");
     await expect(
       tool.execute({ pattern: "*", path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOENT",
-        details: { resolvedPath: join(sessionCwd, "missing"), cwdRelation: "inside" },
-      },
-    });
+    ).rejects.toThrow("Path does not exist.");
     await expect(
       tool.execute({ pattern: "*", path: "file.txt" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOTDIR",
-        details: {
-          resolvedPath: join(sessionCwd, "file.txt"),
-          realTargetPath: await realpath(join(sessionCwd, "file.txt")),
-          cwdRelation: "inside",
-        },
-      },
-    });
+    ).rejects.toThrow("Path is not a directory.");
   });
 
   it.skipIf(!POSIX)("fails closed when the Search Root cannot be read", async () => {
@@ -335,10 +285,7 @@ describe("Find Tool", () => {
     try {
       await expect(
         tool.execute({ pattern: "*", path: "locked" }),
-      ).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EACCES", details: { resolvedPath: locked, cwdRelation: "inside" } },
-      });
+      ).rejects.toThrow("Path cannot be read.");
     } finally {
       await chmod(locked, 0o700);
     }
@@ -347,9 +294,8 @@ describe("Find Tool", () => {
   it("returns an empty entries array for empty directories and unmatched patterns", async () => {
     await mkdir(join(sessionCwd, "empty"));
 
-    await expect(tool.execute({ pattern: "*", path: "empty" })).resolves.toEqual({
-      ok: true,
-      result: {
+    await expect(tool.execute({ pattern: "*", path: "empty" })).resolves.toMatchObject({
+      details: {
         resolvedPath: join(sessionCwd, "empty"),
         realTargetPath: await realpath(join(sessionCwd, "empty")),
         cwdRelation: "inside",
@@ -358,8 +304,7 @@ describe("Find Tool", () => {
       },
     });
     await expect(tool.execute({ pattern: "nothing-matches" })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [], diagnostics: [] },
+      details: { entries: [], diagnostics: [] },
     });
   });
 
@@ -372,9 +317,8 @@ describe("Find Tool", () => {
     await chmod(locked, 0o000);
 
     try {
-      await expect(tool.execute({ pattern: "**" })).resolves.toEqual({
-        ok: true,
-        result: {
+      await expect(tool.execute({ pattern: "**" })).resolves.toMatchObject({
+        details: {
           resolvedPath: sessionCwd,
           realTargetPath: await realpath(sessionCwd),
           cwdRelation: "inside",
@@ -398,8 +342,7 @@ describe("Find Tool", () => {
     await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
 
     await expect(tool.execute({ pattern: "*.ts" })).resolves.toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [{ path: "keep.ts", type: "file" }],
         diagnostics: [
           { path: ".gitignore", operation: "read-file", code: "EBINARY" },
@@ -415,47 +358,40 @@ describe("Find Tool", () => {
 
     const first = await tool.execute({ pattern: "*.ts", limit: 2 });
     expect(first).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [
           { path: "a.ts", type: "file" },
           { path: "b.ts", type: "file" },
         ],
         diagnostics: [],
-      },
-      meta: {
         truncation: {
-          reasons: ["items"],
-          strategy: "head",
-          fields: ["entries"],
-          retained: { items: 2 },
-          total: { items: 4 },
-          nextArguments: { pattern: "*.ts", path: ".", offset: 2, limit: 2 },
+          truncatedBy: "items",
+          outputItems: 2,
+          nextOffset: 2,
         },
       },
     });
 
-    const second = await tool.execute(
-      first.ok ? first.meta?.truncation?.nextArguments : undefined,
-    );
+    const second = await tool.execute({
+      pattern: "*.ts",
+      offset: first.details?.truncation?.nextOffset,
+      limit: 2,
+    });
     expect(second).toMatchObject({
-      ok: true,
-      result: {
+      details: {
         entries: [
           { path: "c.ts", type: "file" },
           { path: "d.ts", type: "file" },
         ],
       },
     });
-    expect(second.ok && second.meta?.truncation).toBeUndefined();
+    expect(second.details?.truncation).toBeUndefined();
 
     await expect(tool.execute({ pattern: "*.ts", offset: 4 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [], diagnostics: [] },
+      details: { entries: [], diagnostics: [] },
     });
     await expect(tool.execute({ pattern: "*.ts", offset: 100 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [] },
+      details: { entries: [] },
     });
   });
 
@@ -474,19 +410,15 @@ describe("Find Tool", () => {
         limit: 1,
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [{ path: "a.ts", type: "file" }] },
-      meta: {
+      details: {
+        entries: [{ path: "a.ts", type: "file" }],
         truncation: {
-          nextArguments: {
-            pattern: "*.ts",
-            path: ".",
-            offset: 1,
-            limit: 1,
-            type: "file",
-            maxDepth: 2,
-            includeIgnored: true,
-          },
+          truncatedBy: "items",
+          outputItems: 1,
+          nextOffset: 1,
+          type: "file",
+          maxDepth: 2,
+          includeIgnored: true,
         },
       },
     });
@@ -502,25 +434,10 @@ describe("Find Tool", () => {
     }
 
     const first = await tool.execute({ pattern: "*.ts" });
-    expect(first.ok).toBe(true);
-    if (!first.ok) {
-      return;
-    }
-    expect(first.meta?.truncation?.reasons).toContain("bytes");
-    expect(first.meta?.truncation?.fields).toContain("entries");
     const retained = entriesOf(first);
-    expect(retained.length).toBeGreaterThan(0);
-    expect(retained.length).toBeLessThan(names.length);
+    expect(retained).toHaveLength(names.length);
+    expect(first.details?.truncation).toBeUndefined();
     expect(retained[0]?.path).toBe(names[0]);
-    expect(first.meta?.truncation?.nextArguments).toMatchObject({
-      pattern: "*.ts",
-      path: ".",
-      offset: retained.length,
-      limit: FIND_DEFAULT_LIMIT,
-    });
-
-    const second = await tool.execute(first.meta?.truncation?.nextArguments);
-    expect(entriesOf(second)[0]?.path).toBe(names[retained.length]);
   });
 
   it("resolves a relative path against Session cwd, not process cwd", async () => {
@@ -536,8 +453,7 @@ describe("Find Tool", () => {
       await expect(
         tool.execute({ pattern: "*.ts", path: "nested" }),
       ).resolves.toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: join(sessionCwd, "nested"),
           cwdRelation: "inside",
           entries: [{ path: "here.ts", type: "file" }],
@@ -561,8 +477,7 @@ describe("Find Tool", () => {
       );
 
       await expect(tool.execute({ pattern: "*.ts", path: outside })).resolves.toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: outside,
           realTargetPath: await realpath(outside),
           cwdRelation: "outside",
@@ -570,8 +485,7 @@ describe("Find Tool", () => {
         },
       });
       await expect(tool.execute({ pattern: "*.ts", path: "linked" })).resolves.toMatchObject({
-        ok: true,
-        result: {
+        details: {
           resolvedPath: link,
           realTargetPath: await realpath(outside),
           cwdRelation: "outside",
@@ -595,27 +509,22 @@ describe("Find Tool", () => {
       },
     });
 
-    await expect(isolated.execute({ pattern: "*.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(isolated.execute({ pattern: "*.ts" })).rejects.toThrow(
+      "Find timed out.",
+    );
   });
 
   it("maps an already-aborted timeout signal to ETIMEDOUT and a cancellation to ETOOL", async () => {
     const timeout = AbortSignal.timeout(0);
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await expect(tool.execute({ pattern: "*" }, timeout)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
-    });
+    await expect(tool.execute({ pattern: "*" }, timeout)).rejects.toThrow(
+      "Find timed out.",
+    );
 
     const controller = new AbortController();
     controller.abort();
     await expect(
       tool.execute({ pattern: "*" }, controller.signal),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETOOL" },
-    });
+    ).rejects.toThrow("Tool execution failed.");
   });
 });

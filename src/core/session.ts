@@ -12,14 +12,14 @@ import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
 import { isReasoningEffort } from "./provider.js";
-import { isToolResult } from "./tool-result.js";
+import { isToolResultContent } from "./tool-result.js";
 import type {
   CompletionMessage,
   ProviderUsage,
   ReasoningEffort,
 } from "./provider.js";
 
-export type SessionFormatVersion = 1 | 2 | 3;
+export type SessionFormatVersion = 4;
 
 export type SessionHeader = {
   type: "session";
@@ -151,13 +151,10 @@ function failure<T = void>(
 function isSupportedSessionFormatVersion(
   value: unknown,
 ): value is SessionFormatVersion {
-  return value === 1 || value === 2 || value === 3;
+  return value === 4;
 }
 
-function isCompletionMessage(
-  value: unknown,
-  version: SessionFormatVersion = 2,
-): value is CompletionMessage {
+function isCompletionMessage(value: unknown): value is CompletionMessage {
   if (!isRecord(value)) {
     return false;
   }
@@ -191,7 +188,9 @@ function isCompletionMessage(
   if (value.role === "tool") {
     return (
       typeof value.toolCallId === "string" &&
-      (version === 1 ? isJsonValue(value.content) : isToolResult(value.content))
+      isToolResultContent(value.content) &&
+      (value.isError === undefined || typeof value.isError === "boolean") &&
+      (value.details === undefined || isJsonValue(value.details))
     );
   }
   return false;
@@ -260,17 +259,14 @@ function isProviderUsage(value: unknown): value is ProviderUsage {
   );
 }
 
-function isSessionRecord(
-  value: unknown,
-  version: SessionFormatVersion = 2,
-): value is SessionRecord {
+function isSessionRecord(value: unknown): value is SessionRecord {
   if (!isRecord(value) || typeof value.type !== "string") {
     return false;
   }
   if (value.type === "message") {
     return (
       hasExactKeys(value, ["type", "message"]) &&
-      isCompletionMessage(value.message, version)
+      isCompletionMessage(value.message)
     );
   }
   if (value.type === "compaction") {
@@ -327,6 +323,19 @@ function formatSessionTimestamp(date: Date): string {
     11,
     13,
   )}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
+}
+
+/** 旧格式 Session（version < 4）不迁移也不回放：列表与历史直接跳过。 */
+function isUnsupportedVersionSession(text: string): boolean {
+  const firstNewline = text.indexOf("\n");
+  const headerLine =
+    firstNewline === -1 ? text : text.slice(0, firstNewline);
+  try {
+    const header: unknown = JSON.parse(headerLine);
+    return isSessionHeaderShape(header) && !isSupportedSessionFormatVersion(header.version);
+  } catch {
+    return false;
+  }
 }
 
 async function ensureSessionsDirectory(
@@ -411,7 +420,7 @@ function parseSessionText(
       }
       return parsed;
     }
-    if (!isSessionRecord(parsed.value, header.value.version)) {
+    if (!isSessionRecord(parsed.value)) {
       return failure(
         "SUSAN_SESSION_SCHEMA",
         `Invalid session record on line ${index + 1}`,
@@ -536,7 +545,7 @@ export function createSessionStore(
       const createdAt = new Date().toISOString();
       const header: SessionHeader = {
         type: "session",
-        version: 3,
+        version: 4,
         id,
         createdAt,
         cwd: resolvedCwd,
@@ -751,18 +760,9 @@ export function createSessionStore(
         if (!parsed.ok) {
           return parsed;
         }
-        const formatVersion = parsed.value.header.version;
-        const persistedUsage: ProviderUsage =
-          formatVersion >= 3 || usage.cachedInputTokens === undefined
-            ? usage
-            : {
-                inputTokens: usage.inputTokens,
-                outputTokens: usage.outputTokens,
-                totalTokens: usage.totalTokens,
-              };
         const record: SessionUsageRecord = {
           type: "usage",
-          usage: persistedUsage,
+          usage,
           ...(modelConfiguration === undefined
             ? {}
             : {
@@ -770,7 +770,7 @@ export function createSessionStore(
                 reasoningEffort: modelConfiguration.reasoningEffort,
               }),
         };
-        if (!isSessionRecord(record, formatVersion)) {
+        if (!isSessionRecord(record)) {
           return failure(
             "SUSAN_SESSION_SCHEMA",
             "usage must contain valid Provider token totals",
@@ -870,6 +870,9 @@ export function createSessionStore(
         const text = await readSessionFile(filePath);
         if (!text.ok) {
           return text;
+        }
+        if (isUnsupportedVersionSession(text.value)) {
+          continue;
         }
         const parsed = parseSessionText(text.value, filePath);
         if (!parsed.ok) {

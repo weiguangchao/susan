@@ -1,13 +1,14 @@
+import { DEFAULT_COMPACTION_SETTINGS, shouldCompact, prepareCompaction, buildSummaryPrompt, buildTurnPrefixPrompt, getSummarizationFailure, type CompactionSettings } from "./compaction/compaction.js";
+import { SUMMARIZATION_SYSTEM_PROMPT } from "./compaction/prompts.js";
+import { computeFileLists, formatFileOperations } from "./compaction/utils.js";
+import { retryAssistantCall } from "./compaction/retry.js";
 import type { ModelInput, ToolExecutionContext } from "./provider.js";
 import {
-  estimateMessageTokens,
   estimateMessagesTokens,
   estimateTextTokens,
   estimateToolsTokens,
   latestCompactionCheckpoint,
   modelContextMessages,
-  selectRecentTailStart,
-  serializeCompactionInput,
 } from "./context.js";
 import type { JsonValue } from "./json.js";
 import {
@@ -27,7 +28,7 @@ import type {
   ProviderUsage,
 } from "./provider.js";
 import type {
-  SessionCompactionRecord,
+  CompactionEntry,
   SessionRecord,
   SessionStore,
   SessionTranscript,
@@ -162,6 +163,7 @@ export type HarnessCommand =
       readonly type: "submit";
       readonly content: string;
     }
+  | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "retry" }
   | { readonly type: "interrupt" }
   | {
@@ -182,15 +184,9 @@ export type HarnessError = {
     | "HARNESS_PROVIDER"
     | "HARNESS_SESSION"
     | "HARNESS_COMPACTION"
-    | "HARNESS_MODEL_CONFIG_INCOMPLETE"
-    | "CONTEXT_TOO_LARGE";
+    | "HARNESS_MODEL_CONFIG_INCOMPLETE";
   readonly message: string;
   readonly providerFailure?: ProviderFailure;
-  readonly estimates?: {
-    readonly systemPrompt: number;
-    readonly tools: number;
-    readonly currentUserTurn: number;
-  };
 };
 
 export type HarnessCommandResult =
@@ -198,6 +194,7 @@ export type HarnessCommandResult =
   | { readonly ok: false; readonly error: HarnessError };
 
 export type HarnessOptions = {
+  readonly compaction?: Partial<CompactionSettings>;
   readonly provider?: ProviderClient;
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
@@ -216,6 +213,7 @@ export type HarnessClock = {
 };
 
 export type Harness = {
+  compact(customInstructions?: string): Promise<HarnessCommandResult>;
   dispatch(command: HarnessCommand): Promise<HarnessCommandResult>;
   getSnapshot(): HarnessSnapshot;
   subscribe(listener: (event: HarnessEvent) => void): () => void;
@@ -331,6 +329,7 @@ type UsageBaseline = {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly messageCount: number;
+  readonly model?: string;
 };
 
 function restoreUsageBaseline(
@@ -343,6 +342,7 @@ function restoreUsageBaseline(
       messageCount += 1;
     } else if (record.type === "usage") {
       baseline = {
+        ...(record.model !== undefined ? { model: record.model } : {}),
         inputTokens: record.usage.inputTokens,
         outputTokens: record.usage.outputTokens,
         messageCount,
@@ -396,6 +396,18 @@ export function createHarness(options: HarnessOptions): Harness {
   let reasoningEffort = options.reasoningEffort;
   let contextWindow = options.contextWindow;
   let maxOutputTokens = options.maxOutputTokens;
+  const compactionSettings = { ...DEFAULT_COMPACTION_SETTINGS, ...options.compaction };
+  if (!Number.isSafeInteger(compactionSettings.reserveTokens) || compactionSettings.reserveTokens <= 0 ||
+      !Number.isSafeInteger(compactionSettings.keepRecentTokens) || compactionSettings.keepRecentTokens < 0) {
+    throw new Error("Invalid compaction token settings");
+  }
+  if (
+    usageBaseline?.model !== undefined &&
+    model !== undefined &&
+    usageBaseline.model !== model
+  ) {
+    usageBaseline = undefined;
+  }
 
   const activeModelConfigurationError = (): HarnessError | null => {
     if (provider !== undefined && model !== undefined && reasoningEffort !== undefined) {
@@ -477,24 +489,6 @@ export function createHarness(options: HarnessOptions): Harness {
     return { ok: true };
   };
 
-  const contextTooLarge = (): HarnessError => {
-    const systemPrompt = estimateTextTokens(
-      buildSystemPrompt(options.session.header.cwd),
-    );
-    const tools = estimateToolsTokens(toolDefinitions);
-    const lastUserIndex = messages.findLastIndex(
-      (message) => message.role === "user",
-    );
-    const currentUserTurn = estimateMessagesTokens(
-      messages.slice(Math.max(0, lastUserIndex)),
-    );
-    return {
-      code: "CONTEXT_TOO_LARGE",
-      message: "The canonical runtime context and current user turn exceed the model context window.",
-      estimates: { systemPrompt, tools, currentUserTurn },
-    };
-  };
-
   const failContext = (error: HarnessError): HarnessCommandResult => {
     status = "pending";
     pending = { reason: "provider-failure" };
@@ -522,186 +516,74 @@ export function createHarness(options: HarnessOptions): Harness {
     );
   };
 
-  const currentTurnFits = (): boolean => {
-    const estimates = contextTooLarge().estimates!;
-    const reserve = Math.max(maxOutputTokens, 16_384);
-    return (
-      estimates.systemPrompt +
-        estimates.tools +
-        estimates.currentUserTurn <
-      contextWindow - reserve
-    );
-  };
-
-  const compactContext = async (
-    force = false,
-  ): Promise<
-    | { readonly ok: true }
-    | { readonly ok: false; readonly error: HarnessError }
-  > => {
-    const reserve = Math.max(maxOutputTokens, 16_384);
+  const compactContext = async (force = false, customInstructions?: string): Promise<HarnessCommandResult> => {
     const tokensBefore = estimateCurrentContext();
-    if (!force && tokensBefore < contextWindow - reserve) {
+    if (!force && !shouldCompact(tokensBefore, contextWindow, compactionSettings)) return { ok: true };
+    if (activeRunController?.signal.aborted) return { ok: false, error: { code: "HARNESS_ABORTED", message: "Compaction aborted" } };
+    const preparation = prepareCompaction(messages, checkpoint, compactionSettings);
+    // Pi skips automatic compaction when there is nothing eligible to summarize.
+    if (!preparation) return force
+      ? { ok: false, error: { code: "HARNESS_COMPACTION", message: "Nothing to compact" } }
+      : { ok: true };
+    let summaryUsage: ProviderUsage | undefined;
+    const summarize = async (prompt: string, factor: number, label: string): Promise<string> => {
+      const request: ProviderRequest = {
+        model: model!, modelInput, reasoningEffort,
+        maxTokens: Math.min(Math.floor(factor * compactionSettings.reserveTokens), maxOutputTokens > 0 ? maxOutputTokens : Infinity),
+        messages: [{ role: "system", content: SUMMARIZATION_SYSTEM_PROMPT }, { role: "user", content: prompt }],
+      };
+      const signal = activeRunController?.signal ?? new AbortController().signal;
+      const response = await retryAssistantCall(async () => {
+        if (signal.aborted) return { code: "PROVIDER_ABORT", message: "Compaction aborted", hadSemanticOutput: false };
+        try { return await provider!.complete(request, signal); }
+        catch (error) { return { code: signal.aborted ? "PROVIDER_ABORT" : "PROVIDER_NETWORK", message: error instanceof Error ? error.message : "Network error", hadSemanticOutput: false }; }
+      }, signal, clock, (retry, delayMs, failure) => emit({ type: "provider-retrying", retry, maxRetries: 2, delayMs, failure }));
+      if (signal.aborted || ("code" in response && response.code === "PROVIDER_ABORT")) throw new Error("Compaction aborted");
+      if (!("code" in response) && response.usage) {
+        const appended = await appendProviderUsage(response.usage, currentUsageAudit());
+        if (!appended.ok) throw new Error(appended.error.message);
+        const u = response.usage;
+        summaryUsage = {
+          inputTokens: (summaryUsage?.inputTokens ?? 0) + u.inputTokens,
+          outputTokens: (summaryUsage?.outputTokens ?? 0) + u.outputTokens,
+          totalTokens: (summaryUsage?.totalTokens ?? 0) + u.totalTokens,
+          ...((summaryUsage?.cachedInputTokens !== undefined || u.cachedInputTokens !== undefined)
+            ? { cachedInputTokens: (summaryUsage?.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0) } : {}),
+        };
+      }
+      const failure = getSummarizationFailure(response, label);
+      if (failure) throw new Error(failure);
+      return (response as ProviderResponse).assistant.content ?? "";
+    };
+    try {
+      let summary: string;
+      if (preparation.isSplitTurn && preparation.turnPrefixMessages.length > 0) {
+        const historyText = preparation.messagesToSummarize.length > 0
+          ? await summarize(buildSummaryPrompt(preparation.messagesToSummarize, preparation.previousSummary, customInstructions), 0.8, "Summarization")
+          : preparation.previousSummary ?? "No prior history.";
+        const prefix = await summarize(buildTurnPrefixPrompt(preparation.turnPrefixMessages), 0.5, "Turn prefix summarization");
+        summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${prefix}`;
+      } else {
+        summary = await summarize(buildSummaryPrompt(preparation.messagesToSummarize, preparation.previousSummary, customInstructions), 0.8, "Summarization");
+      }
+      const details = computeFileLists(preparation.fileOps);
+      summary += formatFileOperations(details.readFiles, details.modifiedFiles);
+      if (activeRunController?.signal.aborted) throw new Error("Compaction aborted");
+      const candidate: CompactionEntry = {
+        type: "compaction", summary, firstKeptEntryId: preparation.firstKeptEntryId,
+        retainedTail: preparation.retainedTail, details, tokensBefore,
+        ...(summaryUsage ? { usage: summaryUsage } : {}), timestamp: new Date().toISOString(),
+      };
+      const appended = await options.sessionStore.appendCompaction(options.session.header.id, candidate);
+      if (!appended.ok) return { ok: false, error: { code: "HARNESS_SESSION", message: appended.error.message } };
+      checkpoint = candidate;
+      usageBaseline = undefined;
+      const tokensAfterEstimate = estimateCurrentContext();
+      emit({ type: "context-compacted", tokensBefore, tokensAfterEstimate, contextTokens: tokensAfterEstimate });
       return { ok: true };
+    } catch (error) {
+      return { ok: false, error: { code: activeRunController?.signal.aborted ? "HARNESS_ABORTED" : "HARNESS_COMPACTION", message: error instanceof Error ? error.message : "Compaction failed" } };
     }
-    if (!currentTurnFits()) {
-      return { ok: false, error: contextTooLarge() };
-    }
-
-    const minimumStart = checkpoint?.firstKeptMessageIndex ?? 0;
-    const tailTarget = Math.min(
-      20_000,
-      Math.max(
-        0,
-        contextWindow -
-          reserve -
-          estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) -
-          estimateToolsTokens(toolDefinitions),
-      ),
-    );
-    const firstKeptMessageIndex = selectRecentTailStart(
-      messages,
-      minimumStart,
-      tailTarget,
-    );
-    if (firstKeptMessageIndex <= minimumStart) {
-      return { ok: false, error: contextTooLarge() };
-    }
-    const compactedMessages = messages.slice(
-      minimumStart,
-      firstKeptMessageIndex,
-    );
-    const complete = provider!.complete;
-    const summaryRequest: ProviderRequest = {
-      model: model!,
-      modelInput,
-      reasoningEffort: reasoningEffort,
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(options.session.header.cwd),
-        },
-        {
-          role: "user",
-          content: serializeCompactionInput(
-            checkpoint?.summary,
-            compactedMessages,
-          ),
-        },
-      ],
-    };
-    let summaryResult: ProviderResponse | ProviderFailure = {
-      code: "PROVIDER_PROTOCOL",
-      message: "Compaction summary retry state is invalid.",
-      hadSemanticOutput: false,
-    };
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        summaryResult = await complete.call(
-          provider!,
-          summaryRequest,
-          activeRunController?.signal ?? new AbortController().signal,
-        );
-      } catch {
-        summaryResult = {
-          code: "PROVIDER_NETWORK",
-          message: "Compaction summary request failed.",
-          hadSemanticOutput: false,
-        };
-      }
-      if (!("code" in summaryResult)) {
-        break;
-      }
-      if (attempt === 2 || !isRetryableProviderFailure(summaryResult)) {
-        break;
-      }
-      const retry = (attempt + 1) as 1 | 2;
-      const baseDelay = retry === 1 ? 1_000 : 2_000;
-      const retryAfter = summaryResult.retryAfterMs;
-      const delayMs =
-        retryAfter !== undefined &&
-        Number.isFinite(retryAfter) &&
-        retryAfter >= 0
-          ? Math.min(30_000, retryAfter)
-          : Math.round(baseDelay * (0.8 + random() * 0.4));
-      emit({
-        type: "provider-retrying",
-        retry,
-        maxRetries: 2,
-        delayMs,
-        failure: summaryResult,
-      });
-      try {
-        await clock.sleep(delayMs, activeRunController?.signal);
-      } catch {
-        summaryResult = {
-          code: "PROVIDER_ABORT",
-          message: "Compaction summary request was aborted.",
-          hadSemanticOutput: false,
-        };
-        break;
-      }
-    }
-    if (!("code" in summaryResult)) {
-      const appendedUsage = await appendProviderUsage(
-        summaryResult.usage,
-        currentUsageAudit(),
-      );
-      if (!appendedUsage.ok) {
-        return { ok: false, error: appendedUsage.error };
-      }
-    }
-    if (
-      "code" in summaryResult ||
-      summaryResult.finishReason !== "stop" ||
-      (summaryResult.assistant.toolCalls?.length ?? 0) > 0 ||
-      (summaryResult.assistant.content?.length ?? 0) === 0
-    ) {
-      const message =
-        "code" in summaryResult
-          ? summaryResult.message
-          : "Compaction summary returned no valid summary.";
-      return {
-        ok: false,
-        error: { code: "HARNESS_COMPACTION", message },
-      };
-    }
-
-    const candidate: SessionCompactionRecord = {
-      type: "compaction",
-      summary: summaryResult.assistant.content!,
-      firstKeptMessageIndex,
-      tokensBefore,
-      tokensAfterEstimate: 0,
-      createdAt: new Date().toISOString(),
-    };
-    const tokensAfterEstimate =
-      estimateTextTokens(buildSystemPrompt(options.session.header.cwd)) +
-      estimateToolsTokens(toolDefinitions) +
-      estimateMessagesTokens(modelContextMessages(messages, candidate));
-    const completedCheckpoint: SessionCompactionRecord = {
-      ...candidate,
-      tokensAfterEstimate,
-    };
-    const appended = await options.sessionStore.appendCompaction(
-      options.session.header.id,
-      completedCheckpoint,
-    );
-    if (!appended.ok) {
-      return {
-        ok: false,
-        error: { code: "HARNESS_SESSION", message: appended.error.message },
-      };
-    }
-    checkpoint = completedCheckpoint;
-    usageBaseline = undefined;
-    emit({
-      type: "context-compacted",
-      tokensBefore,
-      tokensAfterEstimate,
-      contextTokens: tokensAfterEstimate,
-    });
-    return { ok: true };
   };
 
   const requestProvider = async (
@@ -779,8 +661,9 @@ export function createHarness(options: HarnessOptions): Harness {
         );
       }
       if (!("code" in terminal)) {
-        if (terminal.usage !== undefined) {
+        if (terminal.usage !== undefined && terminal.usage.totalTokens > 0 && !activeRunController?.signal.aborted) {
           usageBaseline = {
+            model,
             inputTokens: terminal.usage.inputTokens,
             outputTokens: terminal.usage.outputTokens,
             messageCount: messages.length,
@@ -796,7 +679,8 @@ export function createHarness(options: HarnessOptions): Harness {
       );
       if (
         failure.contextOverflow === true &&
-        !failure.hadSemanticOutput &&
+        !activeRunController?.signal.aborted &&
+        compactionSettings.enabled &&
         overflowRecoveryAvailable
       ) {
         const compacted = await compactContext(true);
@@ -1058,6 +942,13 @@ export function createHarness(options: HarnessOptions): Harness {
       }
       const toolCalls = assistant.toolCalls ?? [];
       if (toolCalls.length === 0) {
+        if (!activeRunController?.signal.aborted) {
+          const compacted = await compactContext();
+          if (!compacted.ok) {
+            if (status === "failed") return compacted;
+            emit({ type: "compaction-failed", message: compacted.error.message });
+          }
+        }
         return completeAgentLoop();
       }
 
@@ -1069,7 +960,25 @@ export function createHarness(options: HarnessOptions): Harness {
   };
 
   return {
+    compact(customInstructions) { return this.dispatch({ type: "compact", customInstructions }); },
     async dispatch(command) {
+      if (command.type === "compact") {
+        if (status !== "idle" && status !== "pending") return { ok: false, error: { code: "HARNESS_BUSY", message: "Harness must be idle or Pending to compact." } };
+        if (pendingToolBatch) return { ok: false, error: { code: "HARNESS_BUSY", message: "Finish the pending Tool Batch before compacting." } };
+        const configError = activeModelConfigurationError();
+        if (configError) return { ok: false, error: configError };
+        const previousStatus = status;
+        status = "running";
+        activeRunController = new AbortController();
+        try {
+          return await compactContext(true, command.customInstructions);
+        } finally {
+          if (status === "running") {
+            status = previousStatus;
+          }
+          activeRunController = undefined;
+        }
+      }
       if (command.type === "interrupt") {
         if (
           status !== "running" ||
@@ -1117,6 +1026,7 @@ export function createHarness(options: HarnessOptions): Harness {
             },
           };
         }
+        if (provider !== command.provider || model !== command.model) usageBaseline = undefined;
         provider = command.provider;
         model = command.model;
         modelInput = command.modelInput ?? ["text"];

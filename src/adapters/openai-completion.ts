@@ -140,6 +140,8 @@ function toChatCompletionsRequest(
     stream,
   };
 
+  if (request.maxTokens !== undefined) chatCompletionsRequest.max_tokens = request.maxTokens;
+
   if (stream) {
     chatCompletionsRequest.stream_options = { include_usage: true };
   }
@@ -374,7 +376,7 @@ function isContextOverflowError(error: APIError): boolean {
   );
 }
 
-function parseNonStreamingResponse(value: unknown): ProviderResponse {
+function parseNonStreamingResponse(value: unknown): ProviderResponse | ProviderFailure {
   if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length !== 1) {
     protocolError("Provider returned an invalid non-streaming response.");
   }
@@ -382,6 +384,9 @@ function parseNonStreamingResponse(value: unknown): ProviderResponse {
   if (!isRecord(choice) || choice.index !== 0 || !isRecord(choice.message)) {
     protocolError("Provider returned an invalid non-streaming choice.");
   }
+  if (choice.finish_reason === "length") return {
+    code: "PROVIDER_INCOMPLETE", message: "Generation hit the token cap and the summary is incomplete", hadSemanticOutput: false,
+  };
   if (choice.finish_reason !== "stop" && choice.finish_reason !== "tool_calls") {
     protocolError("Provider returned an invalid non-streaming finish_reason.");
   }

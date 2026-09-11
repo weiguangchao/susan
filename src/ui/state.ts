@@ -125,6 +125,7 @@ export type TuiInputIntent =
   | { readonly type: "submit"; readonly content: string }
   | { readonly type: "clear-input" }
   | { readonly type: "clear" }
+  | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
   | { readonly type: "exit" }
   | { readonly type: "interrupt" }
@@ -137,6 +138,7 @@ export type TuiInputIntent =
 export type TuiSubmissionIntent =
   | { readonly type: "exit" }
   | { readonly type: "clear" }
+  | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
   | { readonly type: "submit"; readonly content: string };
 
@@ -215,6 +217,7 @@ export function normalizeSubmission(value: string): string {
 
 export function resolveSubmission(value: string): TuiSubmissionIntent {
   const content = normalizeSubmission(value);
+  if (content.startsWith("/compact ")) return { type: "compact", customInstructions: content.slice(9).trim() };
   const command = slashCommands.find((candidate) => candidate.name === content);
   if (command !== undefined) {
     return { type: command.intent };
@@ -693,6 +696,8 @@ function applyInputIntent(
       };
     case "notice":
       return { ...state, notice: intent.message };
+    case "compact":
+      return { ...state, ...clearedDraftState(state), status: "running", notice: "正在压缩上下文…", failure: null };
     case "model-picker": {
       const selectedFromMenu = resolveSlashCommandMenu(state).selected?.intent === "model-picker";
       const clearInput =

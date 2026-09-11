@@ -1071,11 +1071,12 @@ describe("TUI state", () => {
       visible: true,
       query: "/",
       candidates: [
+        { name: "/compact", label: "压缩上下文" },
         { name: "/exit", label: "退出" },
         { name: "/model", label: "模型" },
         { name: "/new", label: "新对话" },
       ],
-      selected: { name: "/exit" },
+      selected: { name: "/compact" },
     });
     expect(resolveSlashCommandMenu({
       input: "/m",
@@ -1138,7 +1139,11 @@ describe("TUI state", () => {
       type: "input-key",
       key: { input: "", downArrow: true },
     });
-    expect(state.slashCommandSelectedIndex).toBe(2);
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.slashCommandSelectedIndex).toBe(3);
     expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
       type: "clear",
     });
@@ -1194,6 +1199,11 @@ describe("TUI state", () => {
   });
 
   it("uses exact canonical Slash Commands and submits aliases or prose", () => {
+    expect(resolveSubmission("/compact")).toEqual({ type: "compact" });
+    expect(resolveSubmission("/compact preserve paths")).toEqual({
+      type: "compact",
+      customInstructions: "preserve paths",
+    });
     expect(resolveSubmission("/exit")).toEqual({ type: "exit" });
     expect(resolveSubmission("/new")).toEqual({ type: "clear" });
     expect(resolveSubmission("/model")).toEqual({ type: "model-picker" });
@@ -1240,7 +1250,8 @@ describe("TUI state", () => {
 
   it("executes every selected Slash Command while Pending", () => {
     for (const [query, expected] of [
-      ["/", { type: "exit" }],
+      ["/", { type: "compact" }],
+      ["/e", { type: "exit" }],
       ["/m", { type: "model-picker" }],
       ["/n", { type: "clear" }],
     ] as const) {

@@ -154,7 +154,7 @@ export {
   REASONING_EFFORTS,
 } from "./core/provider.js";
 export type {
-  SessionCompactionRecord,
+  CompactionEntry,
   SessionFormatVersion,
   SessionHeader,
   SessionMessageRecord,

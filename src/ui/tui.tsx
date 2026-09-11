@@ -176,6 +176,12 @@ export function TuiApp({
         );
         return;
       }
+      if (intent.type === "compact") {
+        const result = await harness.compact(intent.customInstructions);
+        dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
+        if (!result.ok) handleModelError(result.error);
+        return;
+      }
       if (intent.type === "submit") {
         const result = await harness.dispatch({
           type: "submit",

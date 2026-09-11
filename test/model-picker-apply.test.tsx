@@ -66,6 +66,7 @@ describe("model picker application", () => {
     };
     const dispatchedCommands: HarnessCommand[] = [];
     const harness: Harness = {
+      async compact() { return { ok: true as const }; },
       async dispatch(command) {
         dispatchedCommands.push(command);
         return { ok: true };
@@ -145,6 +146,7 @@ describe("model picker application", () => {
       type: "openai-completion",
     } as ProviderClient;
     const harness: Harness = {
+      async compact() { return { ok: true as const }; },
       async dispatch(command: HarnessCommand) {
         if (command.type === "configure-model") {
           snapshot = {
@@ -236,6 +238,7 @@ describe("model picker application", () => {
       sessionCachedInputTokens: 0,
     };
     const harness: Harness = {
+      async compact() { return { ok: true as const }; },
       async dispatch() {
         return { ok: true };
       },

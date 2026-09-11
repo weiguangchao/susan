@@ -53,7 +53,7 @@ function transcript(
   return {
     header: {
       type: "session",
-      version: 4,
+      version: 5,
       id: "00000000-0000-4000-8000-000000000001",
       createdAt: "2026-09-03T00:00:00.000Z",
       cwd: "/workspace",

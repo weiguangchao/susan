@@ -75,6 +75,7 @@ export type ModelInput = readonly ("text" | "image")[];
 export type ToolExecutionContext = { readonly modelInput?: ModelInput };
 
 export type ProviderRequest = {
+  maxTokens?: number;
   modelInput?: ModelInput;
   model: string;
   reasoningEffort?: ReasoningEffort;

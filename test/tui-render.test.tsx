@@ -113,6 +113,7 @@ function createEventHarness(initial: HarnessSnapshot = idleSnapshot()) {
   const listeners = new Set<(event: HarnessEvent) => void>();
   const commands: HarnessCommand[] = [];
   const harness: Harness = {
+    async compact() { return { ok: true as const }; },
     async dispatch(command) {
       commands.push(command);
       return { ok: true };
@@ -278,7 +279,7 @@ describe("TUI context usage display", () => {
     return {
       header: {
         type: "session",
-        version: 4,
+        version: 5,
         id: "00000000-0000-4000-8000-000000000002",
         createdAt: "2026-09-03T00:00:00.000Z",
         cwd: "/workspace",

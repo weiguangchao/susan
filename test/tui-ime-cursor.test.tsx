@@ -73,6 +73,7 @@ function createEventHarness(initial: HarnessSnapshot = idleSnapshot()) {
   let snapshot = initial;
   const listeners = new Set<(event: HarnessEvent) => void>();
   const harness: Harness = {
+    async compact() { return { ok: true as const }; },
     async dispatch() {
       return { ok: true };
     },

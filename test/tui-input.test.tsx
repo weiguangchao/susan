@@ -71,7 +71,7 @@ describe("TUI input", () => {
       columns: 80,
     });
 
-    expect(stripAnsi(output)).toBe(" › /exit 退出\n   /model 模型\n   /new 新对话");
+    expect(stripAnsi(output)).toBe(" › /compact 压缩上下文\n   /exit 退出\n   /model 模型\n   /new 新对话");
     const view = SlashCommandMenuView({ menu: menuState("/") }) as ReactElement<{
       children: ReactNode;
     }>;
@@ -80,7 +80,7 @@ describe("TUI input", () => {
     }>;
     const lineParts = Children.toArray(firstRow.props.children.props.children);
     expect((lineParts[0] as ReactElement<{ color?: string }>).props.color).toBe("cyanBright");
-    expect(lineParts).toContain("/exit");
+    expect(lineParts).toContain("/compact");
   });
 
   it("highlights only the canonical-name prefix for /m and keeps labels dim", () => {
@@ -134,7 +134,7 @@ describe("TUI input", () => {
       columns: 80,
     });
 
-    expect(stripAnsi(output)).toBe("   /exit 退出\n › /model 模型\n   /new 新对话");
+    expect(stripAnsi(output)).toBe("   /compact 压缩上下文\n › /exit 退出\n   /model 模型\n   /new 新对话");
     expect(output).not.toContain("\u001B[7m");
   });
 
@@ -157,7 +157,7 @@ describe("TUI input", () => {
       }),
     );
 
-    expect(output.split("\n")).toHaveLength(3);
+    expect(output.split("\n")).toHaveLength(4);
     for (const line of output.split("\n")) {
       expect(stringWidth(line)).toBeLessThanOrEqual(10);
     }

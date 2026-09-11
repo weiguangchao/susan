@@ -49,6 +49,7 @@ function idleHarness(): Harness {
     sessionCachedInputTokens: 0,
   };
   return {
+    async compact() { return { ok: true as const }; },
     async dispatch() {
       return { ok: true };
     },
@@ -73,6 +74,7 @@ function streamingHarness(overrides: Partial<HarnessSnapshot> = {}): {
   const listeners = new Set<(event: HarnessEvent) => void>();
   return {
     harness: {
+      async compact() { return { ok: true as const }; },
       async dispatch(command) {
         if (command.type === "submit") snapshot = { ...snapshot, status: "running" };
         return { ok: true };

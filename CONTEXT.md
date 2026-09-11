@@ -189,7 +189,7 @@ _Avoid_: user instructions, project rules, custom prompt
 _Avoid_: truncation, deletion
 
 **Compaction Checkpoint**:
-一次 Compaction 的持久结果，记录 rolling structured summary 与 recent tail 的保留边界，用于恢复 Model Context。
+一次 Compaction 的持久结果，记录 structured summary、保留的原文尾部，以及该范围内读过/改过的文件清单，用于恢复 Model Context。
 _Avoid_: snapshot, truncated history
 
 **Susan Home**:
@@ -209,7 +209,7 @@ _Avoid_: effective config, merged config
 _Avoid_: session model, transient model, per-message model
 
 **Slash Command**:
-TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/exit`、`/new`、`/model`，没有隐藏别名。
+TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/compact`、`/exit`、`/new`、`/model`，没有隐藏别名。
 _Avoid_: command, slash, 斜杠指令, `/clear`
 
 **Slash Command Label**:

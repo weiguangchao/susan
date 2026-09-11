@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSessionStore } from "../src/index.js";
 import type {
   CompletionMessage,
-  SessionCompactionRecord,
+  CompactionEntry,
   ProviderUsage,
 } from "../src/index.js";
 
@@ -66,7 +66,7 @@ describe("session store", () => {
     }
     const { header, filePath, records } = result.value;
     expect(header.type).toBe("session");
-    expect(header.version).toBe(4);
+    expect(header.version).toBe(5);
     expect(header.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -178,13 +178,14 @@ describe("session store", () => {
       throw new Error("session was not created");
     }
     const message: CompletionMessage = { role: "user", content: "Keep me." };
-    const checkpoint: SessionCompactionRecord = {
+    const checkpoint: CompactionEntry = {
       type: "compaction",
       summary: "Goal\n- Continue the task",
-      firstKeptMessageIndex: 0,
+      firstKeptEntryId: "message:0",
+      retainedTail: [message],
+      details: { readFiles: [], modifiedFiles: [] },
       tokensBefore: 42_000,
-      tokensAfterEstimate: 8_000,
-      createdAt: "2026-09-03T01:00:00.000Z",
+      timestamp: "2026-09-03T01:00:00.000Z",
     };
 
     await store.appendMessage(created.value.header.id, message);
@@ -554,7 +555,7 @@ describe("session store", () => {
     if (!loaded.ok) {
       return;
     }
-    expect(loaded.value.header.version).toBe(4);
+    expect(loaded.value.header.version).toBe(5);
     expect(await readFile(filePath, "utf8")).toBe(raw);
   });
 

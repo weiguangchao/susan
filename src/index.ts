@@ -249,13 +249,14 @@ export type {
   GrepToolOptions,
 } from "./core/grep.js";
 export {
-  FIND_DEFAULT_LIMIT,
-  FIND_DEFAULT_TIMEOUT_MS,
-  FIND_MAX_LIMIT,
+  FIND_PROMPT_GUIDELINES,
+  FIND_PROMPT_SNIPPET,
   createFindTool,
   executeFind,
+  relativizeFindResultPath,
 } from "./core/find.js";
 export type {
+  FindOperations,
   FindTool,
   FindToolDetails,
   FindToolOptions,

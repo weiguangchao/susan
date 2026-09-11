@@ -65,20 +65,12 @@ Built-in Tool Set 中按行搜索文件内容的 Tool；模型侧名称为 `grep
 _Avoid_: search tool, ripgrep wrapper, content finder
 
 **Find Tool**:
-Built-in Tool Set 中按平台无关 glob 查询 Search Root 下路径名称的 Tool；模型侧名称为 `find`，可返回 file、directory 与 symlink 条目。
+Built-in Tool Set 中按 glob 查询路径名称的 Tool；模型侧名称为 `find`，经 Managed Binary `fd` 搜索，尊重 `.gitignore`。
 _Avoid_: file search, fd wrapper, glob tool
 
 **Ls Tool**:
 Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，返回按字母序排列的纯文本条目，目录带 `/` 后缀，包含 dotfiles。
 _Avoid_: list tool, directory reader, recursive ls
-
-**Search Root**:
-`find` 的路径入口所确定的目录；查询结果中的相对路径、glob 匹配与遍历深度都以它为基准。
-_Avoid_: workspace, project root, scan root
-
-**Traversal Diagnostic**:
-`find` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
-_Avoid_: warning text, skipped error, partial failure
 
 **Tool Result**:
 Harness 回填给模型的一次 Tool Call 结果；使用稳定的成功/失败 envelope，并把 Tool 专属数据、结构化错误与共享执行元数据分开表达。

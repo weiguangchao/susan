@@ -86,14 +86,7 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "**/*.ts", path: "." },
     },
     result: {
-      content: [{ type: "text", text: "No files found" }],
-      details: {
-        resolvedPath: "/workspace",
-        realTargetPath: "/workspace",
-        cwdRelation: "inside",
-        entries: [],
-        diagnostics: [],
-      },
+      content: [{ type: "text", text: "No files found matching pattern" }],
     },
     isError: false,
     summary: "0 entries",

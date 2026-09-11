@@ -119,10 +119,17 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   find: {
-    summary: (result, payload) =>
-      `${arrayLength(payload, "entries")} entries${diagnosticSuffix(payload)}`,
+    summary: (result) =>
+      `${findListingLines(toolResultText(result.content)).length} entries`,
     invocationLabel: (arguments_, path) =>
       `${path} · ${stringField(arguments_, "pattern") ?? ""}`,
+    supplementalLines: (result) => {
+      const content = toolResultText(result.content);
+      if (content === "" || content === "No files found matching pattern") {
+        return ["无匹配"];
+      }
+      return content.split("\n").filter((line) => line.trim() !== "");
+    },
   },
   ls: {
     summary: (result) => `${lsListingLines(toolResultText(result.content)).length} entries`,
@@ -339,6 +346,15 @@ function grepMatchLines(content: string): string[] {
   return listing.split("\n").filter((line) => /:\d+: /.test(line));
 }
 
+function findListingLines(content: string): string[] {
+  if (content === "" || content === "No files found matching pattern") {
+    return [];
+  }
+  const noticeAt = content.indexOf("\n\n[");
+  const listing = noticeAt === -1 ? content : content.slice(0, noticeAt);
+  return listing.split("\n").filter((line) => line !== "");
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
@@ -353,26 +369,12 @@ function numericField(value: unknown, field: string): number | undefined {
   return typeof fieldValue === "number" ? fieldValue : undefined;
 }
 
-function arrayLength(value: unknown, field: string): number {
-  const fieldValue = asRecord(value)?.[field];
-  return Array.isArray(fieldValue) ? fieldValue.length : 0;
-}
-
-function plural(count: number, singular: string): string {
-  return count === 1 ? singular : `${singular}s`;
-}
-
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
 function outsideSuffix(value: unknown): string {
   return stringField(value, "cwdRelation") === "outside" ? " · outside cwd" : "";
-}
-
-function diagnosticSuffix(value: unknown): string {
-  const count = arrayLength(value, "diagnostics");
-  return count === 0 ? "" : ` · ${count} ${plural(count, "diagnostic")}`;
 }
 
 function displayPath(payload: unknown, sessionCwd?: string): string | undefined {

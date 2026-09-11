@@ -8,7 +8,7 @@ const CANONICAL_DESCRIPTIONS: Readonly<Record<string, string>> = {
   edit: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
   bash: "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
   grep: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.",
-  find: "Find descendant path names beneath a directory using a platform-independent glob. Use find instead of bash or a host find command when locating files, directories, or symlinks by name or relative path; use grep when searching file contents. It supports type, depth, ignore controls, and deterministic pagination. It does not match the Search Root itself or traverse through symlinks, and results may include Traversal Diagnostics.",
+  find: "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).",
   ls: "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
 };
 

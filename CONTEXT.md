@@ -193,8 +193,12 @@ _Avoid_: truncation, deletion
 _Avoid_: snapshot, truncated history
 
 **Susan Home**:
-存放 Config 与 Session Store 的 `.susan` 目录。默认位于用户 home 下；启动时可指定另一个父目录。
+存放 Config、Session Store 与 Managed Binary 的 `.susan` 目录。默认位于用户 home 下；启动时可指定另一个父目录。
 _Avoid_: config directory, config root, susan dir, data directory
+
+**Managed Binary**:
+Susan Home `bin` 目录中缓存的 `rg` / `fd` 平台二进制，供 Grep Tool 与 Find Tool 在系统 PATH 未提供时使用。
+_Avoid_: system binary, tool download, package install
 
 **Config**:
 Susan Home 内的用户配置文件 `config.json`；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。

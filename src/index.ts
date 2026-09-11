@@ -265,6 +265,14 @@ export type {
   FindToolOptions,
 } from "./core/find.js";
 export {
+  ensureTool,
+  getBinDir,
+  getLatestVersion,
+  getToolAssetName,
+  getToolPath,
+} from "./core/tools-manager.js";
+export type { ToolStatus } from "./core/tools-manager.js";
+export {
   CANONICAL_SYSTEM_PROMPT,
   buildSystemPrompt,
   createHarness,

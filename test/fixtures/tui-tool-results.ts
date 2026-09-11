@@ -74,22 +74,7 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "needle", path: "src" },
     },
     result: {
-      content: [{ type: "text", text: "a.ts:1:needle\nb.ts:2:needle" }],
-      details: {
-        resolvedPath: "/workspace/src",
-        realTargetPath: "/workspace/src",
-        cwdRelation: "inside",
-        matches: [
-          { path: "a.ts", line: 1, text: "needle", before: [], after: [] },
-          { path: "b.ts", line: 2, text: "needle", before: [], after: [] },
-        ],
-        diagnostics: [],
-        truncation: {
-          truncatedBy: ["items", "line-length"],
-          outputItems: 2,
-          nextOffset: 2,
-        },
-      },
+      content: [{ type: "text", text: "a.ts:1: needle\nb.ts:2: needle" }],
     },
     isError: false,
     summary: "2 matches",

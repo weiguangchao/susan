@@ -1,49 +1,55 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  GREP_DEFAULT_LIMIT,
-  GREP_MAX_CONTEXT,
-  GREP_MAX_FILE_BYTES,
-  GREP_MAX_LIMIT,
-  GREP_MAX_LINE_TEXT_BYTES,
+  GREP_PROMPT_GUIDELINES,
+  GREP_PROMPT_SNIPPET,
   createGrepTool,
+  ensureTool,
+  type GrepOperations,
   type GrepTool,
+  type ToolResult,
 } from "../src/index.js";
 
-const POSIX = process.platform !== "win32";
+const GREP_DESCRIPTION =
+  "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.";
 
-type Match = {
-  readonly path: string;
-  readonly line: number;
-  readonly text: string;
-  readonly before: readonly { readonly line: number; readonly text: string }[];
-  readonly after: readonly { readonly line: number; readonly text: string }[];
-};
-
-type Diagnostic = {
-  readonly path: string;
-  readonly operation: string;
-  readonly code: string;
-};
-
-function matchesOf(result: unknown): readonly Match[] {
-  const record = result as { readonly details?: { readonly matches?: readonly Match[] } };
-  return record.details?.matches ?? [];
+function textOf(result: ToolResult): string {
+  const block = result.content[0];
+  if (block === undefined || block.type !== "text") {
+    throw new Error("expected a text content block");
+  }
+  return block.text;
 }
 
-function diagnosticsOf(result: unknown): readonly Diagnostic[] {
-  const record = result as {
-    readonly details?: { readonly diagnostics?: readonly Diagnostic[] };
-  };
-  return record.details?.diagnostics ?? [];
+function listingOf(result: ToolResult): string[] {
+  const text = textOf(result);
+  if (text === "No matches found") {
+    return [];
+  }
+  const noticeAt = text.indexOf("\n\n[");
+  const listing = noticeAt === -1 ? text : text.slice(0, noticeAt);
+  return listing.split("\n").filter((line) => line !== "");
+}
+
+function noticeOf(result: ToolResult): string | undefined {
+  const text = textOf(result);
+  const noticeAt = text.indexOf("\n\n[");
+  return noticeAt === -1 ? undefined : text.slice(noticeAt + 2);
 }
 
 describe("Grep Tool", () => {
   let sessionCwd: string;
   let tool: GrepTool;
+
+  beforeAll(async () => {
+    const rgPath = await ensureTool("rg");
+    if (!rgPath) {
+      throw new Error("ripgrep (rg) is required for grep tests");
+    }
+  }, 120_000);
 
   beforeEach(async () => {
     sessionCwd = await mkdtemp(join(tmpdir(), "susan-grep-"));
@@ -54,113 +60,60 @@ describe("Grep Tool", () => {
     await rm(sessionCwd, { force: true, recursive: true });
   });
 
-  it("exposes the grep tool definition with a required pattern and bounded options", () => {
+  it("exposes the Pi grep definition with empty guidelines", () => {
     expect(tool).toMatchObject({
       name: "grep",
+      description: GREP_DESCRIPTION,
+      promptSnippet: GREP_PROMPT_SNIPPET,
+      promptGuidelines: GREP_PROMPT_GUIDELINES,
       parameters: {
         type: "object",
         additionalProperties: false,
         required: ["pattern"],
         properties: {
-          pattern: { type: "string" },
-          path: { type: "string" },
-          glob: { type: "string" },
-          literal: { type: "boolean" },
-          ignoreCase: { type: "boolean" },
-          context: { type: "integer", minimum: 0, maximum: GREP_MAX_CONTEXT },
-          maxDepth: { type: "integer", minimum: 1 },
-          includeIgnored: { type: "boolean" },
-          offset: { type: "integer", minimum: 0 },
-          limit: { type: "integer", minimum: 1, maximum: GREP_MAX_LIMIT },
+          pattern: {
+            type: "string",
+            description: "Search pattern (regex or literal string)",
+          },
+          path: {
+            type: "string",
+            description: "Directory or file to search (default: current directory)",
+          },
+          glob: {
+            type: "string",
+            description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
+          },
+          ignoreCase: {
+            type: "boolean",
+            description: "Case-insensitive search (default: false)",
+          },
+          literal: {
+            type: "boolean",
+            description:
+              "Treat pattern as literal string instead of regex (default: false)",
+          },
+          context: {
+            type: "number",
+            description: "Number of lines to show before and after each match (default: 0)",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of matches to return (default: 100)",
+          },
         },
       },
     });
-    expect(GREP_DEFAULT_LIMIT).toBe(100);
-    expect(GREP_MAX_LIMIT).toBe(1_000);
-    expect(GREP_MAX_CONTEXT).toBe(10);
-    expect(GREP_MAX_LINE_TEXT_BYTES).toBe(1_000);
-    expect(GREP_MAX_FILE_BYTES).toBe(10 * 1024 * 1024);
-  });
-
-  it("searches a single file by ECMAScript regex and reports its basename", async () => {
-    await writeFile(
-      join(sessionCwd, "app.ts"),
-      "const a = 1;\nexport const total = 2;\nconst b = 3;\n",
+    expect(GREP_PROMPT_SNIPPET).toBe(
+      "Search file contents for patterns (respects .gitignore)",
     );
-
-    await expect(tool.execute({ pattern: "^export", path: "app.ts" })).resolves.toMatchObject({
-      details: {
-        resolvedPath: join(sessionCwd, "app.ts"),
-        realTargetPath: await realpath(join(sessionCwd, "app.ts")),
-        cwdRelation: "inside",
-        matches: [
-          {
-            path: "app.ts",
-            line: 2,
-            text: "export const total = 2;",
-            before: [],
-            after: [],
-          },
-        ],
-        diagnostics: [],
-      },
-    });
+    expect(GREP_PROMPT_GUIDELINES).toEqual([]);
   });
 
-  it("counts a line with several hits as one logical match", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "aa aa aa\nbb\n");
-
-    expect(matchesOf(await tool.execute({ pattern: "a", path: "a.txt" }))).toEqual([
-      { path: "a.txt", line: 1, text: "aa aa aa", before: [], after: [] },
-    ]);
-  });
-
-  it("treats the pattern literally with literal and folds case with ignoreCase", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "a.c\nabc\nABC\n");
-
-    expect(
-      matchesOf(await tool.execute({ pattern: "a.c", path: "a.txt" })).map((m) => m.line),
-    ).toEqual([1, 2]);
-    expect(
-      matchesOf(
-        await tool.execute({ pattern: "a.c", path: "a.txt", literal: true }),
-      ).map((m) => m.line),
-    ).toEqual([1]);
-    expect(
-      matchesOf(
-        await tool.execute({ pattern: "abc", path: "a.txt", ignoreCase: true }),
-      ).map((m) => m.line),
-    ).toEqual([2, 3]);
-    expect(
-      matchesOf(
-        await tool.execute({
-          pattern: "A.C",
-          path: "a.txt",
-          literal: true,
-          ignoreCase: true,
-        }),
-      ).map((m) => m.line),
-    ).toEqual([1]);
-  });
-
-  it("matches Unicode regex escapes and never matches across logical lines", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "café\nfirst\nsecond\n");
-
-    expect(
-      matchesOf(await tool.execute({ pattern: "\\p{L}+é", path: "a.txt" })).map(
-        (m) => m.text,
-      ),
-    ).toEqual(["café"]);
-    expect(matchesOf(await tool.execute({ pattern: "first\\nsecond", path: "a.txt" })))
-      .toEqual([]);
-  });
-
-  it("rejects unknown fields and wrong types before any other validation", async () => {
-    await expect(tool.execute({ pattern: "a", depth: 1 })).rejects.toThrow(
+  it("rejects extra keys and wrong types", async () => {
+    await expect(tool.execute({})).rejects.toThrow("Invalid grep arguments.");
+    await expect(tool.execute({ pattern: 1 })).rejects.toThrow(
       "Invalid grep arguments.",
     );
-    await expect(tool.execute({})).rejects.toThrow("Invalid grep arguments.");
-    await expect(tool.execute({ pattern: 1 })).rejects.toThrow("Invalid grep arguments.");
     await expect(tool.execute({ pattern: "a", path: 1 })).rejects.toThrow(
       "Invalid grep arguments.",
     );
@@ -170,137 +123,129 @@ describe("Grep Tool", () => {
     await expect(tool.execute({ pattern: "a", literal: "yes" })).rejects.toThrow(
       "Invalid grep arguments.",
     );
-    await expect(tool.execute({ pattern: "a", context: 1.5 })).rejects.toThrow(
+    await expect(tool.execute({ pattern: "a", ignoreCase: "yes" })).rejects.toThrow(
       "Invalid grep arguments.",
     );
-    await expect(tool.execute({ pattern: "(", limit: 0 })).rejects.toThrow(
-      "pattern must be a non-empty ECMAScript Unicode regex.",
+    await expect(tool.execute({ pattern: "a", context: "1" })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", limit: Number.NaN })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", maxDepth: 1 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", includeIgnored: true })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", offset: 0 })).rejects.toThrow(
+      "Invalid grep arguments.",
+    );
+    await expect(tool.execute({ pattern: "a", extra: 1 })).rejects.toThrow(
+      "Invalid grep arguments.",
     );
   });
 
-  it("orders pattern, glob, and option failures ahead of path failures", async () => {
-    await expect(
-      tool.execute({ pattern: "(", glob: "{a,b}", path: "missing" }),
-    ).rejects.toThrow("pattern must be a non-empty ECMAScript Unicode regex.");
-    await expect(tool.execute({ pattern: "", path: "missing" })).rejects.toThrow(
-      "pattern must be a non-empty ECMAScript Unicode regex.",
+  it("searches a single file and reports its basename", async () => {
+    await writeFile(
+      join(sessionCwd, "app.ts"),
+      "const a = 1;\nexport const total = 2;\nconst b = 3;\n",
     );
-    await expect(
-      tool.execute({ pattern: "a", glob: "{a,b}", limit: 0 }),
-    ).rejects.toThrow("glob pattern is invalid.");
-    await expect(
-      tool.execute({ pattern: "a", limit: GREP_MAX_LIMIT + 1, offset: -1 }),
-    ).rejects.toThrow(`limit must be an integer between 1 and ${GREP_MAX_LIMIT}.`);
-    await expect(
-      tool.execute({ pattern: "a", offset: -1, maxDepth: 0 }),
-    ).rejects.toThrow("offset must be a non-negative integer.");
-    await expect(
-      tool.execute({ pattern: "a", maxDepth: 1_001, context: 11 }),
-    ).rejects.toThrow("maxDepth must be an integer between 1 and 1000.");
-    await expect(
-      tool.execute({ pattern: "a", context: GREP_MAX_CONTEXT + 1, path: "missing" }),
-    ).rejects.toThrow(`context must be an integer between 0 and ${GREP_MAX_CONTEXT}.`);
+
+    const result = await tool.execute({ pattern: "^export", path: "app.ts" });
+    expect(textOf(result)).toBe("app.ts:2: export const total = 2;");
+    expect(result.details).toBeUndefined();
   });
 
-  it("rejects directory-only options when the target is a single file", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "hit\n");
-
-    await expect(
-      tool.execute({ pattern: "hit", path: "a.txt", glob: "*.txt" }),
-    ).rejects.toThrow("Invalid grep arguments.");
-    await expect(
-      tool.execute({ pattern: "hit", path: "a.txt", maxDepth: 2 }),
-    ).rejects.toThrow("Invalid grep arguments.");
-    await expect(
-      tool.execute({ pattern: "hit", path: "a.txt", includeIgnored: true }),
-    ).rejects.toThrow("Invalid grep arguments.");
-    await expect(
-      tool.execute({ pattern: "hit", path: "a.txt", context: 1, offset: 0, limit: 5 }),
-    ).resolves.toMatchObject({ details: expect.anything() });
-    await expect(
-      tool.execute({
-        pattern: "hit",
-        path: "a.txt",
-        glob: undefined,
-        maxDepth: undefined,
-        includeIgnored: undefined,
-      }),
-    ).resolves.toMatchObject({ details: expect.anything() });
+  it("counts a line with several hits as one match", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "aa aa aa\nbb\n");
+    expect(listingOf(await tool.execute({ pattern: "a", path: "a.txt" }))).toEqual([
+      "a.txt:1: aa aa aa",
+    ]);
   });
 
-  it("recurses a Search Root and sorts matches by path then line", async () => {
+  it("treats the pattern literally with literal and folds case with ignoreCase", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "a.c\nabc\nABC\n");
+
+    expect(
+      listingOf(await tool.execute({ pattern: "a.c", path: "a.txt" })),
+    ).toEqual(["a.txt:1: a.c", "a.txt:2: abc"]);
+    expect(
+      listingOf(
+        await tool.execute({ pattern: "a.c", path: "a.txt", literal: true }),
+      ),
+    ).toEqual(["a.txt:1: a.c"]);
+    expect(
+      listingOf(
+        await tool.execute({ pattern: "abc", path: "a.txt", ignoreCase: true }),
+      ),
+    ).toEqual(["a.txt:2: abc", "a.txt:3: ABC"]);
+    expect(
+      listingOf(
+        await tool.execute({
+          pattern: "A.C",
+          path: "a.txt",
+          literal: true,
+          ignoreCase: true,
+        }),
+      ),
+    ).toEqual(["a.txt:1: a.c"]);
+  });
+
+  it("uses ripgrep regex and never matches across logical lines", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "café\nfirst\nsecond\n");
+
+    expect(
+      listingOf(await tool.execute({ pattern: "\\p{L}+é", path: "a.txt" })),
+    ).toEqual(["a.txt:1: café"]);
+    await expect(
+      tool.execute({ pattern: "first\\nsecond", path: "a.txt" }),
+    ).rejects.toThrow(/multiline mode/);
+  });
+
+  it("recurses a directory, includes hidden files, and returns relative paths", async () => {
     await mkdir(join(sessionCwd, "src", "deep"), { recursive: true });
     await writeFile(join(sessionCwd, "top.ts"), "needle\n");
     await writeFile(join(sessionCwd, ".dotfile"), "needle\n");
     await writeFile(join(sessionCwd, "src", "b.ts"), "no\nneedle\nneedle\n");
     await writeFile(join(sessionCwd, "src", "a.ts"), "needle\n");
     await writeFile(join(sessionCwd, "src", "deep", "c.ts"), "needle\n");
-    await writeFile(join(sessionCwd, "src", "Case.ts"), "Needle\n");
 
-    const result = await tool.execute({ pattern: "needle" });
-
-    expect(result).toMatchObject({
-      details: {
-        resolvedPath: sessionCwd,
-        realTargetPath: await realpath(sessionCwd),
-        cwdRelation: "inside",
-        diagnostics: [],
-      },
-    });
-    expect(matchesOf(result).map((m) => [m.path, m.line])).toEqual([
-      [".dotfile", 1],
-      ["src/a.ts", 1],
-      ["src/b.ts", 2],
-      ["src/b.ts", 3],
-      ["src/deep/c.ts", 1],
-      ["top.ts", 1],
+    const lines = listingOf(await tool.execute({ pattern: "needle" })).sort();
+    expect(lines).toEqual([
+      ".dotfile:1: needle",
+      "src/a.ts:1: needle",
+      "src/b.ts:2: needle",
+      "src/b.ts:3: needle",
+      "src/deep/c.ts:1: needle",
+      "top.ts:1: needle",
     ]);
   });
 
-  it("filters candidate files with glob while still descending every directory", async () => {
+  it("filters files with glob", async () => {
     await mkdir(join(sessionCwd, "pkg", "src"), { recursive: true });
     await writeFile(join(sessionCwd, "pkg", "notes.md"), "needle\n");
     await writeFile(join(sessionCwd, "pkg", "src", "a.ts"), "needle\n");
     await writeFile(join(sessionCwd, "root.ts"), "needle\n");
 
     expect(
-      matchesOf(await tool.execute({ pattern: "needle", glob: "*.ts" })).map(
-        (m) => m.path,
-      ),
-    ).toEqual(["pkg/src/a.ts", "root.ts"]);
+      listingOf(await tool.execute({ pattern: "needle", glob: "*.ts" })).sort(),
+    ).toEqual(["pkg/src/a.ts:1: needle", "root.ts:1: needle"]);
     expect(
-      matchesOf(await tool.execute({ pattern: "needle", glob: "pkg/**/*.ts" })).map(
-        (m) => m.path,
-      ),
-    ).toEqual(["pkg/src/a.ts"]);
-    expect(
-      matchesOf(await tool.execute({ pattern: "needle", glob: "*.rs" })),
-    ).toEqual([]);
+      listingOf(
+        await tool.execute({ pattern: "needle", glob: "**/pkg/**/*.ts" }),
+      ).sort(),
+    ).toEqual(["pkg/src/a.ts:1: needle"]);
+    expect(textOf(await tool.execute({ pattern: "needle", glob: "*.rs" }))).toBe(
+      "No matches found",
+    );
   });
 
-  it("limits recursion depth with maxDepth", async () => {
-    await mkdir(join(sessionCwd, "a", "b"), { recursive: true });
-    await writeFile(join(sessionCwd, "top.ts"), "needle\n");
-    await writeFile(join(sessionCwd, "a", "mid.ts"), "needle\n");
-    await writeFile(join(sessionCwd, "a", "b", "deep.ts"), "needle\n");
-
-    expect(
-      matchesOf(await tool.execute({ pattern: "needle", maxDepth: 1 })).map(
-        (m) => m.path,
-      ),
-    ).toEqual(["top.ts"]);
-    expect(
-      matchesOf(await tool.execute({ pattern: "needle", maxDepth: 2 })).map(
-        (m) => m.path,
-      ),
-    ).toEqual(["a/mid.ts", "top.ts"]);
-  });
-
-  it("applies nested .gitignore anchoring and negation unless includeIgnored", async () => {
+  it("respects .gitignore and still searches hidden files", async () => {
+    expect(spawnSync("git", ["init"], { cwd: sessionCwd }).status).toBe(0);
     await writeFile(join(sessionCwd, ".gitignore"), "*.log\n/root-only.ts\nbuild/\n");
     await mkdir(join(sessionCwd, "build"));
     await mkdir(join(sessionCwd, "pkg"));
-    await mkdir(join(sessionCwd, ".git"));
     await writeFile(join(sessionCwd, ".git", "HEAD"), "needle\n");
     await writeFile(join(sessionCwd, "build", "out.ts"), "needle\n");
     await writeFile(join(sessionCwd, "root-only.ts"), "needle\n");
@@ -312,26 +257,15 @@ describe("Grep Tool", () => {
     await writeFile(join(sessionCwd, "pkg", "other.ts"), "needle\n");
 
     expect(
-      matchesOf(await tool.execute({ pattern: "needle" })).map((m) => m.path),
-    ).toEqual(["keep.ts", "pkg/keep.ts"]);
-
-    expect(
-      matchesOf(await tool.execute({ pattern: "needle", includeIgnored: true })).map(
-        (m) => m.path,
-      ),
+      listingOf(await tool.execute({ pattern: "needle" })).sort(),
     ).toEqual([
-      ".git/HEAD",
-      "build/out.ts",
-      "drop.log",
-      "keep.ts",
-      "pkg/keep.ts",
-      "pkg/other.ts",
-      "pkg/root-only.ts",
-      "root-only.ts",
+      ".git/HEAD:1: needle",
+      "keep.ts:1: needle",
+      "pkg/keep.ts:1: needle",
     ]);
   });
 
-  it("skips symlinked files and directories found by traversal", async () => {
+  it("skips symlinked files and directories found while walking", async () => {
     await mkdir(join(sessionCwd, "real"));
     await writeFile(join(sessionCwd, "real", "a.ts"), "needle\n");
     await symlink(
@@ -345,12 +279,12 @@ describe("Grep Tool", () => {
       process.platform === "win32" ? "dir" : undefined,
     );
 
-    expect(
-      matchesOf(await tool.execute({ pattern: "needle" })).map((m) => m.path),
-    ).toEqual(["real/a.ts"]);
+    expect(listingOf(await tool.execute({ pattern: "needle" }))).toEqual([
+      "real/a.ts:1: needle",
+    ]);
   });
 
-  it("follows an explicit symlink entry to its real target", async () => {
+  it("searches an explicit symlink by basename", async () => {
     await writeFile(join(sessionCwd, "real.ts"), "needle\n");
     await symlink(
       join(sessionCwd, "real.ts"),
@@ -358,350 +292,102 @@ describe("Grep Tool", () => {
       process.platform === "win32" ? "file" : undefined,
     );
 
-    await expect(
-      tool.execute({ pattern: "needle", path: "alias.ts" }),
-    ).resolves.toMatchObject({
-      details: {
-        resolvedPath: join(sessionCwd, "alias.ts"),
-        realTargetPath: await realpath(join(sessionCwd, "real.ts")),
-        matches: [{ path: "alias.ts", line: 1 }],
-      },
-    });
-  });
-
-  it("keeps BOM out of matching and treats LF and CRLF as logical lines", async () => {
-    await writeFile(
-      join(sessionCwd, "bom.txt"),
-      Buffer.concat([
-        Buffer.from([0xef, 0xbb, 0xbf]),
-        Buffer.from("first\r\nsecond\nthird\r\n", "utf8"),
-      ]),
-    );
-
-    expect(matchesOf(await tool.execute({ pattern: "^first$", path: "bom.txt" })))
-      .toEqual([
-        { path: "bom.txt", line: 1, text: "first", before: [], after: [] },
-      ]);
     expect(
-      matchesOf(
-        await tool.execute({ pattern: ".", path: "bom.txt", context: 0 }),
-      ).map((m) => [m.line, m.text]),
-    ).toEqual([
-      [1, "first"],
-      [2, "second"],
-      [3, "third"],
-    ]);
+      textOf(await tool.execute({ pattern: "needle", path: "alias.ts" })),
+    ).toBe("alias.ts:1: needle");
   });
 
-  it("returns typed failures for binary, oversized, and special explicit targets", async () => {
-    await writeFile(join(sessionCwd, "bin"), Buffer.from([0x68, 0x00, 0x69]));
-    await writeFile(join(sessionCwd, "bad-utf8"), Buffer.from([0xff, 0xfe, 0xfd]));
-
-    await expect(
-      tool.execute({ pattern: "h", path: "bin" }),
-    ).rejects.toThrow("File is not valid UTF-8 text.");
-    await expect(
-      tool.execute({ pattern: "h", path: "bad-utf8" }),
-    ).rejects.toThrow("File is not valid UTF-8 text.");
-  });
-
-  it.skipIf(!POSIX)("fails with EUNSUPPORTED for an explicit special file", async () => {
-    const fifo = join(sessionCwd, "pipe");
-    expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
-
-    await expect(tool.execute({ pattern: "a", path: "pipe" })).rejects.toThrow(
-      "Path is not a regular file.",
-    );
-  });
-
-  it("turns undecodable and special files found by traversal into diagnostics", async () => {
-    await writeFile(join(sessionCwd, "keep.ts"), "needle\n");
-    await writeFile(join(sessionCwd, "bin.dat"), Buffer.from([0x00, 0x01]));
-    if (POSIX) {
-      expect(spawnSync("mkfifo", [join(sessionCwd, "pipe")]).status).toBe(0);
-    }
-
-    const result = await tool.execute({ pattern: "needle" });
-
-    expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
-    expect(result).toMatchObject({
-      details: {
-        diagnostics: [
-          { path: "bin.dat", operation: "read-file", code: "EBINARY" },
-          ...(POSIX
-            ? [{ path: "pipe", operation: "read-metadata", code: "EUNSUPPORTED" }]
-            : []),
-        ],
-      },
-    });
-  });
-
-  it("caps diagnostics at 100 in path order without dropping matches", async () => {
-    await writeFile(join(sessionCwd, "keep.ts"), "needle\n");
-    for (let index = 0; index < 105; index += 1) {
-      await writeFile(
-        join(sessionCwd, `bin-${String(index).padStart(3, "0")}.dat`),
-        Buffer.from([0x00, 0x01]),
-      );
-    }
-
-    const result = await tool.execute({ pattern: "needle" });
-
-    expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
-    const diagnostics = diagnosticsOf(result);
-    expect(diagnostics).toHaveLength(100);
-    expect(diagnostics[0]).toEqual({
-      path: "bin-000.dat",
-      operation: "read-file",
-      code: "EBINARY",
-    });
-    expect(diagnostics[99]?.path).toBe("bin-099.dat");
-  });
-
-  it("returns unified context clipped at file boundaries and kept per match", async () => {
-    await writeFile(
-      join(sessionCwd, "a.txt"),
-      "hit\nfiller\nhit\nlast\n",
-    );
-
-    expect(matchesOf(await tool.execute({ pattern: "hit", path: "a.txt", context: 2 })))
-      .toEqual([
-        {
-          path: "a.txt",
-          line: 1,
-          text: "hit",
-          before: [],
-          after: [
-            { line: 2, text: "filler" },
-            { line: 3, text: "hit" },
-          ],
-        },
-        {
-          path: "a.txt",
-          line: 3,
-          text: "hit",
-          before: [
-            { line: 1, text: "hit" },
-            { line: 2, text: "filler" },
-          ],
-          after: [{ line: 4, text: "last" }],
-        },
-      ]);
-  });
-
-  it("returns successful empty results for no match, empty tree, and out-of-range offset", async () => {
+  it("returns No matches found when nothing hits", async () => {
     await writeFile(join(sessionCwd, "a.txt"), "nothing here\n");
     await mkdir(join(sessionCwd, "empty"));
 
     await expect(tool.execute({ pattern: "zzz" })).resolves.toMatchObject({
-      details: {
-        resolvedPath: sessionCwd,
-        realTargetPath: await realpath(sessionCwd),
-        cwdRelation: "inside",
-        matches: [],
-        diagnostics: [],
-      },
+      content: [{ type: "text", text: "No matches found" }],
+      details: undefined,
     });
-    await expect(tool.execute({ pattern: "nothing", path: "empty" })).resolves
-      .toMatchObject({ details: { matches: [] } });
-    await expect(tool.execute({ pattern: "nothing", offset: 5 })).resolves
-      .toMatchObject({ details: { matches: [] } });
+    await expect(
+      tool.execute({ pattern: "nothing", path: "empty" }),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: "No matches found" }],
+      details: undefined,
+    });
   });
 
-  it("pages sorted matches with limit, offset, and accurate continuation", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "hit 1\nhit 2\nhit 3\n");
-    await writeFile(join(sessionCwd, "b.txt"), "hit 4\n");
-
-    const first = await tool.execute({ pattern: "hit", limit: 2, context: 1 });
-    expect(first).toMatchObject({
-      details: {
-        truncation: {
-          truncatedBy: ["items"],
-          outputItems: 2,
-          nextOffset: 2,
-          context: 1,
-        },
-      },
-    });
-    expect(matchesOf(first).map((m) => [m.path, m.line])).toEqual([
-      ["a.txt", 1],
-      ["a.txt", 2],
-    ]);
-
-    const second = await tool.execute({
-      pattern: "hit",
-      offset: first.details?.truncation?.nextOffset,
-      limit: 2,
-      context: 1,
-    });
-    expect(matchesOf(second).map((m) => [m.path, m.line])).toEqual([
-      ["a.txt", 3],
-      ["b.txt", 1],
-    ]);
-    expect(second.details?.truncation).toBeUndefined();
-  });
-
-  it("counts only logical matches in offset, never context lines", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), "hit\nx\nhit\ny\nhit\n");
+  it("returns unified context clipped at file boundaries", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "hit\nfiller\nhit\nlast\n");
 
     expect(
-      matchesOf(
-        await tool.execute({ pattern: "hit", path: "a.txt", context: 1, offset: 1 }),
+      listingOf(
+        await tool.execute({ pattern: "hit", path: "a.txt", context: 2 }),
       ),
     ).toEqual([
-      {
-        path: "a.txt",
-        line: 3,
-        text: "hit",
-        before: [{ line: 2, text: "x" }],
-        after: [{ line: 4, text: "y" }],
-      },
-      {
-        path: "a.txt",
-        line: 5,
-        text: "hit",
-        before: [{ line: 4, text: "y" }],
-        after: [],
-      },
+      "a.txt:1: hit",
+      "a.txt-2- filler",
+      "a.txt-3- hit",
+      "a.txt-1- hit",
+      "a.txt-2- filler",
+      "a.txt:3: hit",
+      "a.txt-4- last",
+      "a.txt-5- ",
     ]);
   });
 
-  it("clips every line text to 1,000 UTF-8 bytes and reports line-length", async () => {
-    const wide = "中".repeat(400);
-    await writeFile(join(sessionCwd, "wide.txt"), `${wide}\nhit ${wide}\n`);
+  it("appends the Pi match-limit notice and doubles the suggested limit", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "hit 1\nhit 2\nhit 3\n");
 
-    const result = await tool.execute({ pattern: "hit", path: "wide.txt", context: 1 });
-    const [match] = matchesOf(result);
-    expect(match?.line).toBe(2);
-    expect(match?.text).toBe(`hit ${"中".repeat(332)}`);
-    expect(Buffer.byteLength(match?.text ?? "", "utf8")).toBe(1_000);
-    expect(match?.before[0]?.text).toBe("中".repeat(333));
-    expect(Buffer.byteLength(match?.before[0]?.text ?? "", "utf8")).toBe(999);
-    expect(result).toMatchObject({
-      details: {
-        truncation: {
-          truncatedBy: ["line-length"],
-        },
-      },
-    });
-    expect(result.details?.truncation?.nextOffset).toBeUndefined();
+    const result = await tool.execute({ pattern: "hit", limit: 2 });
+    expect(listingOf(result)).toEqual(["a.txt:1: hit 1", "a.txt:2: hit 2"]);
+    expect(noticeOf(result)).toBe(
+      "[2 matches limit reached. Use limit=4 for more, or refine pattern]",
+    );
+    expect(result.details).toMatchObject({ matchLimitReached: 2 });
+    expect(result.details?.truncation).toBeUndefined();
   });
 
-  it("keeps short lines untouched and preserves valid UTF-8 when clipping", async () => {
-    await writeFile(join(sessionCwd, "a.txt"), `${"a".repeat(1_000)}\n`);
+  it("truncates long lines to 500 chars and notes the read tool", async () => {
+    const wide = "a".repeat(600);
+    await writeFile(join(sessionCwd, "wide.txt"), `hit ${wide}\n`);
 
-    const exact = await tool.execute({ pattern: "a", path: "a.txt" });
-    expect(matchesOf(exact)[0]?.text).toHaveLength(1_000);
-    expect(exact.details?.truncation).toBeUndefined();
-
-    await writeFile(join(sessionCwd, "b.txt"), `${"a".repeat(1_001)}\n`);
-    const clipped = await tool.execute({ pattern: "a", path: "b.txt" });
-    expect(matchesOf(clipped)[0]?.text).toHaveLength(1_000);
-    expect(clipped.details?.truncation?.truncatedBy).toEqual(["line-length"]);
+    const result = await tool.execute({ pattern: "hit", path: "wide.txt" });
+    expect(listingOf(result)[0]).toBe(
+      `wide.txt:1: ${`hit ${wide}`.slice(0, 500)}... [truncated]`,
+    );
+    expect(noticeOf(result)).toBe(
+      "[Some lines truncated to 500 chars. Use read tool to see full lines]",
+    );
+    expect(result.details).toMatchObject({ linesTruncated: true });
   });
 
-  it("applies the 50 KiB budget after sorting and continues from the first omitted match", async () => {
-    const filler = "x".repeat(240);
-    const lines = Array.from({ length: 400 }, (_, index) => `hit-${index} ${filler}`);
+  it("truncates by 50KB and appends the size-limit notice", async () => {
+    const line = `hit ${"x".repeat(400)}`;
+    const lines = Array.from({ length: 200 }, () => line);
     await writeFile(join(sessionCwd, "big.txt"), `${lines.join("\n")}\n`);
 
-    const first = await tool.execute({
+    const result = await tool.execute({
       pattern: "hit",
       path: "big.txt",
-      limit: GREP_MAX_LIMIT,
+      limit: 200,
     });
-    const retained = matchesOf(first);
-    expect(retained).toHaveLength(lines.length);
-    expect(first.details?.truncation).toBeUndefined();
-    expect(retained[0]?.line).toBe(1);
+    expect(noticeOf(result)).toContain("50.0KB limit reached");
+    expect(result.details?.truncation?.truncated).toBe(true);
+    expect(result.details?.truncation?.truncatedBy).toBe("bytes");
+    expect(listingOf(result).length).toBeGreaterThan(0);
+    expect(listingOf(result).length).toBeLessThan(200);
   });
 
-  it("keeps every non-default option in continuation arguments", async () => {
-    await writeFile(join(sessionCwd, ".gitignore"), "a.txt\n");
-    await writeFile(join(sessionCwd, "a.txt"), "hit\nhit\n");
-
-    await expect(
-      tool.execute({
-        pattern: "hit",
-        glob: "*.txt",
-        literal: true,
-        ignoreCase: true,
-        context: 1,
-        maxDepth: 1,
-        includeIgnored: true,
-        limit: 1,
-      }),
-    ).resolves.toMatchObject({
-      details: {
-        truncation: {
-          truncatedBy: ["items"],
-          outputItems: 1,
-          nextOffset: 1,
-          glob: "*.txt",
-          literal: true,
-          ignoreCase: true,
-          context: 1,
-          maxDepth: 1,
-          includeIgnored: true,
-        },
-      },
-    });
-  });
-
-  it("fails the whole call for missing and unreadable roots", async () => {
-    await expect(tool.execute({ pattern: "a", path: "missing" })).rejects.toThrow(
-      "Path does not exist.",
-    );
-  });
-
-  it.skipIf(!POSIX)("fails closed when an explicit target cannot be read", async () => {
-    const locked = join(sessionCwd, "locked.txt");
-    await writeFile(locked, "needle\n");
-    await chmod(locked, 0o000);
-    try {
-      await expect(tool.execute({ pattern: "needle", path: "locked.txt" })).rejects
-        .toThrow("Path cannot be read.");
-    } finally {
-      await chmod(locked, 0o600);
-    }
-  });
-
-  it.skipIf(!POSIX)("records a diagnostic when a discovered file cannot be read", async () => {
+  it("skips binary files instead of returning diagnostics", async () => {
     await writeFile(join(sessionCwd, "keep.ts"), "needle\n");
-    const locked = join(sessionCwd, "locked.ts");
-    await writeFile(locked, "needle\n");
-    await chmod(locked, 0o000);
-    try {
-      const result = await tool.execute({ pattern: "needle" });
-      expect(matchesOf(result).map((m) => m.path)).toEqual(["keep.ts"]);
-      expect(result).toMatchObject({
-        details: {
-          diagnostics: [
-            { path: "locked.ts", operation: "read-file", code: "EACCES" },
-          ],
-        },
-      });
-    } finally {
-      await chmod(locked, 0o600);
-    }
+    await writeFile(join(sessionCwd, "bin.dat"), Buffer.from([0x00, 0x01]));
+
+    const result = await tool.execute({ pattern: "needle" });
+    expect(listingOf(result)).toEqual(["keep.ts:1: needle"]);
+    expect(result.details).toBeUndefined();
   });
 
-  it("searches an absolute path outside Session cwd and reports cwdRelation outside", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "susan-grep-outside-"));
-    try {
-      await writeFile(join(outside, "a.ts"), "needle\n");
-      await expect(tool.execute({ pattern: "needle", path: outside })).resolves
-        .toMatchObject({
-          details: {
-            resolvedPath: outside,
-            realTargetPath: await realpath(outside),
-            cwdRelation: "outside",
-            matches: [{ path: "a.ts", line: 1 }],
-          },
-        });
-    } finally {
-      await rm(outside, { force: true, recursive: true });
-    }
+  it("rejects a missing path with the Pi message", async () => {
+    await expect(tool.execute({ pattern: "a", path: "missing" })).rejects.toThrow(
+      `Path not found: ${join(sessionCwd, "missing")}`,
+    );
   });
 
   it("resolves a relative path against Session cwd, not process cwd", async () => {
@@ -710,45 +396,80 @@ describe("Grep Tool", () => {
     const previous = process.cwd();
     try {
       process.chdir(other);
-      await writeFile(join(other, "here.ts"), "needle\n");
-      await expect(tool.execute({ pattern: "needle", path: "here.ts" })).resolves
-        .toMatchObject({
-          details: { resolvedPath: join(sessionCwd, "here.ts") },
-        });
+      await writeFile(join(other, "here.ts"), "needle\nwrong\n");
+      expect(textOf(await tool.execute({ pattern: "needle", path: "here.ts" })))
+        .toBe("here.ts:1: needle");
     } finally {
       process.chdir(previous);
       await rm(other, { force: true, recursive: true });
     }
   });
 
-  it("fails the entire query when the time budget is exceeded", async () => {
-    await writeFile(join(sessionCwd, "a.ts"), "needle\n");
-    let calls = 0;
-    const isolated = createGrepTool({
-      sessionCwd,
-      timeoutMs: 10,
-      now: () => {
-        calls += 1;
-        return calls === 1 ? 0 : 20_000;
-      },
-    });
-
-    await expect(isolated.execute({ pattern: "needle" })).rejects.toThrow(
-      "Grep timed out.",
-    );
+  it("searches an absolute path outside Session cwd", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "susan-grep-outside-"));
+    try {
+      await writeFile(join(outside, "a.ts"), "needle\n");
+      expect(
+        listingOf(await tool.execute({ pattern: "needle", path: outside })).sort(),
+      ).toEqual(["a.ts:1: needle"]);
+    } finally {
+      await rm(outside, { force: true, recursive: true });
+    }
   });
 
-  it("maps an already-aborted timeout signal to ETIMEDOUT and cancellation to ETOOL", async () => {
-    const timeout = AbortSignal.timeout(0);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await expect(tool.execute({ pattern: "a" }, timeout)).rejects.toThrow(
-      "Grep timed out.",
-    );
-
+  it("maps an already-aborted signal to Operation aborted", async () => {
     const controller = new AbortController();
     controller.abort();
     await expect(tool.execute({ pattern: "a" }, controller.signal)).rejects.toThrow(
-      "Tool execution failed.",
+      "Operation aborted",
     );
+  });
+
+  it("uses custom readFile for context lines", async () => {
+    await writeFile(join(sessionCwd, "a.txt"), "hit\n");
+    const operations: GrepOperations = {
+      isDirectory: async () => false,
+      readFile: async () => {
+        throw new Error("unavailable");
+      },
+    };
+    const isolated = createGrepTool({ sessionCwd, operations });
+    expect(
+      textOf(
+        await isolated.execute({ pattern: "hit", path: "a.txt", context: 1 }),
+      ),
+    ).toBe("a.txt:1: (unable to read file)");
+  });
+
+  it("fails when rg cannot be resolved", async () => {
+    const isolatedBin = await mkdtemp(join(tmpdir(), "susan-grep-norg-"));
+    const previousPath = process.env.PATH;
+    const previousBin = process.env.SUSAN_BIN_DIR;
+    const previousOffline = process.env.SUSAN_OFFLINE;
+    process.env.PATH = "/nonexistent";
+    process.env.SUSAN_BIN_DIR = isolatedBin;
+    process.env.SUSAN_OFFLINE = "1";
+    try {
+      await expect(tool.execute({ pattern: "a" })).rejects.toThrow(
+        "ripgrep (rg) is not available and could not be downloaded",
+      );
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = previousPath;
+      }
+      if (previousBin === undefined) {
+        delete process.env.SUSAN_BIN_DIR;
+      } else {
+        process.env.SUSAN_BIN_DIR = previousBin;
+      }
+      if (previousOffline === undefined) {
+        delete process.env.SUSAN_OFFLINE;
+      } else {
+        process.env.SUSAN_OFFLINE = previousOffline;
+      }
+      await rm(isolatedBin, { force: true, recursive: true });
+    }
   });
 });

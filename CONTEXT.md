@@ -61,7 +61,7 @@ Built-in Tool Set 中以真实 Bash 执行 one-shot、非交互、非 login comm
 _Avoid_: shell tool, terminal tool, command tool
 
 **Grep Tool**:
-Built-in Tool Set 中按行搜索 UTF-8 regular file 内容的 Tool；模型侧名称为 `grep`，可查询单个文件或从 Search Root 递归查询目录。
+Built-in Tool Set 中按行搜索文件内容的 Tool；模型侧名称为 `grep`，经 Managed Binary `rg` 查询单个文件或目录，尊重 `.gitignore`。
 _Avoid_: search tool, ripgrep wrapper, content finder
 
 **Find Tool**:
@@ -73,11 +73,11 @@ Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧
 _Avoid_: list tool, directory reader, recursive ls
 
 **Search Root**:
-`grep` 或 `find` 的路径入口所确定的目录；查询结果中的相对路径、glob 匹配与遍历深度都以它为基准。`grep` 直接查询单个文件时没有 Search Root。
+`find` 的路径入口所确定的目录；查询结果中的相对路径、glob 匹配与遍历深度都以它为基准。
 _Avoid_: workspace, project root, scan root
 
 **Traversal Diagnostic**:
-`grep` 或 `find` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
+`find` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
 _Avoid_: warning text, skipped error, partial failure
 
 **Tool Result**:

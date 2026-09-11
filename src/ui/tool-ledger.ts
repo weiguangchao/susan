@@ -102,14 +102,20 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       stringField(arguments_, "command") ?? "bash",
   },
   grep: {
-    summary: (result, payload) =>
-      `${arrayLength(payload, "matches")} matches${diagnosticSuffix(payload)}`,
+    summary: (result) => `${grepMatchLines(toolResultText(result.content)).length} matches`,
     invocationLabel: (arguments_, path) => {
       const pattern = stringField(arguments_, "pattern") ?? "";
       const query = arguments_.literal === true
         ? JSON.stringify(pattern)
         : `/${pattern}/${arguments_.ignoreCase === true ? "i" : ""}`;
       return `${path} · ${query}`;
+    },
+    supplementalLines: (result) => {
+      const content = toolResultText(result.content);
+      if (content === "" || content === "No matches found") {
+        return ["无匹配"];
+      }
+      return content.split("\n").filter((line) => line.trim() !== "");
     },
   },
   find: {
@@ -322,6 +328,15 @@ function lsListingLines(content: string): string[] {
   const noticeAt = content.indexOf("\n\n[");
   const listing = noticeAt === -1 ? content : content.slice(0, noticeAt);
   return listing.split("\n").filter((line) => line !== "");
+}
+
+function grepMatchLines(content: string): string[] {
+  if (content === "" || content === "No matches found") {
+    return [];
+  }
+  const noticeAt = content.indexOf("\n\n[");
+  const listing = noticeAt === -1 ? content : content.slice(0, noticeAt);
+  return listing.split("\n").filter((line) => /:\d+: /.test(line));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -369,9 +369,10 @@ describe("TUI Tool execution ledger", () => {
       "one failure",
       "Command exited with code 7",
     ]);
-    expect(state.tools[4]?.supplementalLines).toContain(
-      'truncation · {"truncatedBy":["items","line-length"],"outputItems":2,"nextOffset":2}',
-    );
+    expect(state.tools[4]?.supplementalLines).toEqual([
+      "a.ts:1: needle",
+      "b.ts:2: needle",
+    ]);
   });
 
   it("nests bounded result rows under each tool invocation at 80 columns", () => {
@@ -418,7 +419,7 @@ describe("TUI Tool execution ledger", () => {
     expect(output).toContain("one failure");
     expect(output).toContain("Command exited with code 7");
     expect(output).toContain("grep · src · /needle/ · 2 matches");
-    expect(output).toContain('truncation · {"truncatedBy":["items","line-length"]');
+    expect(output).toContain("a.ts:1: needle");
     expect(output).not.toContain("next arguments");
     expect(output).toContain("find · . · **/*.ts · 0 entries");
     expect(output).toContain("ls · src · 2 entries");

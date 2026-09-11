@@ -237,17 +237,13 @@ export type {
   LsToolOptions,
 } from "./core/ls.js";
 export {
-  GREP_DEFAULT_LIMIT,
-  GREP_DEFAULT_TIMEOUT_MS,
-  GREP_MAX_CONTEXT,
-  GREP_MAX_FILE_BYTES,
-  GREP_MAX_LIMIT,
-  GREP_MAX_LINE_TEXT_BYTES,
+  GREP_PROMPT_GUIDELINES,
+  GREP_PROMPT_SNIPPET,
   createGrepTool,
   executeGrep,
 } from "./core/grep.js";
 export type {
-  GrepMatch,
+  GrepOperations,
   GrepTool,
   GrepToolDetails,
   GrepToolOptions,

@@ -1,16 +1,30 @@
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  READ_MAX_FILE_BYTES,
-  READ_MAX_LINES,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  READ_PROMPT_GUIDELINES,
+  READ_PROMPT_SNIPPET,
   createReadTool,
   type ReadTool,
+  type ToolResult,
 } from "../src/index.js";
 import * as susan from "../src/index.js";
 
 const POSIX = process.platform !== "win32";
+
+const READ_DESCRIPTION =
+  "Read the contents of a file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
+
+function textOf(result: ToolResult): string {
+  const block = result.content[0];
+  if (block === undefined || block.type !== "text") {
+    throw new Error("expected a text content block");
+  }
+  return block.text;
+}
 
 describe("Read Tool", () => {
   let sessionCwd: string;
@@ -25,25 +39,41 @@ describe("Read Tool", () => {
     await rm(sessionCwd, { force: true, recursive: true });
   });
 
-  it("exposes the read tool definition without a read_file alias", () => {
+  it("exposes the Pi read definition without a read_file alias", () => {
     expect(tool).toMatchObject({
       name: "read",
+      description: READ_DESCRIPTION,
+      promptSnippet: READ_PROMPT_SNIPPET,
+      promptGuidelines: READ_PROMPT_GUIDELINES,
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          path: { type: "string" },
-          offset: { type: "integer", minimum: 1 },
-          limit: { type: "integer", minimum: 1, maximum: 2000 },
+          path: {
+            type: "string",
+            description: "Path to the file to read (relative or absolute)",
+          },
+          offset: {
+            type: "number",
+            description: "Line number to start reading from (1-indexed)",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of lines to read",
+          },
         },
         required: ["path"],
       },
     });
+    expect(READ_PROMPT_SNIPPET).toBe("Read file contents");
+    expect(READ_PROMPT_GUIDELINES).toEqual([
+      "Use read to examine files instead of cat or sed.",
+    ]);
     expect("readFileTool" in susan).toBe(false);
     expect(tool.name).not.toBe("read_file");
   });
 
-  it("reads a UTF-8 regular file and returns text content with file details", async () => {
+  it("reads a file as plain text without line numbers or file metadata", async () => {
     const path = join(sessionCwd, "notes.txt");
     await writeFile(path, "first\nsecond\nthird\n", "utf8");
 
@@ -51,16 +81,7 @@ describe("Read Tool", () => {
 
     expect(result).toEqual({
       content: [{ type: "text", text: "first\nsecond\nthird\n" }],
-      details: {
-        resolvedPath: path,
-        realTargetPath: await realpath(path),
-        cwdRelation: "inside",
-        range: { startLine: 1, endLine: 3 },
-        totalLines: 3,
-        sizeBytes: Buffer.byteLength("first\nsecond\nthird\n", "utf8"),
-        bom: false,
-        lineEnding: "lf",
-      },
+      details: undefined,
     });
   });
 
@@ -70,16 +91,7 @@ describe("Read Tool", () => {
 
     await expect(tool.execute({ path })).resolves.toEqual({
       content: [{ type: "text", text: "" }],
-      details: {
-        resolvedPath: path,
-        realTargetPath: await realpath(path),
-        cwdRelation: "inside",
-        range: null,
-        totalLines: 0,
-        sizeBytes: 0,
-        bom: false,
-        lineEnding: "none",
-      },
+      details: undefined,
     });
   });
 
@@ -91,12 +103,9 @@ describe("Read Tool", () => {
       process.chdir(other);
       await writeFile(join(other, "relative.txt"), "process\n", "utf8");
       const result = await tool.execute({ path: "relative.txt" });
-      expect(result).toMatchObject({
+      expect(result).toEqual({
         content: [{ type: "text", text: "session\n" }],
-        details: {
-          resolvedPath: join(sessionCwd, "relative.txt"),
-          cwdRelation: "inside",
-        },
+        details: undefined,
       });
     } finally {
       process.chdir(previous);
@@ -104,23 +113,14 @@ describe("Read Tool", () => {
     }
   });
 
-  it("strips a UTF-8 BOM from content and reports bom true", async () => {
+  it("keeps a UTF-8 BOM in the returned text", async () => {
     const path = join(sessionCwd, "bom.txt");
     await writeFile(path, Buffer.concat([
       Buffer.from([0xef, 0xbb, 0xbf]),
       Buffer.from("hello\n", "utf8"),
     ]));
 
-    const result = await tool.execute({ path });
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: "hello\n" }],
-      details: {
-        bom: true,
-        sizeBytes: 9,
-        totalLines: 1,
-        lineEnding: "lf",
-      },
-    });
+    expect(textOf(await tool.execute({ path }))).toBe("\uFEFFhello\n");
   });
 
   it("preserves LF, CRLF, mixed endings, and a missing final newline", async () => {
@@ -133,28 +133,16 @@ describe("Read Tool", () => {
     await writeFile(mixed, "a\r\nb\n");
     await writeFile(none, "a\nb");
 
-    await expect(tool.execute({ path: lf })).resolves.toMatchObject({
-      content: [{ type: "text", text: "a\nb\n" }],
-      details: { lineEnding: "lf" },
-    });
-    await expect(tool.execute({ path: crlf })).resolves.toMatchObject({
-      content: [{ type: "text", text: "a\r\nb\r\n" }],
-      details: { lineEnding: "crlf" },
-    });
-    await expect(tool.execute({ path: mixed })).resolves.toMatchObject({
-      content: [{ type: "text", text: "a\r\nb\n" }],
-      details: { lineEnding: "mixed" },
-    });
-    await expect(tool.execute({ path: none })).resolves.toMatchObject({
-      content: [{ type: "text", text: "a\nb" }],
-      details: { lineEnding: "lf" },
-    });
+    expect(textOf(await tool.execute({ path: lf }))).toBe("a\nb\n");
+    expect(textOf(await tool.execute({ path: crlf }))).toBe("a\r\nb\r\n");
+    expect(textOf(await tool.execute({ path: mixed }))).toBe("a\r\nb\n");
+    expect(textOf(await tool.execute({ path: none }))).toBe("a\nb");
   });
 
-  it("pages from a 1-based offset and appends a Pi-style continuation note", async () => {
+  it("pages from a 1-based offset and appends a remaining-lines note", async () => {
     const path = join(sessionCwd, "lines.txt");
     const lines = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
-    await writeFile(path, `${lines.join("\n")}\n`, "utf8");
+    await writeFile(path, lines.join("\n"), "utf8");
 
     const result = await tool.execute({ path, offset: 4, limit: 3 });
     expect(result).toEqual({
@@ -164,57 +152,169 @@ describe("Read Tool", () => {
           text: "line-4\nline-5\nline-6\n\n[6 more lines in file. Use offset=7 to continue.]",
         },
       ],
-      details: {
-        resolvedPath: path,
-        realTargetPath: await realpath(path),
-        cwdRelation: "inside",
-        range: { startLine: 4, endLine: 6 },
-        totalLines: 12,
-        sizeBytes: Buffer.byteLength(`${lines.join("\n")}\n`, "utf8"),
-        bom: false,
-        lineEnding: "lf",
-        truncation: {
-          truncatedBy: "lines",
-          totalLines: 9,
-          outputLines: 3,
-          nextOffset: 7,
-        },
-      },
+      details: undefined,
     });
   });
 
-  it("uses 2000 lines as the default and maximum page", async () => {
-    const path = join(sessionCwd, "default-limit.txt");
-    const lines = Array.from({ length: 2001 }, (_, index) => `${index + 1}`);
-    await writeFile(path, `${lines.join("\n")}\n`, "utf8");
-
-    const result = await tool.execute({ path });
-    expect(result).toMatchObject({
-      content: [
-        {
-          type: "text",
-          text: `${lines.slice(0, 2000).join("\n")}\n\n[1 more lines in file. Use offset=2001 to continue.]`,
-        },
-      ],
-      details: {
-        range: { startLine: 1, endLine: 2000 },
-        totalLines: 2001,
-        truncation: {
-          truncatedBy: "lines",
-          outputLines: 2000,
-          nextOffset: 2001,
-        },
-      },
-    });
-  });
-
-  it("returns the full file without a truncation note when it fits the limit", async () => {
+  it("reads the full file when it fits and does not default limit to 2000", async () => {
     const path = join(sessionCwd, "fits.txt");
     await writeFile(path, "one\ntwo\n", "utf8");
 
     const result = await tool.execute({ path });
     expect(result.content).toEqual([{ type: "text", text: "one\ntwo\n" }]);
-    expect(result.details?.truncation).toBeUndefined();
+    expect(result.details).toBeUndefined();
+  });
+
+  it("truncates at 2000 lines and tells the model the next offset", async () => {
+    const path = join(sessionCwd, "many-lines.txt");
+    const lines = Array.from(
+      { length: 2001 },
+      (_, index) => `line-${index + 1}`,
+    );
+    await writeFile(path, lines.join("\n"), "utf8");
+
+    const result = await tool.execute({ path });
+    expect(textOf(result)).toBe(
+      `${lines.slice(0, 2000).join("\n")}\n\n[Showing lines 1-2000 of 2001. Use offset=2001 to continue.]`,
+    );
+    expect(result.details?.truncation).toMatchObject({
+      truncated: true,
+      truncatedBy: "lines",
+      outputLines: 2000,
+      firstLineExceedsLimit: false,
+      maxLines: DEFAULT_MAX_LINES,
+    });
+  });
+
+  it("truncates at 50KB on whole lines and tells the model the byte limit", async () => {
+    const path = join(sessionCwd, "wide.txt");
+    const line = "x".repeat(10_000);
+    const lines = Array.from({ length: 6 }, () => line);
+    await writeFile(path, lines.join("\n"), "utf8");
+
+    const result = await tool.execute({ path });
+    expect(textOf(result)).toBe(
+      `${lines.slice(0, 5).join("\n")}\n\n[Showing lines 1-5 of 6 (50.0KB limit). Use offset=6 to continue.]`,
+    );
+    expect(result.details?.truncation).toMatchObject({
+      truncated: true,
+      truncatedBy: "bytes",
+      outputLines: 5,
+      maxBytes: DEFAULT_MAX_BYTES,
+    });
+  });
+
+  it("rejects a first line that exceeds 50KB and points at a bash fallback", async () => {
+    const relative = "huge-line.txt";
+    const path = join(sessionCwd, relative);
+    await writeFile(path, "y".repeat(51 * 1024), "utf8");
+
+    const result = await tool.execute({ path: relative });
+    expect(textOf(result)).toBe(
+      `[Line 1 is 51.0KB, exceeds 50.0KB limit. Use bash: sed -n '1p' ${relative} | head -c ${DEFAULT_MAX_BYTES}]`,
+    );
+    expect(result.details?.truncation).toMatchObject({
+      truncated: true,
+      truncatedBy: "bytes",
+      outputLines: 0,
+      firstLineExceedsLimit: true,
+    });
+  });
+
+  it("clamps a non-positive offset to the first line", async () => {
+    const path = join(sessionCwd, "clamp.txt");
+    await writeFile(path, "alpha\nbeta\n", "utf8");
+
+    expect(textOf(await tool.execute({ path, offset: 0 }))).toBe("alpha\nbeta\n");
+    expect(textOf(await tool.execute({ path, offset: -3 }))).toBe(
+      "alpha\nbeta\n",
+    );
+  });
+
+  it("throws when offset is beyond the end of the file", async () => {
+    const path = join(sessionCwd, "short.txt");
+    await writeFile(path, "one\ntwo", "utf8");
+
+    await expect(tool.execute({ path, offset: 3 })).rejects.toThrow(
+      "Offset 3 is beyond end of file (2 lines total)",
+    );
+  });
+
+  it("decodes invalid UTF-8 with replacement characters instead of failing", async () => {
+    const path = join(sessionCwd, "binary.txt");
+    await writeFile(path, Buffer.from([0x61, 0x00, 0xff, 0x62]));
+
+    expect(textOf(await tool.execute({ path }))).toBe("a\u0000\uFFFD" + "b");
+  });
+
+  it("follows an entry symlink", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "susan-read-outside-"));
+    try {
+      const target = join(outside, "target.txt");
+      await writeFile(target, "outside\n", "utf8");
+      await symlink(
+        target,
+        join(sessionCwd, "link.txt"),
+        process.platform === "win32" ? "file" : undefined,
+      );
+
+      expect(await tool.execute({ path: "link.txt" })).toEqual({
+        content: [{ type: "text", text: "outside\n" }],
+        details: undefined,
+      });
+    } finally {
+      await rm(outside, { force: true, recursive: true });
+    }
+  });
+
+  it("reads an absolute path outside Session cwd", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "susan-read-abs-"));
+    try {
+      const path = join(outside, "abs.txt");
+      await writeFile(path, "abs\n", "utf8");
+      expect(await tool.execute({ path })).toEqual({
+        content: [{ type: "text", text: "abs\n" }],
+        details: undefined,
+      });
+    } finally {
+      await rm(outside, { force: true, recursive: true });
+    }
+  });
+
+  it("strips a leading @ from the path", async () => {
+    await writeFile(join(sessionCwd, "at.txt"), "at-file\n", "utf8");
+    expect(textOf(await tool.execute({ path: "@at.txt" }))).toBe("at-file\n");
+  });
+
+  it("normalizes unicode spaces in the path", async () => {
+    await writeFile(join(sessionCwd, "file name.txt"), "spaced\n", "utf8");
+    expect(textOf(await tool.execute({ path: "file\u00A0name.txt" }))).toBe(
+      "spaced\n",
+    );
+  });
+
+  it("falls back to a curly-quote filename variant", async () => {
+    await writeFile(join(sessionCwd, "Capture d\u2019cran.txt"), "quote\n", "utf8");
+    expect(textOf(await tool.execute({ path: "Capture d'cran.txt" }))).toBe(
+      "quote\n",
+    );
+  });
+
+  it("falls back to a macOS screenshot AM/PM narrow no-break space", async () => {
+    const onDisk = "Screenshot 2024-01-01 at 10.00.00\u202FAM.png";
+    await writeFile(join(sessionCwd, onDisk), "shot\n", "utf8");
+    expect(
+      textOf(
+        await tool.execute({
+          path: "Screenshot 2024-01-01 at 10.00.00 AM.png",
+        }),
+      ),
+    ).toBe("shot\n");
+  });
+
+  it("resolves a tilde-prefixed filename against Session cwd", async () => {
+    await writeFile(join(sessionCwd, "~draft.md"), "draft\n", "utf8");
+    expect(textOf(await tool.execute({ path: "~draft.md" }))).toBe("draft\n");
   });
 
   it("rejects unknown fields and illegal argument types", async () => {
@@ -223,7 +323,7 @@ describe("Read Tool", () => {
     await expect(tool.execute({ path: "a.txt", extra: 1 })).rejects.toThrow(
       "Invalid read arguments.",
     );
-    await expect(tool.execute({ path: "a.txt", offset: 1.5 })).rejects.toThrow(
+    await expect(tool.execute({ path: "a.txt", offset: "1" })).rejects.toThrow(
       "Invalid read arguments.",
     );
     await expect(tool.execute({ path: "a.txt", limit: Number.NaN })).rejects.toThrow(
@@ -231,146 +331,37 @@ describe("Read Tool", () => {
     );
   });
 
-  it("rejects out-of-range integers", async () => {
-    const path = join(sessionCwd, "range.txt");
-    await writeFile(path, "one\n", "utf8");
-
-    await expect(tool.execute({ path, offset: 0 })).rejects.toThrow(
-      "offset must be a positive integer.",
-    );
-    await expect(tool.execute({ path, limit: 0 })).rejects.toThrow(
-      `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
-    );
-    await expect(tool.execute({ path, limit: 2001 })).rejects.toThrow(
-      `limit must be an integer between 1 and ${READ_MAX_LINES}.`,
-    );
-    await expect(tool.execute({ path, offset: 2 })).rejects.toThrow(
-      "offset is beyond the end of the file.",
-    );
-  });
-
-  it("follows an entry symlink and marks a Real Target Path outside Session cwd", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "susan-read-outside-"));
-    try {
-      const target = join(outside, "target.txt");
-      await writeFile(target, "outside\n", "utf8");
-      const entry = join(sessionCwd, "link.txt");
-      await symlink(target, entry, process.platform === "win32" ? "file" : undefined);
-
-      const result = await tool.execute({ path: "link.txt" });
-      expect(result).toMatchObject({
-        content: [{ type: "text", text: "outside\n" }],
-        details: {
-          resolvedPath: entry,
-          realTargetPath: await realpath(target),
-          cwdRelation: "outside",
-        },
-      });
-    } finally {
-      await rm(outside, { force: true, recursive: true });
-    }
-  });
-
-  it("reads an absolute path outside Session cwd and reports cwdRelation outside", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "susan-read-abs-"));
-    try {
-      const path = join(outside, "abs.txt");
-      await writeFile(path, "abs\n", "utf8");
-      const result = await tool.execute({ path });
-      expect(result).toMatchObject({
-        content: [{ type: "text", text: "abs\n" }],
-        details: {
-          resolvedPath: path,
-          realTargetPath: await realpath(path),
-          cwdRelation: "outside",
-        },
-      });
-    } finally {
-      await rm(outside, { force: true, recursive: true });
-    }
-  });
-
-  it("throws free-text path, file-type, size, and UTF-8 errors", async () => {
+  it("throws Node errors for missing, directory, and unreadable paths", async () => {
     const missing = join(sessionCwd, "missing.txt");
     const directory = join(sessionCwd, "directory");
     await mkdir(directory);
-    const nulPath = join(sessionCwd, "nul.txt");
-    await writeFile(nulPath, Buffer.from([0x61, 0x00, 0x62]));
-    const invalidPath = join(sessionCwd, "invalid-utf8.txt");
-    await writeFile(invalidPath, Buffer.from([0x61, 0xff, 0x62]));
-    const huge = join(sessionCwd, "huge.txt");
-    await writeFile(huge, Buffer.alloc(0));
-    await truncate(huge, READ_MAX_FILE_BYTES + 1);
 
-    await expect(tool.execute({ path: missing })).rejects.toThrow(
-      "Path does not exist.",
-    );
-    await expect(tool.execute({ path: directory })).rejects.toThrow(
-      "Path is a directory.",
-    );
-    await expect(tool.execute({ path: nulPath })).rejects.toThrow(
-      "File is not valid UTF-8 text.",
-    );
-    await expect(tool.execute({ path: invalidPath })).rejects.toThrow(
-      "File is not valid UTF-8 text.",
-    );
-    await expect(tool.execute({ path: huge })).rejects.toThrow(
-      "File exceeds the 100 MiB size limit.",
-    );
-    await expect(tool.execute({ path: "" })).rejects.toThrow(
-      "Path syntax is invalid.",
-    );
+    await expect(tool.execute({ path: missing })).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(tool.execute({ path: directory })).rejects.toMatchObject({
+      code: "EISDIR",
+    });
 
     if (POSIX) {
       const forbidden = join(sessionCwd, "forbidden.txt");
       await writeFile(forbidden, "secret\n", "utf8");
       await chmod(forbidden, 0o000);
-      await expect(tool.execute({ path: forbidden })).rejects.toThrow(
-        "File cannot be read.",
-      );
+      await expect(tool.execute({ path: forbidden })).rejects.toMatchObject({
+        code: "EACCES",
+      });
       await chmod(forbidden, 0o644);
-
-      await expect(tool.execute({ path: "/dev/null" })).rejects.toThrow(
-        "Path is not a regular file.",
-      );
     }
   });
 
-  it("applies error precedence from schema through conflict", async () => {
-    const directory = join(sessionCwd, "dir");
-    await mkdir(directory);
-    const hugeBinary = join(sessionCwd, "huge-binary.txt");
-    await writeFile(hugeBinary, Buffer.from([0x00]));
-    await truncate(hugeBinary, READ_MAX_FILE_BYTES + 1);
-
-    await expect(
-      tool.execute({ path: directory, extra: true }),
-    ).rejects.toThrow("Invalid read arguments.");
-    await expect(
-      tool.execute({ path: directory, offset: 99 }),
-    ).rejects.toThrow("Path is a directory.");
-    await expect(tool.execute({ path: hugeBinary })).rejects.toThrow(
-      "File exceeds the 100 MiB size limit.",
-    );
-  });
-
-  it("maps an already-aborted timeout signal to a timeout error", async () => {
-    const path = join(sessionCwd, "timeout.txt");
-    await writeFile(path, "ok\n", "utf8");
-    const signal = AbortSignal.timeout(0);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-
-    await expect(tool.execute({ path }, signal)).rejects.toThrow("Read timed out.");
-  });
-
-  it("maps a cancelled AbortSignal to a tool failure", async () => {
-    const path = join(sessionCwd, "cancel.txt");
+  it("maps an already-aborted signal to Operation aborted", async () => {
+    const path = join(sessionCwd, "abort.txt");
     await writeFile(path, "ok\n", "utf8");
     const controller = new AbortController();
     controller.abort();
 
     await expect(tool.execute({ path }, controller.signal)).rejects.toThrow(
-      "Tool execution failed.",
+      "Operation aborted",
     );
   });
 });

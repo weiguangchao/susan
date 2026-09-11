@@ -7,12 +7,6 @@ export type CanonicalToolFixture = {
   readonly summary: string;
 };
 
-const insidePath = {
-  resolvedPath: "/workspace/src/link.ts",
-  realTargetPath: "/workspace/src/index.ts",
-  cwdRelation: "inside",
-} as const;
-
 export const canonicalToolFixtures = [
   {
     call: {
@@ -22,14 +16,6 @@ export const canonicalToolFixtures = [
     },
     result: {
       content: [{ type: "text", text: "export const x = 1;" }],
-      details: {
-        ...insidePath,
-        range: { startLine: 1, endLine: 1 },
-        totalLines: 1,
-        sizeBytes: 19,
-        bom: false,
-        lineEnding: "none",
-      },
     },
     isError: false,
     summary: "已读 1 行 · 19 B",

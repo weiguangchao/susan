@@ -172,18 +172,21 @@ export {
   createSessionStore,
 } from "./core/session.js";
 export {
-  READ_DEFAULT_TIMEOUT_MS,
-  READ_MAX_FILE_BYTES,
-  READ_MAX_LINES,
+  READ_PROMPT_GUIDELINES,
+  READ_PROMPT_SNIPPET,
   createReadTool,
   executeRead,
 } from "./core/read.js";
 export type {
-  ReadLineEnding,
   ReadTool,
   ReadToolDetails,
   ReadToolOptions,
 } from "./core/read.js";
+export {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+} from "./core/truncate.js";
+export type { TruncationResult } from "./core/truncate.js";
 export {
   WRITE_DEFAULT_TIMEOUT_MS,
   WRITE_MAX_CONTENT_BYTES,

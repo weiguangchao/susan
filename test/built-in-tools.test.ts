@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createBuiltInToolSet } from "../src/index.js";
 
 const CANONICAL_DESCRIPTIONS: Readonly<Record<string, string>> = {
-  read: "Read a known UTF-8 regular file, optionally from a 1-based line offset with a line limit. Use read instead of bash or cat when inspecting file contents. It reports file and path facts together with the confirmed content. Large results may be truncated; use nextArguments only when the omitted content is relevant. It does not list directories or read binary and special files.",
+  read: "Read the contents of a file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
   write:
     "Create or completely replace a UTF-8 regular file, creating missing parent directories when needed. Use write for new files or intentional whole-file replacement; use edit for precise changes to an existing file. Content is written exactly, without implicit append, newline, or permission changes. The operation rejects a final symlink and reports whether it created or overwrote the target.",
   edit: "Apply one batch of exact text replacements to an existing UTF-8 regular file. Use edit instead of shell text-processing commands when the existing text to change is known. Replacements are validated against the original content before one commit; matching is not fuzzy, each match must be unique by default, and replaceAll must be requested explicitly. The result includes a bounded unified diff.",

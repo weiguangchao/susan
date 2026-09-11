@@ -370,7 +370,6 @@ describe("TUI Tool execution ledger", () => {
       { name: "ls", invocationLabel: "src", status: "completed", summary: "2 entries" },
     ]);
     expect(state.tools[0]?.supplementalLines).toEqual([
-      "Resolved Path → Real Target Path · /workspace/src/link.ts → /workspace/src/index.ts",
       "export const x = 1;",
     ]);
     expect(state.tools[6]?.supplementalLines).toEqual(["index.ts", "ui/"]);
@@ -396,11 +395,6 @@ describe("TUI Tool execution ledger", () => {
       call: { ...first.call, id: "read-2", arguments: { path: "README.md" } },
       result: {
         content: first.result.content,
-        details: {
-          ...(first.result.details as Record<string, unknown>),
-          resolvedPath: "/workspace/README.md",
-          realTargetPath: "/workspace/README.md",
-        },
       },
     }];
     for (const fixture of fixtures) {
@@ -427,7 +421,6 @@ describe("TUI Tool execution ledger", () => {
     );
     const lines = output.split("\n");
     expect(output).toContain("read · src/link.ts · 已读 1 行 · 19 B");
-    expect(output).toContain("Resolved Path → Real Target Path · /workspace/src/link.ts");
     expect(output).toContain("export const x = 1;");
     expect(output).toContain("write · /outside/report.txt");
     expect(output).toContain("edit · src/real.ts · 1 edit · 2 replacements · 24 B");

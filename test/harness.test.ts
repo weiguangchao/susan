@@ -1333,7 +1333,6 @@ describe("Harness", () => {
       ).toEqual({ ok: true });
       expect(appended.find((message) => message.role === "tool")).toMatchObject({
         content: [{ type: "text", text: "confirmed content\n" }],
-        details: { resolvedPath: path },
       });
     } finally {
       await rm(root, { recursive: true, force: true });

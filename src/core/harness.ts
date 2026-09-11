@@ -53,6 +53,8 @@ export function buildSystemPrompt(cwd: string): string {
 
 export type HarnessTool = ProviderToolDefinition & {
   execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  readonly promptSnippet?: string;
+  readonly promptGuidelines?: readonly string[];
 };
 
 export type HarnessStatus =

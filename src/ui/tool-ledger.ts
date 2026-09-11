@@ -158,7 +158,7 @@ export function createToolCard(
   return {
     id: toolCall.id,
     name: toolCall.name,
-    invocationLabel: formatToolCallDetail(toolCall, undefined, sessionCwd),
+    invocationLabel: formatToolCallDetail(toolCall, sessionCwd),
     status,
     supplementalLines: [],
     summary: `${statusSummary}${path?.outside === true ? " · outside cwd" : ""}`,
@@ -172,8 +172,7 @@ export function createCompletedToolCard(
   sessionCwd: string,
 ): TuiToolCard {
   const payload = asRecord(result.details);
-  const invocationLabel = formatToolCallDetail(toolCall, payload, sessionCwd);
-  const outside = outsideSuffix(payload);
+  const invocationLabel = formatToolCallDetail(toolCall, sessionCwd);
   const supplementalLines = buildSupplementalLines(
     toolCall,
     result,
@@ -189,7 +188,7 @@ export function createCompletedToolCard(
     return {
       ...createToolCard(toolCall, "failed"),
       invocationLabel,
-      summary: `${failurePrefix}${errorText}${outside}`,
+      summary: `${failurePrefix}${errorText}`,
       supplementalLines,
     };
   }
@@ -198,22 +197,20 @@ export function createCompletedToolCard(
   return {
     ...createToolCard(toolCall, "completed"),
     invocationLabel,
-    summary: `${presenter?.summary(result, payload) ?? "completed"}${outside}`,
+    summary: presenter?.summary(result, payload) ?? "completed",
     supplementalLines,
   };
 }
 
 export function formatToolCallDetail(
   toolCall: ProviderToolCall,
-  payload?: unknown,
   sessionCwd?: string,
 ): string {
   const arguments_ = asRecord(toolCall.arguments);
   if (arguments_ === undefined) {
     return toolCall.name;
   }
-  const path = displayPath(payload, sessionCwd) ??
-    lexicalPathPresentation(toolCall, sessionCwd)?.label ??
+  const path = lexicalPathPresentation(toolCall, sessionCwd)?.label ??
     stringField(arguments_, "path") ?? ".";
   return toolPresenters[toolCall.name]?.invocationLabel?.(arguments_, path) ?? path;
 }
@@ -242,18 +239,6 @@ function buildSupplementalLines(
   isError: boolean,
 ): readonly string[] {
   const lines: string[] = [];
-  const resolvedPath = stringField(payload, "resolvedPath");
-  const realTargetPath = stringField(payload, "realTargetPath");
-  if (
-    resolvedPath !== undefined &&
-    realTargetPath !== undefined &&
-    resolvedPath !== realTargetPath
-  ) {
-    lines.push(
-      `Resolved Path → Real Target Path · ${resolvedPath} → ${realTargetPath}`,
-    );
-  }
-
   const presenter = toolPresenters[toolCall.name];
   if (presenter?.supplementalLines !== undefined) {
     lines.push(...presenter.supplementalLines(result, payload));
@@ -313,12 +298,7 @@ function failureSupplement(
   if (payload === undefined) {
     return undefined;
   }
-  const omitted = new Set([
-    "resolvedPath",
-    "realTargetPath",
-    "cwdRelation",
-    ...hiddenFields,
-  ]);
+  const omitted = new Set(hiddenFields);
   const entries = Object.entries(payload).filter(([key]) => !omitted.has(key));
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
@@ -371,27 +351,4 @@ function numericField(value: unknown, field: string): number | undefined {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
-}
-
-function outsideSuffix(value: unknown): string {
-  return stringField(value, "cwdRelation") === "outside" ? " · outside cwd" : "";
-}
-
-function displayPath(payload: unknown, sessionCwd?: string): string | undefined {
-  const resolvedPath = stringField(payload, "resolvedPath");
-  if (resolvedPath === undefined) {
-    return undefined;
-  }
-  if (stringField(payload, "cwdRelation") === "outside" || !sessionCwd) {
-    return resolvedPath;
-  }
-  const normalizedCwd = sessionCwd.replaceAll("\\", "/").replace(/\/$/, "");
-  const normalizedPath = resolvedPath.replaceAll("\\", "/");
-  if (normalizedPath === normalizedCwd) {
-    return ".";
-  }
-  const prefix = `${normalizedCwd}/`;
-  return normalizedPath.startsWith(prefix)
-    ? normalizedPath.slice(prefix.length)
-    : resolvedPath;
 }

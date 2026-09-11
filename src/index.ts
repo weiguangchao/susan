@@ -87,49 +87,6 @@ export type {
   ToolResult,
   ToolResultContent,
 } from "./core/tool-result.js";
-export { observeReplacementTarget, replaceFile } from "./core/file-replacement.js";
-export type {
-  FileReplacementBaseline,
-  FileReplacementError,
-  FileReplacementErrorCode,
-  FileReplacementHooks,
-  FileReplacementIdentity,
-  FileReplacementOptions,
-  FileReplacementResult,
-  FileReplacementSuccess,
-} from "./core/file-replacement.js";
-export { createSessionPathResolver } from "./core/path-resolver.js";
-export type {
-  CwdRelation,
-  PathExistence,
-  PathResolution,
-  PathResolutionError,
-  PathResolutionErrorCode,
-  PathResolutionOptions,
-  PathResolutionResult,
-  PathSymlinkPolicy,
-  SessionPathResolver,
-} from "./core/path-resolver.js";
-export {
-  TRAVERSAL_DEFAULT_TIMEOUT_MS,
-  TRAVERSAL_ENTRY_BUDGET,
-  TRAVERSAL_MAX_DEPTH,
-  TRAVERSAL_MAX_DIAGNOSTICS,
-  compileGlob,
-  traverse,
-} from "./core/traverse.js";
-export type {
-  GlobMatcher,
-  TraverseOptions,
-  TraversalDiagnostic,
-  TraversalDiagnosticOperation,
-  TraversalEntry,
-  TraversalEntryType,
-  TraversalError,
-  TraversalErrorCode,
-  TraversalResult,
-  TraversalSuccess,
-} from "./core/traverse.js";
 export type {
   AssistantMessage,
   CompletionMessage,
@@ -269,11 +226,8 @@ export {
   getToolPath,
 } from "./core/tools-manager.js";
 export type { ToolStatus } from "./core/tools-manager.js";
-export {
-  CANONICAL_SYSTEM_PROMPT,
-  buildSystemPrompt,
-  createHarness,
-} from "./core/harness.js";
+export { buildSystemPrompt } from "./core/system-prompt.js";
+export { createHarness } from "./core/harness.js";
 export { createBuiltInToolSet } from "./core/built-in-tools.js";
 export type { BuiltInToolSetOptions } from "./core/built-in-tools.js";
 export { TuiApp } from "./ui/tui.js";

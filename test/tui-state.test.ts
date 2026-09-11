@@ -715,9 +715,6 @@ describe("TUI state", () => {
         result: {
           content: [{ type: "text", text: "line one\nline two\nline three" }],
           details: {
-            resolvedPath: "/tmp/example.txt",
-            realTargetPath: "/tmp/example.txt",
-            cwdRelation: "inside",
             range: { startLine: 1, endLine: 3 },
             totalLines: 3,
             sizeBytes: 29,
@@ -917,9 +914,6 @@ describe("TUI state", () => {
         result: {
           content: [{ type: "text", text: "line one\nline two" }],
           details: {
-            resolvedPath: "/tmp/example.txt",
-            realTargetPath: "/tmp/example.txt",
-            cwdRelation: "inside",
             range: { startLine: 1, endLine: 2 },
             totalLines: 2,
             sizeBytes: 17,

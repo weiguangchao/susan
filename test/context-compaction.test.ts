@@ -155,7 +155,7 @@ describe("Pi Compaction", () => {
     ] });
     expect(t.summaryRequests[0].tools).toBeUndefined();
     expect(t.requests[0].messages).toEqual([
-      { role: "system", content: buildSystemPrompt("/workspace") },
+      { role: "system", content: buildSystemPrompt([], "/workspace") },
       { role: "user", content: `${COMPACTION_SUMMARY_PREFIX}checkpoint${COMPACTION_SUMMARY_SUFFIX}` },
       { role: "user", content: "Continue" },
     ]);

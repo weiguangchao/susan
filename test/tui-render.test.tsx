@@ -705,9 +705,6 @@ describe("TUI Tool rendering", () => {
       result: {
         content: [{ type: "text", text: "line one\nline two" }],
         details: {
-          resolvedPath: "/tmp/example.txt",
-          realTargetPath: "/tmp/example.txt",
-          cwdRelation: "inside",
           range: { startLine: 1, endLine: 2 },
           totalLines: 2,
           sizeBytes: 17,

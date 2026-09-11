@@ -781,7 +781,7 @@ function reduceHarnessEvent(
       try {
         const arguments_: unknown = JSON.parse(argumentsText);
         if (isRecord(arguments_) && isJsonValue(arguments_)) {
-          invocationLabel = formatToolCallDetail({ id, name, arguments: arguments_ }, undefined, state.cwd);
+          invocationLabel = formatToolCallDetail({ id, name, arguments: arguments_ }, state.cwd);
         }
       } catch {
         // Incomplete streamed JSON: keep the tool name until arguments are complete.

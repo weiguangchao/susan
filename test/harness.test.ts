@@ -217,7 +217,7 @@ describe("Harness", () => {
         model: "deepseek-v4-flash",
         reasoningEffort: "medium",
         messages: [
-          { role: "system", content: buildSystemPrompt("/workspace") },
+          { role: "system", content: buildSystemPrompt([], "/workspace") },
           { role: "user", content: "Hi" },
         ],
       },
@@ -233,7 +233,7 @@ describe("Harness", () => {
     });
   });
 
-  it("sends the canonical prompt and Built-in Tool definitions on each request", async () => {
+  it("sends the assembled prompt and Built-in Tool definitions on each request", async () => {
     const requests: ProviderRequest[] = [];
     const appended: CompletionMessage[] = [];
     const tools = createBuiltInToolSet({ sessionCwd: "/workspace" });
@@ -266,7 +266,7 @@ describe("Harness", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]!.messages[0]).toEqual({
       role: "system",
-      content: buildSystemPrompt("/workspace"),
+      content: buildSystemPrompt(tools, "/workspace"),
     });
     expect(requests[0]!.tools).toEqual(
       tools.map((tool) => ({
@@ -333,7 +333,7 @@ describe("Harness", () => {
         model: "new-model",
         reasoningEffort: "low",
         messages: [
-          { role: "system", content: buildSystemPrompt("/workspace") },
+          { role: "system", content: buildSystemPrompt([], "/workspace") },
           { role: "user", content: "Hi" },
         ],
       },

@@ -121,9 +121,6 @@ describe("TUI Tool execution ledger", () => {
         result: {
           content: [{ type: "text", text: "four\nfive\nsix" }],
           details: {
-            resolvedPath: "/workspace/large.txt",
-            realTargetPath: "/workspace/large.txt",
-            cwdRelation: "inside",
             range: { startLine: 4, endLine: 6 },
             totalLines: 12,
             sizeBytes: 1_024,

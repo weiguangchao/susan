@@ -37,7 +37,7 @@ Harness 暴露给模型、可由模型请求调用的一项能力。
 _Avoid_: function, plugin, skill
 
 **Built-in Tool Set**:
-Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；以 Pi 的核心语义为基线，但契约服从 Susan 的 Approval Policy、`cwd` 边界与跨平台要求。
+Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；功能与表示层对齐 Pi，Approval Policy 仍为 Yolo。
 _Avoid_: tool pack, Pi-compatible tools
 
 **Read Tool**:
@@ -73,12 +73,8 @@ Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧
 _Avoid_: list tool, directory reader, recursive ls
 
 **Tool Result**:
-Harness 回填给模型的一次 Tool Call 结果；使用稳定的成功/失败 envelope，并把 Tool 专属数据、结构化错误与共享执行元数据分开表达。
-_Avoid_: tool response, tool output
-
-**Canonical Tool Result**:
-一次 Tool Call 完成后由模型、Session Transcript 与 TUI 共同消费的有界 Tool Result；Susan 不另存未截断副本作为第二份完成态事实。
-_Avoid_: full tool output, raw tool result, display result
+一次 Tool Call 完成后回填给模型、Session Transcript 与 TUI 的结果；由模型可见的 content 与可选的 details 组成，失败时以 isError 标记。
+_Avoid_: Canonical Tool Result, tool response, tool output, nextArguments
 
 **LLM Provider**:
 向 Harness 提供模型推理能力的上游服务，例如 DeepSeek、OpenAI 或 Anthropic。
@@ -134,15 +130,7 @@ _Avoid_: app version, package version, session version
 
 **Session cwd**:
 Session 生命周期内稳定的工作目录，记录于 Session Header，并作为所有 Tool 相对路径的解析基准；它是可见的执行边界，不是 OS sandbox 或权限边界。
-_Avoid_: workspace root, project root, sandbox root
-
-**Resolved Path**:
-Tool 路径输入依据宿主平台语法相对于 Session cwd 做词法规范化后得到的绝对路径；它保留模型表达的入口位置，但不代表 symlink 的实际目标。
-_Avoid_: normalized path, requested absolute path
-
-**Real Target Path**:
-解析现有 symlink 后，Tool 实际读取、查询或执行所指向的 canonical 绝对路径；cwd 内外分类以它和 canonical Session cwd 为准。
-_Avoid_: resolved path, physical path
+_Avoid_: workspace root, project root, sandbox root, Resolved Path, Real Target Path
 
 **Session Record**:
 Session JSONL 中 append-only 的事件行；0.0.1 包含 message、usage 与 compaction。
@@ -173,8 +161,8 @@ _Avoid_: history, messages
 _Avoid_: token count, tokenizer
 
 **System Prompt**:
-Harness 为每次模型请求注入的 canonical 行为指令，用于定义 Coding Agent 身份与跨 Tool 行为边界；不作为用户消息或 Session Transcript 的一部分。
-_Avoid_: user instructions, project rules, custom prompt
+Harness 为每次模型请求注入的行为指令，由身份段、Available tools、Guidelines 与 Session cwd 拼装；Guidelines 来自各 Tool 贡献与常驻条目；不作为用户消息或 Session Transcript 的一部分。取代先前锁定的 canonical 文案（#42）。
+_Avoid_: canonical system prompt, user instructions, project rules, custom prompt
 
 **Compaction**:
 为延续长 Session，用 rolling structured summary 替代 Model Context 中的早期内容，同时保留近期原文的过程。

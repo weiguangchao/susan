@@ -1,57 +1,131 @@
 import { describe, expect, it } from "vitest";
-import { CANONICAL_SYSTEM_PROMPT, buildSystemPrompt } from "../src/index.js";
+import {
+  BASH_PROMPT_GUIDELINES,
+  BASH_PROMPT_SNIPPET,
+  EDIT_PROMPT_GUIDELINES,
+  EDIT_PROMPT_SNIPPET,
+  FIND_PROMPT_GUIDELINES,
+  FIND_PROMPT_SNIPPET,
+  GREP_PROMPT_GUIDELINES,
+  GREP_PROMPT_SNIPPET,
+  LS_PROMPT_GUIDELINES,
+  LS_PROMPT_SNIPPET,
+  READ_PROMPT_GUIDELINES,
+  READ_PROMPT_SNIPPET,
+  WRITE_PROMPT_GUIDELINES,
+  WRITE_PROMPT_SNIPPET,
+  buildSystemPrompt,
+  createBuiltInToolSet,
+  type HarnessTool,
+} from "../src/index.js";
 
-const EXPECTED_SYSTEM_PROMPT = `You are Susan, a terminal coding agent operating inside a minimal personal Harness.
+const IDENTITY =
+  "You are Susan, an expert coding agent operating inside a minimal personal Harness. You help users by reading files, executing commands, editing code, and writing new files.";
 
-Session working directory: {cwd}
+function tools(cwd = "/workspace"): readonly HarnessTool[] {
+  return createBuiltInToolSet({ sessionCwd: cwd });
+}
 
-Operating rules:
-- Work within the user's requested scope. Yolo means Tool Calls execute immediately without approval; it does not authorize expanding that scope. Keep answers, explanations, and diagnoses read-only unless the user also asks for changes. Do not perform destructive actions or cause external side effects unless explicitly requested.
-- Inspect the actual files and system state before drawing conclusions. Never guess file contents, command results, or whether an action succeeded.
-- Prefer the dedicated Tool for each job: read for known file contents, ls for a directory's direct children, find for path names, grep for file contents, edit for precise replacements, and write for creation or intentional whole-file replacement. Use bash only when the task requires real Bash semantics, program execution, or behavior the dedicated Tools cannot express.
-- Resolve relative Tool paths against the Session cwd. The cwd boundary is visible context, not a sandbox: operations outside it still execute with Susan's process permissions and must remain within the user's authorized scope.
-- Treat Tool Result errors, truncation, and Traversal Diagnostics as limits on what has been confirmed. Correct an actionable failure or use an appropriate alternative, but do not repeat an unchanged failed call. Follow nextArguments only when the omitted content matters to the task.
-- Before changing a file, inspect the relevant existing content. After making changes, verify the outcome in proportion to its risk. If verification is incomplete or impossible, say so explicitly.
-- Do not intentionally read, display, repeat, or place secrets such as API keys, tokens, or credentials in commands, responses, or diagnostic output. Prefer existing credential stores or environment-based authentication that does not reveal the value. If a task requires handling a raw secret, ask the user to do that through a channel not visible to the model.
-- Gather facts with read-only Tools before asking the user. Make reasonable, stated assumptions for reversible work within scope; ask when a missing choice would materially change the result, expand authority, or create a difficult-to-recover effect.
-- Respond in the user's language. Lead with the outcome, then briefly report material changes, verification, and any remaining uncertainty. Be concise and direct.`;
+function prompt(
+  cwd = "/workspace",
+  toolList: readonly HarnessTool[] = tools(cwd),
+): string {
+  return buildSystemPrompt(toolList, cwd);
+}
 
 describe("Coding Agent System Prompt", () => {
-  it("matches the canonical prompt with a single cwd placeholder", () => {
-    expect(CANONICAL_SYSTEM_PROMPT).toBe(EXPECTED_SYSTEM_PROMPT);
-    expect(CANONICAL_SYSTEM_PROMPT.split("{cwd}")).toHaveLength(2);
+  it("assembles identity, available tools, guidelines, and cwd in Pi order", () => {
+    const assembled = prompt("/workspace/susan");
+    const identityAt = assembled.indexOf(IDENTITY);
+    const toolsAt = assembled.indexOf("\n\nAvailable tools:\n");
+    const guidelinesAt = assembled.indexOf("\n\nGuidelines:\n");
+    const cwdAt = assembled.indexOf(
+      "\nCurrent working directory: /workspace/susan",
+    );
+
+    expect(identityAt).toBe(0);
+    expect(toolsAt).toBeGreaterThan(identityAt);
+    expect(guidelinesAt).toBeGreaterThan(toolsAt);
+    expect(cwdAt).toBeGreaterThan(guidelinesAt);
+    expect(assembled.endsWith("Current working directory: /workspace/susan")).toBe(
+      true,
+    );
+  });
+
+  it("lists Built-in Tool snippets in registration order", () => {
+    expect(prompt()).toContain(`Available tools:
+- read: ${READ_PROMPT_SNIPPET}
+- write: ${WRITE_PROMPT_SNIPPET}
+- edit: ${EDIT_PROMPT_SNIPPET}
+- bash: ${BASH_PROMPT_SNIPPET}
+- grep: ${GREP_PROMPT_SNIPPET}
+- find: ${FIND_PROMPT_SNIPPET}
+- ls: ${LS_PROMPT_SNIPPET}`);
+  });
+
+  it("collects tool guidelines then resident guidelines without duplicates", () => {
+    expect(prompt()).toContain(`Guidelines:
+- ${READ_PROMPT_GUIDELINES[0]}
+- ${WRITE_PROMPT_GUIDELINES[0]}
+- ${EDIT_PROMPT_GUIDELINES[0]}
+- ${EDIT_PROMPT_GUIDELINES[1]}
+- ${EDIT_PROMPT_GUIDELINES[2]}
+- ${EDIT_PROMPT_GUIDELINES[3]}
+- Be concise in your responses
+- Show file paths clearly when working with files`);
+    expect(BASH_PROMPT_GUIDELINES).toEqual([]);
+    expect(GREP_PROMPT_GUIDELINES).toEqual([]);
+    expect(FIND_PROMPT_GUIDELINES).toEqual([]);
+    expect(LS_PROMPT_GUIDELINES).toEqual([]);
+
+    const duplicate: HarnessTool = {
+      name: "read",
+      description: "dup",
+      parameters: {},
+      promptSnippet: READ_PROMPT_SNIPPET,
+      promptGuidelines: [
+        READ_PROMPT_GUIDELINES[0],
+        "Be concise in your responses",
+      ],
+      execute: async () => ({ content: [{ type: "text", text: "" }] }),
+    };
+    const assembled = prompt("/workspace", [duplicate]);
+    expect(assembled.match(/Be concise in your responses/g)).toHaveLength(1);
+    expect(assembled.match(/Use read to examine files instead of cat or sed\./g)).toHaveLength(1);
+  });
+
+  it("shows (none) and resident guidelines when the tool list is empty", () => {
+    expect(prompt("/workspace", [])).toBe(`${IDENTITY}
+
+Available tools:
+(none)
+
+Guidelines:
+- Be concise in your responses
+- Show file paths clearly when working with files
+Current working directory: /workspace`);
   });
 
   it("keeps no read-only agent or approval-flow wording", () => {
-    expect(CANONICAL_SYSTEM_PROMPT).not.toMatch(/read_file/);
-    expect(CANONICAL_SYSTEM_PROMPT).not.toMatch(/do not run commands/i);
-    expect(CANONICAL_SYSTEM_PROMPT).not.toMatch(/ask for (approval|confirmation)/i);
-    expect(CANONICAL_SYSTEM_PROMPT).not.toMatch(/awaiting approval/i);
+    const assembled = prompt();
+    expect(assembled).not.toMatch(/read_file/);
+    expect(assembled).not.toMatch(/do not run commands/i);
+    expect(assembled).not.toMatch(/ask for (approval|confirmation)/i);
+    expect(assembled).not.toMatch(/awaiting approval/i);
   });
 
   it("does not restate fixed Harness limits as numbers", () => {
-    expect(CANONICAL_SYSTEM_PROMPT).not.toMatch(/\d/);
+    expect(prompt("/workspace/susan")).not.toMatch(/\d/);
   });
 
-  it("substitutes the Session cwd verbatim", () => {
-    expect(buildSystemPrompt("/workspace/susan")).toContain(
-      "Session working directory: /workspace/susan",
+  it("normalizes cwd backslashes and treats replacement-pattern characters as literal text", () => {
+    const cwd = "C:\\tmp\\$&$'$`$1${x}";
+    expect(prompt(cwd, [])).toContain(
+      "Current working directory: C:/tmp/$&$'$`$1${x}",
     );
-    expect(buildSystemPrompt("/workspace/susan")).not.toContain("{cwd}");
-  });
-
-  it("treats replacement-pattern characters in the cwd as literal text", () => {
-    const cwd = "/tmp/$&$'$`$1${x}";
-
-    expect(buildSystemPrompt(cwd)).toContain(
-      `Session working directory: ${cwd}`,
+    expect(prompt("/tmp/{cwd}", [])).toContain(
+      "Current working directory: /tmp/{cwd}",
     );
-  });
-
-  it("does not substitute a placeholder that came from the cwd", () => {
-    expect(buildSystemPrompt("/tmp/{cwd}")).toContain(
-      "Session working directory: /tmp/{cwd}",
-    );
-    expect(buildSystemPrompt("/tmp/{cwd}").split("{cwd}")).toHaveLength(2);
+    expect(prompt("/tmp/{cwd}", []).split("{cwd}")).toHaveLength(2);
   });
 });

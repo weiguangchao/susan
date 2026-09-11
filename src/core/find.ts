@@ -1,541 +1,395 @@
+// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { createInterface } from "node:readline";
 import { isRecord, type JsonObject } from "./json.js";
+import { pathExists, resolveToCwd } from "./path-utils.js";
+import { type ToolResult } from "./tool-result.js";
+import { ensureTool } from "./tools-manager.js";
 import {
-  createSessionPathResolver,
-  type CwdRelation,
-  type PathResolution,
-  type PathResolutionError,
-} from "./path-resolver.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  normalizeToolResult,
-  type ToolResult,
-  type ToolResultContinuationContext,
-  type ToolTruncationReason,
-} from "./tool-result.js";
-import {
-  TRAVERSAL_DEFAULT_TIMEOUT_MS,
-  TRAVERSAL_MAX_DEPTH,
-  compileGlob,
-  traverse,
-  type TraversalDiagnostic,
-  type TraversalEntry,
-  type TraversalError,
-} from "./traverse.js";
+  DEFAULT_MAX_BYTES,
+  formatSize,
+  type TruncationResult,
+  truncateHead,
+} from "./truncate.js";
 
-export const FIND_DEFAULT_LIMIT = 1_000;
-export const FIND_MAX_LIMIT = 10_000;
-export const FIND_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
+export const FIND_PROMPT_SNIPPET =
+  "Find files by glob pattern (respects .gitignore)";
+export const FIND_PROMPT_GUIDELINES = [] as const;
+
+const DEFAULT_LIMIT = 1000;
 
 const FIND_DESCRIPTION =
-  "Find descendant path names beneath a directory using a platform-independent glob. Use find instead of bash or a host find command when locating files, directories, or symlinks by name or relative path; use grep when searching file contents. It supports type, depth, ignore controls, and deterministic pagination. It does not match the Search Root itself or traverse through symlinks, and results may include Traversal Diagnostics.";
+  `Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`;
 
-const ALLOWED_FIELDS = new Set([
-  "pattern",
-  "path",
-  "type",
-  "maxDepth",
-  "includeIgnored",
-  "limit",
-  "offset",
-]);
-const TRUNCATION_REASON_ORDER: readonly ToolTruncationReason[] = [
-  "bytes",
-  "lines",
-  "items",
-  "line-length",
-];
+/** Relativize a find result against the search root and normalize it to posix separators. */
+export function relativizeFindResultPath(
+  resultPath: string,
+  searchPath: string,
+  pathModule: path.PlatformPath = path,
+): string {
+  const hadTrailingSeparator =
+    resultPath.endsWith(pathModule.sep) ||
+    (pathModule.sep === "\\" && resultPath.endsWith("/"));
+  const relativePath = pathModule.isAbsolute(resultPath)
+    ? pathModule.relative(searchPath, resultPath)
+    : resultPath;
+  const posixPath = relativePath.split(pathModule.sep).join("/");
+  return hadTrailingSeparator && !posixPath.endsWith("/")
+    ? `${posixPath}/`
+    : posixPath;
+}
 
-const FIND_TYPES = ["file", "directory", "symlink", "all"] as const;
+export type FindToolDetails = {
+  readonly truncation?: TruncationResult;
+  readonly resultLimitReached?: number;
+};
 
-export type FindEntryType = (typeof FIND_TYPES)[number];
+/**
+ * Pluggable operations for the find tool.
+ * Override these to delegate file search to remote systems (for example SSH).
+ */
+export type FindOperations = {
+  /** Check if path exists */
+  exists: (absolutePath: string) => Promise<boolean> | boolean;
+  /** Find files matching glob pattern. Returns relative or absolute paths. */
+  glob: (
+    pattern: string,
+    cwd: string,
+    options: { ignore: string[]; limit: number },
+  ) => Promise<string[]> | string[];
+};
 
-export type FindErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "EINVAL_GLOB"
-  | "EINVAL_TYPE"
-  | "EINVAL_DEPTH"
-  | "EINVAL_LIMIT"
-  | "EINVAL_OFFSET"
-  | "ENOENT"
-  | "ENOTDIR"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EQUERY_TOO_LARGE"
-  | "ETIMEDOUT"
-  | "ETOOL";
+const defaultFindOperations: FindOperations = {
+  exists: pathExists,
+  // This is a placeholder. Actual fd execution happens in execute() when no custom glob is provided.
+  glob: () => [],
+};
 
 export type FindToolOptions = {
   readonly sessionCwd: string;
-  readonly timeoutMs?: number;
-  readonly now?: () => number;
+  readonly operations?: FindOperations;
 };
 
 export type FindTool = {
   readonly name: "find";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  readonly promptSnippet: string;
+  readonly promptGuidelines: readonly string[];
+  execute(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<ToolResult<FindToolDetails | undefined>>;
 };
 
 type ValidatedArguments = {
   readonly pattern: string;
-  readonly path: string;
-  readonly type: FindEntryType;
-  readonly maxDepth: number | undefined;
-  readonly includeIgnored: boolean;
-  readonly limit: number;
-  readonly offset: number;
+  readonly path?: string;
+  readonly limit?: number;
 };
 
-type ArgumentValidationResult =
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult };
-
-type PathFacts = {
-  readonly resolvedPath: string;
-  readonly realTargetPath: string;
-  readonly cwdRelation: CwdRelation;
-};
-
-function fail(
-  code: FindErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
-}
-
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid find arguments.", { field });
-}
-
-function isSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value);
-}
-
-function isFindEntryType(value: unknown): value is FindEntryType {
-  return FIND_TYPES.includes(value as FindEntryType);
-}
-
-function validateArguments(input: unknown): ArgumentValidationResult {
+function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    return { ok: false, result: invalid("pattern") };
+    throw new Error("Invalid find arguments.");
   }
-  const extra = Object.keys(input).find((key) => !ALLOWED_FIELDS.has(key));
+  const extra = Object.keys(input).find(
+    (key) => key !== "pattern" && key !== "path" && key !== "limit",
+  );
   if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
+    throw new Error("Invalid find arguments.");
   }
   if (typeof input.pattern !== "string") {
-    return { ok: false, result: invalid("pattern") };
+    throw new Error("Invalid find arguments.");
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
+    throw new Error("Invalid find arguments.");
   }
-  if (input.type !== undefined && typeof input.type !== "string") {
-    return { ok: false, result: invalid("type") };
-  }
-  if (
-    input.includeIgnored !== undefined &&
-    typeof input.includeIgnored !== "boolean"
-  ) {
-    return { ok: false, result: invalid("includeIgnored") };
-  }
-  if (input.maxDepth !== undefined && !isSafeInteger(input.maxDepth)) {
-    return { ok: false, result: invalid("maxDepth") };
-  }
-  if (input.limit !== undefined && !isSafeInteger(input.limit)) {
-    return { ok: false, result: invalid("limit") };
-  }
-  if (input.offset !== undefined && !isSafeInteger(input.offset)) {
-    return { ok: false, result: invalid("offset") };
-  }
-  if (!compileGlob(input.pattern).ok) {
-    return {
-      ok: false,
-      result: fail("EINVAL_GLOB", "pattern must be a valid glob.", {
-        field: "pattern",
-      }),
-    };
-  }
-  if (input.type !== undefined && !isFindEntryType(input.type)) {
-    return {
-      ok: false,
-      result: fail("EINVAL_TYPE", `type must be one of ${FIND_TYPES.join(", ")}.`, {
-        field: "type",
-      }),
-    };
-  }
-  if (
-    input.limit !== undefined &&
-    (input.limit < 1 || input.limit > FIND_MAX_LIMIT)
-  ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_LIMIT",
-        `limit must be an integer between 1 and ${FIND_MAX_LIMIT}.`,
-        { field: "limit" },
-      ),
-    };
-  }
-  if (input.offset !== undefined && input.offset < 0) {
-    return {
-      ok: false,
-      result: fail("EINVAL_OFFSET", "offset must be a non-negative integer.", {
-        field: "offset",
-      }),
-    };
-  }
-  if (
-    input.maxDepth !== undefined &&
-    (input.maxDepth < 1 || input.maxDepth > TRAVERSAL_MAX_DEPTH)
-  ) {
-    return {
-      ok: false,
-      result: fail(
-        "EINVAL_DEPTH",
-        `maxDepth must be an integer between 1 and ${TRAVERSAL_MAX_DEPTH}.`,
-        { field: "maxDepth" },
-      ),
-    };
+  if (input.limit !== undefined) {
+    if (typeof input.limit !== "number" || !Number.isFinite(input.limit)) {
+      throw new Error("Invalid find arguments.");
+    }
   }
   return {
-    ok: true,
-    value: {
-      pattern: input.pattern,
-      path: input.path ?? ".",
-      type: isFindEntryType(input.type) ? input.type : "all",
-      maxDepth: input.maxDepth,
-      includeIgnored: input.includeIgnored === true,
-      limit: input.limit ?? FIND_DEFAULT_LIMIT,
-      offset: input.offset ?? 0,
-    },
+    pattern: input.pattern,
+    ...(input.path === undefined ? {} : { path: input.path }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
   };
 }
 
-function matchesType(entry: TraversalEntry, type: FindEntryType): boolean {
-  return type === "all" || entry.type === type;
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("Operation aborted");
+  }
 }
 
-function pathFacts(resolution: PathResolution): PathFacts {
+function formatFindOutput(
+  relativized: readonly string[],
+  effectiveLimit: number,
+  resultLimitNotice: string,
+): ToolResult<FindToolDetails | undefined> {
+  if (relativized.length === 0) {
+    return {
+      content: [{ type: "text", text: "No files found matching pattern" }],
+      details: undefined,
+    };
+  }
+
+  const resultLimitReached = relativized.length >= effectiveLimit;
+  const rawOutput = relativized.join("\n");
+  const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+  let resultOutput = truncation.content;
+  const details: {
+    truncation?: TruncationResult;
+    resultLimitReached?: number;
+  } = {};
+  const notices: string[] = [];
+  if (resultLimitReached) {
+    notices.push(resultLimitNotice);
+    details.resultLimitReached = effectiveLimit;
+  }
+  if (truncation.truncated) {
+    notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+    details.truncation = truncation;
+  }
+  if (notices.length > 0) {
+    resultOutput += `\n\n[${notices.join(". ")}]`;
+  }
   return {
-    resolvedPath: resolution.resolvedPath,
-    realTargetPath: resolution.realTargetPath,
-    cwdRelation: resolution.cwdRelation,
+    content: [{ type: "text", text: resultOutput }],
+    details: Object.keys(details).length > 0 ? details : undefined,
   };
-}
-
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
-  if (error.code === "ESYMLINK") {
-    return fail("EIO", "Path cannot be resolved.", details);
-  }
-  const messages: Record<Exclude<PathResolutionError["code"], "ESYMLINK">, string> = {
-    EINVAL_PATH: "Path syntax is invalid.",
-    ENOENT: "Path does not exist.",
-    ELOOP: "Path contains a symlink loop.",
-    EACCES: "Path cannot be read.",
-    EIO: "Path cannot be resolved.",
-  };
-  return fail(error.code, messages[error.code], details);
-}
-
-function mapTraversalError(error: TraversalError, facts: PathFacts): ToolResult {
-  const details = {
-    ...facts,
-    ...(error.details === undefined ? {} : error.details),
-  };
-  if (error.code === "ENOTDIR") {
-    return fail("ENOTDIR", "Path is not a directory.", details);
-  }
-  if (error.code === "ENOENT") {
-    return fail("ENOENT", "Path does not exist.", details);
-  }
-  if (error.code === "EACCES") {
-    return fail("EACCES", "Path cannot be read.", details);
-  }
-  if (error.code === "ELOOP") {
-    return fail("ELOOP", "Path contains a symlink loop.", details);
-  }
-  if (error.code === "EQUERY_TOO_LARGE") {
-    return fail("EQUERY_TOO_LARGE", "Query exceeded the entry budget.", details);
-  }
-  if (error.code === "ETIMEDOUT") {
-    return fail("ETIMEDOUT", "Find timed out.", details);
-  }
-  return fail("EIO", "Search Root cannot be traversed.", details);
-}
-
-function isTimeoutReason(reason: unknown): boolean {
-  return reason instanceof Error && reason.name === "TimeoutError";
-}
-
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Find timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
-}
-
-function continuationArguments(
-  args: ValidatedArguments,
-  offset: number,
-): JsonObject {
-  return {
-    pattern: args.pattern,
-    path: args.path,
-    offset,
-    limit: args.limit,
-    ...(args.type === "all" ? {} : { type: args.type }),
-    ...(args.maxDepth === undefined ? {} : { maxDepth: args.maxDepth }),
-    ...(args.includeIgnored ? { includeIgnored: true } : {}),
-  };
-}
-
-function fieldBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function mergeLimitContinuation(
-  bounded: ToolResult,
-  args: ValidatedArguments,
-  paged: readonly TraversalEntry[],
-  remaining: readonly TraversalEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  if (!bounded.ok || remaining.length <= paged.length) {
-    return bounded;
-  }
-  const retainedEntries = Array.isArray(bounded.result.entries)
-    ? bounded.result.entries.length
-    : 0;
-  if (retainedEntries !== paged.length) {
-    return bounded;
-  }
-  const existing = bounded.meta?.truncation;
-  if (
-    existing?.reasons.includes("items") === true &&
-    existing.fields.includes("entries") &&
-    existing.nextArguments !== undefined
-  ) {
-    return bounded;
-  }
-  const reasons = TRUNCATION_REASON_ORDER.filter(
-    (reason) => reason === "items" || existing?.reasons.includes(reason) === true,
-  );
-  const fields = ["entries", "diagnostics"].filter(
-    (field) => field === "entries" || existing?.fields.includes(field) === true,
-  );
-  return normalizeToolResult({
-    ok: true,
-    result: bounded.result,
-    meta: {
-      truncation: {
-        reasons,
-        strategy: "head",
-        fields,
-        retained: {
-          bytes: existing?.retained.bytes ??
-            fieldBytes(bounded.result.entries) +
-              fieldBytes(bounded.result.diagnostics),
-          items: retainedEntries,
-        },
-        total: {
-          bytes: fieldBytes(remaining) + fieldBytes(diagnostics),
-          items: remaining.length,
-        },
-        nextArguments: existing?.nextArguments ??
-          continuationArguments(args, args.offset + paged.length),
-      },
-    },
-  });
-}
-
-function boundFindResult(
-  facts: PathFacts,
-  args: ValidatedArguments,
-  remaining: readonly TraversalEntry[],
-  diagnostics: readonly TraversalDiagnostic[],
-): ToolResult {
-  const paged = remaining.slice(0, args.limit);
-  try {
-    const bounded = boundToolResult({
-      result: { ...facts },
-      fields: [
-        { name: "entries", kind: "items" },
-        { name: "diagnostics", kind: "items" },
-      ],
-      records: [
-        ...paged.map((entry) => ({
-          field: "entries",
-          value: entry,
-          items: 1 as const,
-        })),
-        ...diagnostics.map((diagnostic) => ({
-          field: "diagnostics",
-          value: diagnostic,
-        })),
-      ],
-      strategy: "head" as const,
-      includeTotal: ["bytes", "items"],
-      continuation({
-        firstOmittedRecordIndex,
-        retainedRecordIndices,
-      }: ToolResultContinuationContext) {
-        if (
-          firstOmittedRecordIndex !== undefined &&
-          firstOmittedRecordIndex < paged.length
-        ) {
-          const retainedEntries = retainedRecordIndices.filter(
-            (index) => index < paged.length,
-          ).length;
-          return retainedEntries === 0
-            ? undefined
-            : continuationArguments(args, args.offset + firstOmittedRecordIndex);
-        }
-        return remaining.length > paged.length
-          ? continuationArguments(args, args.offset + paged.length)
-          : undefined;
-      },
-    });
-    return mergeLimitContinuation(bounded, args, paged, remaining, diagnostics);
-  } catch {
-    return fail("ETOOL", "Tool result exceeds its size limit.", facts);
-  }
 }
 
 export async function executeFind(
   input: unknown,
   options: FindToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
-  const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
+): Promise<ToolResult<FindToolDetails | undefined>> {
+  const { pattern, path: searchDir, limit } = validateArguments(input);
+  const signal = options.signal;
+  throwIfAborted(signal);
 
-  const timeoutMs = options.timeoutMs ?? FIND_DEFAULT_TIMEOUT_MS;
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = options.signal === undefined
-    ? timeout
-    : AbortSignal.any([timeout, options.signal]);
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
+  const searchPath = resolveToCwd(searchDir || ".", options.sessionCwd);
+  const effectiveLimit = limit ?? DEFAULT_LIMIT;
+  const customOps = options.operations;
+  const ops = customOps ?? defaultFindOperations;
 
-  const resolverResult = await createSessionPathResolver(options.sessionCwd);
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
-  if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
-  }
-
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
-    existence: "required",
-    symlinks: "follow",
-  });
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
-  if (!resolved.ok) {
-    return mapPathError(resolved.error);
-  }
-
-  const facts = pathFacts(resolved.value);
-  const walked = await traverse({
-    searchRoot: facts.realTargetPath,
-    glob: validated.value.pattern,
-    ...(validated.value.maxDepth === undefined
-      ? {}
-      : { maxDepth: validated.value.maxDepth }),
-    includeIgnored: validated.value.includeIgnored,
-    timeoutMs,
-    signal,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
-  if (!walked.ok) {
-    if (signal.aborted) {
-      return abortResult(signal, facts);
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Operation aborted"));
+      return;
     }
-    return mapTraversalError(walked.error, facts);
-  }
 
-  const remaining = walked.value.entries
-    .filter((entry) => matchesType(entry, validated.value.type))
-    .slice(validated.value.offset);
-  return boundFindResult(
-    facts,
-    validated.value,
-    remaining,
-    walked.value.diagnostics,
-  );
+    let settled = false;
+    let stopChild: (() => void) | undefined;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      stopChild = undefined;
+      fn();
+    };
+    const onAbort = () => {
+      stopChild?.();
+      settle(() => reject(new Error("Operation aborted")));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    void (async () => {
+      try {
+        // If custom operations provide glob(), use that instead of fd.
+        if (customOps?.glob) {
+          if (!(await ops.exists(searchPath))) {
+            settle(() => reject(new Error(`Path not found: ${searchPath}`)));
+            return;
+          }
+          if (signal?.aborted) {
+            settle(() => reject(new Error("Operation aborted")));
+            return;
+          }
+          const results = await ops.glob(pattern, searchPath, {
+            ignore: ["**/node_modules/**", "**/.git/**"],
+            limit: effectiveLimit,
+          });
+          if (signal?.aborted) {
+            settle(() => reject(new Error("Operation aborted")));
+            return;
+          }
+          const relativized = results.map((resultPath) =>
+            relativizeFindResultPath(resultPath, searchPath),
+          );
+          settle(() =>
+            resolve(
+              formatFindOutput(
+                relativized,
+                effectiveLimit,
+                `${effectiveLimit} results limit reached`,
+              ),
+            ),
+          );
+          return;
+        }
+
+        const fdPath = await ensureTool("fd");
+        if (signal?.aborted) {
+          settle(() => reject(new Error("Operation aborted")));
+          return;
+        }
+        if (!fdPath) {
+          settle(() =>
+            reject(new Error("fd is not available and could not be downloaded")),
+          );
+          return;
+        }
+
+        const args: string[] = ["--glob", "--color=never", "--hidden"];
+
+        // fd normally ignores .gitignore outside git repos, so keep --no-require-git
+        // there. Inside repos, use fd's default git-aware behavior so parent
+        // .gitignore rules stop at nested repo boundaries:
+        // https://github.com/earendil-works/pi/issues/5960
+        let insideGitRepo = false;
+        for (let current = searchPath; ; ) {
+          if (await pathExists(path.join(current, ".git"))) {
+            insideGitRepo = true;
+            break;
+          }
+          const parent = path.dirname(current);
+          if (parent === current) break;
+          current = parent;
+        }
+        if (!insideGitRepo) args.push("--no-require-git");
+        args.push("--max-results", String(effectiveLimit));
+
+        // fd --glob matches against the basename unless --full-path is set; in --full-path
+        // mode it matches against the absolute candidate path, so a path-containing
+        // pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
+        let effectivePattern = pattern;
+        if (pattern.includes("/")) {
+          args.push("--full-path");
+          if (
+            !pattern.startsWith("/") &&
+            !pattern.startsWith("**/") &&
+            pattern !== "**"
+          ) {
+            effectivePattern = `**/${pattern}`;
+          }
+          // fd matches full paths using native separators on Windows.
+          if (process.platform === "win32") {
+            effectivePattern = effectivePattern.replaceAll("/", String.raw`[/\\]`);
+          }
+        }
+        args.push("--", effectivePattern, searchPath);
+
+        const child = spawn(fdPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+        const rl = createInterface({ input: child.stdout });
+        let stderr = "";
+        const lines: string[] = [];
+
+        stopChild = () => {
+          if (!child.killed) {
+            child.kill();
+          }
+        };
+
+        const cleanup = () => {
+          rl.close();
+        };
+
+        child.stderr?.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString();
+        });
+
+        rl.on("line", (line) => {
+          lines.push(line);
+        });
+
+        child.on("error", (error) => {
+          cleanup();
+          settle(() => reject(new Error(`Failed to run fd: ${error.message}`)));
+        });
+
+        child.on("close", (code) => {
+          cleanup();
+          if (signal?.aborted) {
+            settle(() => reject(new Error("Operation aborted")));
+            return;
+          }
+          const output = lines.join("\n");
+          if (code !== 0) {
+            const errorMsg = stderr.trim() || `fd exited with code ${code}`;
+            if (!output) {
+              settle(() => reject(new Error(errorMsg)));
+              return;
+            }
+          }
+          if (!output) {
+            settle(() =>
+              resolve({
+                content: [
+                  { type: "text", text: "No files found matching pattern" },
+                ],
+                details: undefined,
+              }),
+            );
+            return;
+          }
+
+          const relativized: string[] = [];
+          for (const rawLine of lines) {
+            const line = rawLine.replace(/\r$/, "").trim();
+            if (!line) continue;
+            relativized.push(relativizeFindResultPath(line, searchPath));
+          }
+
+          settle(() =>
+            resolve(
+              formatFindOutput(
+                relativized,
+                effectiveLimit,
+                `${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
+              ),
+            ),
+          );
+        });
+      } catch (error) {
+        if (signal?.aborted) {
+          settle(() => reject(new Error("Operation aborted")));
+          return;
+        }
+        settle(() =>
+          reject(error instanceof Error ? error : new Error(String(error))),
+        );
+      }
+    })();
+  });
 }
 
 export function createFindTool(options: FindToolOptions): FindTool {
   return {
     name: "find",
     description: FIND_DESCRIPTION,
+    promptSnippet: FIND_PROMPT_SNIPPET,
+    promptGuidelines: [...FIND_PROMPT_GUIDELINES],
     parameters: {
       type: "object",
       additionalProperties: false,
+      required: ["pattern"],
       properties: {
         pattern: {
           type: "string",
           description:
-            "Platform-independent glob matched against Search Root descendants",
+            "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
         },
         path: {
           type: "string",
-          description:
-            "Absolute or Session-cwd-relative directory path; defaults to .",
-        },
-        type: {
-          type: "string",
-          enum: ["file", "directory", "symlink", "all"],
-          description: "Entry type to return; defaults to all",
-        },
-        maxDepth: {
-          type: "integer",
-          minimum: 1,
-          maximum: TRAVERSAL_MAX_DEPTH,
-          description:
-            "Maximum traversal depth where 1 means direct children only; unlimited when omitted",
-        },
-        includeIgnored: {
-          type: "boolean",
-          description:
-            "When true, do not apply .gitignore or the built-in .git/ ignore; defaults to false",
-        },
-        offset: {
-          type: "integer",
-          minimum: 0,
-          description: "Number of sorted entries to skip; defaults to 0",
+          description: "Directory to search in (default: current directory)",
         },
         limit: {
-          type: "integer",
-          minimum: 1,
-          maximum: FIND_MAX_LIMIT,
-          description: `Maximum number of entries to return; defaults to ${FIND_DEFAULT_LIMIT}`,
+          type: "number",
+          description: "Maximum number of results (default: 1000)",
         },
       },
-      required: ["pattern"],
     },
     execute(input, signal) {
       return executeFind(input, {

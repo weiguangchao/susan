@@ -1,2 +1,2 @@
-{"type":"session","version":4,"id":"55555555-5555-4555-8555-555555555555","createdAt":"2026-01-05T00:00:00.000Z","cwd":"/workspace"}
+{"type":"session","version":6,"id":"55555555-5555-4555-8555-555555555555","createdAt":"2026-01-05T00:00:00.000Z","cwd":"/workspace"}
 {"type":"message","message":{"role":"user","content":"Hello from the future"}}

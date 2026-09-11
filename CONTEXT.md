@@ -37,19 +37,23 @@ Harness 暴露给模型、可由模型请求调用的一项能力。
 _Avoid_: function, plugin, skill
 
 **Built-in Tool Set**:
-Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；以 Pi 的核心语义为基线，但契约服从 Susan 的 Approval Policy、`cwd` 边界与跨平台要求。
+Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；功能与表示层对齐 Pi，Approval Policy 仍为 Yolo。
 _Avoid_: tool pack, Pi-compatible tools
 
 **Read Tool**:
-Built-in Tool Set 中按路径分页读取 UTF-8 regular file 的 Tool；模型侧名称为 `read`，不保留 `read_file` alias。
+Built-in Tool Set 中按路径分页读取文本或读取图片附件的 Tool；模型侧名称为 `read`，不保留 `read_file` alias。
 _Avoid_: Read File Tool, file reader, cat tool
+
+**Image Content**:
+Tool Result 中供支持视觉输入的模型消费的图片附件；随 Session Transcript 保留，切换到不支持图片的模型时从 Provider 请求中省略。
+_Avoid_: image text, binary output
 
 **Write Tool**:
 Built-in Tool Set 中创建或完整覆盖一个 UTF-8 regular file 的 Tool；不提供 append 或权限修改模式。
 _Avoid_: file writer, append tool
 
 **Edit Tool**:
-Built-in Tool Set 中对一个 UTF-8 regular file 执行一批精确文本替换的 Tool；整批 replacement 先基于原内容验证，再一次提交。
+Built-in Tool Set 中对一个文件执行一批定向文本替换的 Tool；优先精确匹配，必要时使用规范化后的模糊匹配，整批替换基于原内容验证唯一性与不重叠性后写回。
 _Avoid_: patch tool, fuzzy editor, replace tool
 
 **Bash Tool**:
@@ -57,32 +61,20 @@ Built-in Tool Set 中以真实 Bash 执行 one-shot、非交互、非 login comm
 _Avoid_: shell tool, terminal tool, command tool
 
 **Grep Tool**:
-Built-in Tool Set 中按行搜索 UTF-8 regular file 内容的 Tool；模型侧名称为 `grep`，可查询单个文件或从 Search Root 递归查询目录。
+Built-in Tool Set 中按行搜索文件内容的 Tool；模型侧名称为 `grep`，经 Managed Binary `rg` 查询单个文件或目录，尊重 `.gitignore`。
 _Avoid_: search tool, ripgrep wrapper, content finder
 
 **Find Tool**:
-Built-in Tool Set 中按平台无关 glob 查询 Search Root 下路径名称的 Tool；模型侧名称为 `find`，可返回 file、directory 与 symlink 条目。
+Built-in Tool Set 中按 glob 查询路径名称的 Tool；模型侧名称为 `find`，经 Managed Binary `fd` 搜索，尊重 `.gitignore`。
 _Avoid_: file search, fd wrapper, glob tool
 
 **Ls Tool**:
-Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，以结构化类型区分 file、directory 与 symlink。
+Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，返回按字母序排列的纯文本条目，目录带 `/` 后缀，包含 dotfiles。
 _Avoid_: list tool, directory reader, recursive ls
 
-**Search Root**:
-`grep` 或 `find` 的路径入口所确定的目录；查询结果中的相对路径、glob 匹配与遍历深度都以它为基准。`grep` 直接查询单个文件时没有 Search Root。
-_Avoid_: workspace, project root, scan root
-
-**Traversal Diagnostic**:
-`grep`、`find` 或 `ls` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
-_Avoid_: warning text, skipped error, partial failure
-
 **Tool Result**:
-Harness 回填给模型的一次 Tool Call 结果；使用稳定的成功/失败 envelope，并把 Tool 专属数据、结构化错误与共享执行元数据分开表达。
-_Avoid_: tool response, tool output
-
-**Canonical Tool Result**:
-一次 Tool Call 完成后由模型、Session Transcript 与 TUI 共同消费的有界 Tool Result；Susan 不另存未截断副本作为第二份完成态事实。
-_Avoid_: full tool output, raw tool result, display result
+一次 Tool Call 完成后回填给模型、Session Transcript 与 TUI 的结果；由模型可见的 content 与可选的 details 组成，失败时以 isError 标记。
+_Avoid_: Canonical Tool Result, tool response, tool output, nextArguments
 
 **LLM Provider**:
 向 Harness 提供模型推理能力的上游服务，例如 DeepSeek、OpenAI 或 Anthropic。
@@ -138,15 +130,7 @@ _Avoid_: app version, package version, session version
 
 **Session cwd**:
 Session 生命周期内稳定的工作目录，记录于 Session Header，并作为所有 Tool 相对路径的解析基准；它是可见的执行边界，不是 OS sandbox 或权限边界。
-_Avoid_: workspace root, project root, sandbox root
-
-**Resolved Path**:
-Tool 路径输入依据宿主平台语法相对于 Session cwd 做词法规范化后得到的绝对路径；它保留模型表达的入口位置，但不代表 symlink 的实际目标。
-_Avoid_: normalized path, requested absolute path
-
-**Real Target Path**:
-解析现有 symlink 后，Tool 实际读取、查询或执行所指向的 canonical 绝对路径；cwd 内外分类以它和 canonical Session cwd 为准。
-_Avoid_: resolved path, physical path
+_Avoid_: workspace root, project root, sandbox root, Resolved Path, Real Target Path
 
 **Session Record**:
 Session JSONL 中 append-only 的事件行；0.0.1 包含 message、usage 与 compaction。
@@ -177,20 +161,24 @@ _Avoid_: history, messages
 _Avoid_: token count, tokenizer
 
 **System Prompt**:
-Harness 为每次模型请求注入的 canonical 行为指令，用于定义 Coding Agent 身份与跨 Tool 行为边界；不作为用户消息或 Session Transcript 的一部分。
-_Avoid_: user instructions, project rules, custom prompt
+Harness 为每次模型请求注入的行为指令，由身份段、Available tools、Guidelines 与 Session cwd 拼装；Guidelines 来自各 Tool 贡献与常驻条目；不作为用户消息或 Session Transcript 的一部分。取代先前锁定的 canonical 文案（#42）。
+_Avoid_: canonical system prompt, user instructions, project rules, custom prompt
 
 **Compaction**:
 为延续长 Session，用 rolling structured summary 替代 Model Context 中的早期内容，同时保留近期原文的过程。
 _Avoid_: truncation, deletion
 
 **Compaction Checkpoint**:
-一次 Compaction 的持久结果，记录 rolling structured summary 与 recent tail 的保留边界，用于恢复 Model Context。
+一次 Compaction 的持久结果，记录 structured summary、保留的原文尾部，以及该范围内读过/改过的文件清单，用于恢复 Model Context。
 _Avoid_: snapshot, truncated history
 
 **Susan Home**:
-存放 Config 与 Session Store 的 `.susan` 目录。默认位于用户 home 下；启动时可指定另一个父目录。
+存放 Config、Session Store 与 Managed Binary 的 `.susan` 目录。默认位于用户 home 下；启动时可指定另一个父目录。
 _Avoid_: config directory, config root, susan dir, data directory
+
+**Managed Binary**:
+Susan Home `bin` 目录中缓存的 `rg` / `fd` 平台二进制，供 Grep Tool 与 Find Tool 在系统 PATH 未提供时使用。
+_Avoid_: system binary, tool download, package install
 
 **Config**:
 Susan Home 内的用户配置文件 `config.json`；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。
@@ -205,7 +193,7 @@ _Avoid_: effective config, merged config
 _Avoid_: session model, transient model, per-message model
 
 **Slash Command**:
-TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/exit`、`/new`、`/model`，没有隐藏别名。
+TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/compact`、`/exit`、`/new`、`/model`，没有隐藏别名。
 _Avoid_: command, slash, 斜杠指令, `/clear`
 
 **Slash Command Label**:

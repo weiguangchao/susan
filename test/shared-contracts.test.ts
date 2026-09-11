@@ -70,7 +70,7 @@ describe("shared type contracts", () => {
         {
           role: "tool",
           toolCallId: "call-1",
-          content: { ok: true, result: { content: "example" } },
+          content: [{ type: "text", text: "example" }],
         },
       ],
       tools: [tool],
@@ -183,10 +183,11 @@ describe("shared type contracts", () => {
       {
         type: "compaction",
         summary: "Goal: read the file.",
-        firstKeptMessageIndex: 1,
+        firstKeptEntryId: "message:1",
+        retainedTail: [],
+        details: { readFiles: [], modifiedFiles: [] },
         tokensBefore: 20_000,
-        tokensAfterEstimate: 1_000,
-        createdAt: "2026-09-03T00:00:00.000Z",
+        timestamp: "2026-09-03T00:00:00.000Z",
       },
       {
         type: "usage",

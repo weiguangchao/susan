@@ -5,7 +5,7 @@ import type {
   PendingAgentLoop,
 } from "../core/harness.js";
 import { isJsonValue, isRecord } from "../core/json.js";
-import { isToolResult, type ToolResult } from "../core/tool-result.js";
+import { type ToolResult } from "../core/tool-result.js";
 import type { ProviderFailure, ReasoningEffort } from "../core/provider.js";
 import { moveInputCursorVertically } from "./input-layout.js";
 import {
@@ -125,6 +125,7 @@ export type TuiInputIntent =
   | { readonly type: "submit"; readonly content: string }
   | { readonly type: "clear-input" }
   | { readonly type: "clear" }
+  | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
   | { readonly type: "exit" }
   | { readonly type: "interrupt" }
@@ -137,6 +138,7 @@ export type TuiInputIntent =
 export type TuiSubmissionIntent =
   | { readonly type: "exit" }
   | { readonly type: "clear" }
+  | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
   | { readonly type: "submit"; readonly content: string };
 
@@ -215,6 +217,7 @@ export function normalizeSubmission(value: string): string {
 
 export function resolveSubmission(value: string): TuiSubmissionIntent {
   const content = normalizeSubmission(value);
+  if (content.startsWith("/compact ")) return { type: "compact", customInstructions: content.slice(9).trim() };
   const command = slashCommands.find((candidate) => candidate.name === content);
   if (command !== undefined) {
     return { type: command.intent };
@@ -301,26 +304,6 @@ export function resolveInputIntent(
       return { type: "backspace" };
     }
     return { type: "insert", text: key.input };
-  }
-
-  if (state.status === "compatibility") {
-    if (state.input === "") {
-      if (key.input === "r") {
-        return {
-          type: "notice",
-          message: "旧 Tool Call 不可重放，请提交新的指令",
-        };
-      }
-      if (key.input === "n") {
-        return { type: "new-session" };
-      }
-      if (key.return) {
-        return {
-          type: "notice",
-          message: "旧 Tool Call 不可重放，请提交新的指令",
-        };
-      }
-    }
   }
 
   if (state.status === "pending") {
@@ -713,6 +696,8 @@ function applyInputIntent(
       };
     case "notice":
       return { ...state, notice: intent.message };
+    case "compact":
+      return { ...state, ...clearedDraftState(state), status: "running", notice: "正在压缩上下文…", failure: null };
     case "model-picker": {
       const selectedFromMenu = resolveSlashCommandMenu(state).selected?.intent === "model-picker";
       const clearInput =
@@ -796,7 +781,7 @@ function reduceHarnessEvent(
       try {
         const arguments_: unknown = JSON.parse(argumentsText);
         if (isRecord(arguments_) && isJsonValue(arguments_)) {
-          invocationLabel = formatToolCallDetail({ id, name, arguments: arguments_ }, undefined, state.cwd);
+          invocationLabel = formatToolCallDetail({ id, name, arguments: arguments_ }, state.cwd);
         }
       } catch {
         // Incomplete streamed JSON: keep the tool name until arguments are complete.
@@ -833,7 +818,12 @@ function reduceHarnessEvent(
       };
     }
     case "tool-completed": {
-      const card = createCompletedToolCard(event.toolCall, event.result, state.cwd);
+      const card = createCompletedToolCard(
+        event.toolCall,
+        event.result,
+        event.isError,
+        state.cwd,
+      );
       const completedMessages = streamMessages(state.stream);
       return {
         ...state,
@@ -982,28 +972,6 @@ function reduceHarnessEvent(
   }
 }
 
-function toolResultFromContent(content: unknown): ToolResult | undefined {
-  if (isToolResult(content)) {
-    return content;
-  }
-  if (
-    isRecord(content) &&
-    content.ok === false &&
-    isRecord(content.error) &&
-    typeof content.error.code === "string" &&
-    typeof content.error.message === "string"
-  ) {
-    return {
-      ok: false,
-      error: {
-        code: content.error.code,
-        message: content.error.message,
-      },
-    };
-  }
-  return undefined;
-}
-
 function toolsFromMessages(
   messages: HarnessSnapshot["messages"],
   sessionCwd: string,
@@ -1017,19 +985,32 @@ function toolsFromMessages(
       messages
         .slice(index + 1)
         .filter((entry) => entry.role === "tool")
-        .map((entry) => [entry.toolCallId, entry.content]),
+        .map((entry) => [
+          entry.toolCallId,
+          {
+            content: entry.content,
+            ...(entry.details === undefined ? {} : { details: entry.details }),
+          } as ToolResult,
+        ]),
+    );
+    const errorIds = new Set(
+      messages
+        .slice(index + 1)
+        .filter((entry) => entry.role === "tool")
+        .filter((entry) => entry.isError === true)
+        .map((entry) => entry.toolCallId),
     );
     for (const toolCall of message.toolCalls) {
-      const result = toolResultFromContent(results.get(toolCall.id));
+      const result = results.get(toolCall.id);
       cards.push(
         result === undefined
-          ? toolCall.name === "read_file"
-            ? {
-                ...createToolCard(toolCall, "interrupted", sessionCwd),
-                summary: "旧 Tool Call 不可重放",
-              }
-            : createToolCard(toolCall, "requested", sessionCwd)
-          : createCompletedToolCard(toolCall, result, sessionCwd),
+          ? createToolCard(toolCall, "requested", sessionCwd)
+          : createCompletedToolCard(
+              toolCall,
+              result,
+              errorIds.has(toolCall.id),
+              sessionCwd,
+            ),
       );
     }
   }
@@ -1165,9 +1146,6 @@ function isTerminalTool(tool: TuiToolCard): boolean {
 }
 
 function pendingNotice(pending: PendingAgentLoop): string {
-  if (pending.reason === "compatibility") {
-    return "旧 Tool Call 不可重放，请提交新的指令";
-  }
   if (pending.reason === "restored") {
     return "上次响应未完成（Pending Agent Loop）";
   }

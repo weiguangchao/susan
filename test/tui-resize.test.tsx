@@ -49,6 +49,7 @@ function idleHarness(): Harness {
     sessionCachedInputTokens: 0,
   };
   return {
+    async compact() { return { ok: true as const }; },
     async dispatch() {
       return { ok: true };
     },
@@ -73,6 +74,7 @@ function streamingHarness(overrides: Partial<HarnessSnapshot> = {}): {
   const listeners = new Set<(event: HarnessEvent) => void>();
   return {
     harness: {
+      async compact() { return { ok: true as const }; },
       async dispatch(command) {
         if (command.type === "submit") snapshot = { ...snapshot, status: "running" };
         return { ok: true };
@@ -161,7 +163,7 @@ describe("TUI terminal resize", () => {
       expect(generating.join("\n")).not.toContain("README.md");
       emit({ type: "tool-started", toolCall });
       expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
-      emit({ type: "tool-completed", toolCall, result: { ok: true, result: { content: "retained result" } } });
+      emit({ type: "tool-completed", toolCall, result: { content: [{ type: "text", text: "retained result" }] }, isError: false });
       expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
       emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
       let lines = await screen();
@@ -249,8 +251,7 @@ describe("TUI terminal resize", () => {
       }));
       for (const toolCall of toolCalls) {
         emit({ type: "tool-started", toolCall });
-        emit({ type: "tool-completed", toolCall, result: { ok: false,
-          error: { code: "ENOENT", message: "fixture" } } });
+        emit({ type: "tool-completed", toolCall, result: { content: [{ type: "text", text: "fixture" }] }, isError: true });
       }
       emit({ type: "tool-batch-completed", toolCalls });
       await flush();
@@ -319,7 +320,7 @@ describe("TUI terminal resize", () => {
         for (const toolCall of toolCalls) {
           emit({ type: "tool-started", toolCall });
           emit({ type: "tool-completed", toolCall,
-            result: { ok: true, result: { content: "history content" } } });
+            result: { content: [{ type: "text", text: "history content" }] }, isError: false });
         }
         emit({ type: "tool-batch-completed", toolCalls });
         await flush();
@@ -329,7 +330,7 @@ describe("TUI terminal resize", () => {
               arguments: { path: `live-${index}.md` } };
             emit({ type: "tool-started", toolCall });
             emit({ type, toolCall,
-              result: { ok: true, result: { content: `result-${index}\n\nresult-end-${index}` } } });
+              result: { content: [{ type: "text", text: `result-${index}\n\nresult-end-${index}` }] }, isError: false });
           } else {
             emit({ type, textDelta: `${index === 0 ? "" : "\n"}paragraph-${index}\n\nend-${index}` });
           }
@@ -389,7 +390,7 @@ describe("TUI terminal resize", () => {
         emit({ type: "tool-started", toolCall });
         await flush();
         emit({ type: "tool-completed", toolCall,
-          result: { ok: true, result: { content: `content-${index}` } } });
+          result: { content: [{ type: "text", text: `content-${index}` }] }, isError: false });
         await flush();
         if (index < 3) {
           expect(terminal.buffer.active.baseY, "short results must consume blank rows before scrolling").toBe(0);
@@ -506,7 +507,7 @@ describe("TUI terminal resize", () => {
         assertOrder("running");
         if (round === 0) expect(terminal.buffer.active.baseY).toBe(0);
         emit({ type: "tool-completed", toolCall,
-          result: { ok: true, result: { content: `文件内容 ${round}` } } });
+          result: { content: [{ type: "text", text: `文件内容 ${round}` }] }, isError: false });
         await flush();
         expected.push(`read · file-${round}.md`);
         assertOrder("completed");
@@ -586,8 +587,7 @@ describe("TUI terminal resize", () => {
         await flush();
         archivedLines.push(...Array.from({ length: textLines }, (_, line) => `项目说明 ${round}/${line} `));
         assertSingleInput(`tool start ${round}`);
-        emit({ type: "tool-completed", toolCall, result: { ok: false,
-          error: { code: "ENOENT", message: "fixture" } } });
+        emit({ type: "tool-completed", toolCall, result: { content: [{ type: "text", text: "fixture" }] }, isError: true });
         await flush();
         emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
         await flush();

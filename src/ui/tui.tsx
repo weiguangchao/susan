@@ -176,6 +176,12 @@ export function TuiApp({
         );
         return;
       }
+      if (intent.type === "compact") {
+        const result = await harness.compact(intent.customInstructions);
+        dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
+        if (!result.ok) handleModelError(result.error);
+        return;
+      }
       if (intent.type === "submit") {
         const result = await harness.dispatch({
           type: "submit",
@@ -371,10 +377,7 @@ export function TuiApp({
         width={columns}
       >
         {state.pending !== null && (
-          <PendingBanner
-            notice={state.notice}
-            allowRetry={state.pending.reason !== "compatibility"}
-          />
+          <PendingBanner notice={state.notice} allowRetry={true} />
         )}
         <Box
           flexDirection="column"

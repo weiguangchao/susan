@@ -1,6 +1,6 @@
 import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import type { JsonObject, ProviderToolCall } from "../src/index.js";
+import type { ProviderToolCall, ToolResult } from "../src/index.js";
 import { createTuiState, reduceTuiState } from "../src/index.js";
 import { SessionContentView, ToolLineView } from "../src/ui/tui.js";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results.js";
@@ -23,14 +23,17 @@ function initialState() {
 }
 
 describe("TUI Tool execution ledger", () => {
-  it.each(canonicalToolFixtures)("hides active calls and colors terminal results for $call.name", ({ call, result }) => {
+  it.each(canonicalToolFixtures)("hides active calls and colors terminal results for $call.name", ({ call, result, isError }) => {
     let state = reduceTuiState(initialState(), { type: "harness-event", event: { type: "tool-started", toolCall: call } });
     for (const status of ["requested", "running"] as const) {
       expect(renderToString(<SessionContentView messages={[]} tools={[{ ...state.tools[0]!, status }]} />)).toBe("");
     }
-    state = reduceTuiState(state, { type: "harness-event", event: { type: "tool-completed", toolCall: call, result } });
+    state = reduceTuiState(state, {
+      type: "harness-event",
+      event: { type: "tool-completed", toolCall: call, result, isError },
+    });
     const line = ToolLineView({ tool: state.tools[0]! });
-    expect(line?.props.color).toBe(result.ok ? "green" : "red");
+    expect(line?.props.color).toBe(isError ? "red" : "green");
     expect(renderToString(line!)).toBe(`${call.name} · ${state.tools[0]!.invocationLabel} · ${state.tools[0]!.summary}`);
   });
 
@@ -44,7 +47,12 @@ describe("TUI Tool execution ledger", () => {
     const history = () => renderToString(<SessionContentView messages={[]}
       tools={state.completedOutput.flatMap(item => item.kind === "tool-batch" ? item.tools : [])} />);
     emit({ type: "tool-started", toolCall: first.call });
-    emit({ type: "tool-completed", toolCall: first.call, result: first.result });
+    emit({
+      type: "tool-completed",
+      toolCall: first.call,
+      result: first.result,
+      isError: first.isError,
+    });
     expect(history()).toContain("read · src/link.ts · 已读 1 行");
     emit({ type: "tool-started", toolCall: second.call });
     expect(history()).toContain("read · src/link.ts · 已读 1 行");
@@ -55,13 +63,15 @@ describe("TUI Tool execution ledger", () => {
     expect(state.awaitingModelAfterTools).toBe(false);
   });
 
-  it.each(["ETIMEDOUT", "ETOOL"])("archives %s without requiring tool-started", code => {
+  it("archives a failed Tool Result without requiring tool-started", () => {
     const state = reduceTuiState(initialState(), { type: "harness-event", event: {
-      type: "tool-completed", toolCall: { id: "failure", name: "bash", arguments: { command: "pwd" } },
-      result: { ok: false, error: { code, message: "failed" } },
+      type: "tool-completed",
+      toolCall: { id: "failure", name: "bash", arguments: { command: "pwd" } },
+      result: { content: [{ type: "text", text: "failed" }] },
+      isError: true,
     } });
     const tools = state.completedOutput.flatMap(item => item.kind === "tool-batch" ? item.tools : []);
-    expect(renderToString(<SessionContentView messages={[]} tools={tools} />)).toContain(`bash · pwd · ${code} · failed`);
+    expect(renderToString(<SessionContentView messages={[]} tools={tools} />)).toContain("bash · pwd · failed");
     expect(state.awaitingModelAfterTools).toBe(true);
   });
 
@@ -109,12 +119,8 @@ describe("TUI Tool execution ledger", () => {
           arguments: { path: "large.txt", offset: 4, limit: 3 },
         },
         result: {
-          ok: true,
-          result: {
-            resolvedPath: "/workspace/large.txt",
-            realTargetPath: "/workspace/large.txt",
-            cwdRelation: "inside",
-            content: "four\nfive\nsix",
+          content: [{ type: "text", text: "four\nfive\nsix" }],
+          details: {
             range: { startLine: 4, endLine: 6 },
             totalLines: 12,
             sizeBytes: 1_024,
@@ -122,6 +128,7 @@ describe("TUI Tool execution ledger", () => {
             lineEnding: "lf",
           },
         },
+        isError: false,
       },
     });
 
@@ -129,30 +136,41 @@ describe("TUI Tool execution ledger", () => {
     expect(state.tools[0]?.supplementalLines).toEqual(["four", "five", "six"]);
   });
 
-  it.each<{ readonly name: string; readonly payload: JsonObject; readonly rows: readonly string[] }>([
-    { name: "read", payload: { content: "" }, rows: ["└ 空文件"] },
-    { name: "ls", payload: { entries: [] }, rows: ["└ 空目录"] },
+  it.each<{
+    readonly name: string;
+    readonly result: ToolResult;
+    readonly rows: readonly string[];
+  }>([
     {
       name: "read",
-      payload: { content: "first\n\nthird\nfourth\nfifth\n" },
+      result: { content: [{ type: "text", text: "" }] },
+      rows: ["└ 空文件"],
+    },
+    {
+      name: "ls",
+      result: { content: [{ type: "text", text: "(empty directory)" }] },
+      rows: ["└ 空目录"],
+    },
+    {
+      name: "read",
+      result: { content: [{ type: "text", text: "first\n\nthird\nfourth\nfifth\n" }] },
       rows: ["├ first", "├ third", "├ fourth", "└ fifth"],
     },
     {
       name: "ls",
-      payload: { entries: [
-        { name: "file.ts", type: "file" },
-        { name: "src", type: "directory" },
-        { name: "link", type: "symlink" },
-      ] },
-      rows: ["├ file.ts", "├ src/", "└ link@"],
+      result: {
+        content: [{ type: "text", text: "file.ts\nsrc/\nlink" }],
+      },
+      rows: ["├ file.ts", "├ src/", "└ link"],
     },
-  ])("renders normal $name result rows without content prefixes", ({ name, payload, rows }) => {
+  ])("renders normal $name result rows without content prefixes", ({ name, result, rows }) => {
     const state = reduceTuiState(initialState(), {
       type: "harness-event",
       event: {
         type: "tool-completed",
         toolCall: { id: "normal", name, arguments: { path: "." } },
-        result: { ok: true, result: payload },
+        result,
+        isError: false,
       },
     });
     const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
@@ -165,39 +183,44 @@ describe("TUI Tool execution ledger", () => {
       event: {
         type: "tool-completed",
         toolCall: { id: "failure", name, arguments: { path: "missing" } },
-        result: { ok: false, error: { code: "ENOENT", message: "Missing path", details: { path: "missing" } } },
+        result: {
+          content: [{ type: "text", text: "Missing path" }],
+          details: { path: "missing" },
+        },
+        isError: true,
       },
     });
-    expect(state.tools[0]?.supplementalLines).toEqual(['error details · {"path":"missing"}']);
+    expect(state.tools[0]?.supplementalLines).toEqual(
+      ["Missing path", 'error details · {"path":"missing"}'],
+    );
   });
 
-  it("shares the four-row budget between Ls entries and pagination metadata", () => {
+  it("shares the four-row budget between Ls entries and the Pi limit notice", () => {
     const state = reduceTuiState(initialState(), {
       type: "harness-event",
       event: {
         type: "tool-completed",
         toolCall: { id: "page", name: "ls", arguments: { path: ".", limit: 4 } },
         result: {
-          ok: true,
-          result: { entries: [
-            { name: "a", type: "file" }, { name: "b", type: "file" },
-            { name: "c", type: "file" }, { name: "d", type: "file" },
-          ] },
-          meta: { truncation: {
-            reasons: ["items"], strategy: "head", fields: ["entries"],
-            retained: { bytes: 100, items: 4 }, total: { items: 8 },
-            nextArguments: { path: ".", offset: 4 },
-          } },
+          content: [{
+            type: "text",
+            text: "a\nb\nc\nd\n\n[4 entries limit reached. Use limit=8 for more]",
+          }],
+          details: { entryLimitReached: 4 },
         },
+        isError: false,
       },
     });
-    expect(state.tools[0]?.supplementalLines.slice(4)).toEqual([
-      "truncation · head · retained 100 B, 4 items / limit 51,200 B output, 4 items · fields entries · total 8 items",
-      'next arguments · {"path":".","offset":4}',
+    expect(state.tools[0]?.supplementalLines).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "[4 entries limit reached. Use limit=8 for more]",
     ]);
     const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
     expect(output.split("\n").slice(1).map((line) => line.trim())).toEqual([
-      "├ a", "├ b", "├ c", "├ d", "└ …其余 2 行省略",
+      "├ a", "├ b", "├ c", "├ d", "└ …其余 1 行省略",
     ]);
   });
 
@@ -281,7 +304,8 @@ describe("TUI Tool execution ledger", () => {
         event: {
           type: "tool-completed",
           toolCall: call,
-          result: { ok: true, result: { entries: [], content: "ok" } },
+          result: { content: [{ type: "text", text: "ok" }], details: { entries: [] } },
+          isError: false,
         },
       });
     }
@@ -311,6 +335,7 @@ describe("TUI Tool execution ledger", () => {
           type: "tool-completed",
           toolCall: fixture.call,
           result: fixture.result,
+          isError: fixture.isError,
         },
       });
     }
@@ -322,54 +347,50 @@ describe("TUI Tool execution ledger", () => {
       summary,
     }))).toEqual([
       { name: "read", invocationLabel: "src/link.ts", status: "completed", summary: "已读 1 行 · 19 B" },
-      { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "overwritten · 12 B · outside cwd" },
-      { name: "edit", invocationLabel: "src/real.ts", status: "completed", summary: "1 edit · 2 replacements · 24 B" },
-      { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "exit 7 · EEXIT · Command exited with a non-zero status." },
+      { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "Successfully wrote to /outside/report.txt" },
+      { name: "edit", invocationLabel: "src/link.ts", status: "completed", summary: "Successfully replaced 1 block(s) in src/link.ts." },
+      { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "Command exited with code 7" },
       { name: "grep", invocationLabel: "src · /needle/", status: "completed", summary: "2 matches" },
       { name: "find", invocationLabel: ". · **/*.ts", status: "completed", summary: "0 entries" },
       { name: "ls", invocationLabel: "src", status: "completed", summary: "2 entries" },
     ]);
     expect(state.tools[0]?.supplementalLines).toEqual([
-      "Resolved Path → Real Target Path · /workspace/src/link.ts → /workspace/src/index.ts",
       "export const x = 1;",
     ]);
     expect(state.tools[6]?.supplementalLines).toEqual(["index.ts", "ui/"]);
-    expect(state.tools[2]?.supplementalLines).toContain("@@ -1 +1 @@");
-    expect(state.tools[2]?.supplementalLines).toContain(
-      "truncation · head · retained 24 B, 3 lines / limit 51,200 B output · fields diff · total 96 B, 12 lines",
-    );
-    expect(state.tools[3]?.supplementalLines).toContain("stdout (tail) · tests started");
-    expect(state.tools[3]?.supplementalLines).toContain("stderr (tail) · one failure");
-    expect(state.tools[3]?.supplementalLines).toContain(
-      "termination · process-group · graceful · cleanup confirmed",
-    );
-    expect(state.tools[3]?.supplementalLines).toContain("next arguments · unavailable");
-    expect(state.tools[4]?.supplementalLines).toContain(
-      'next arguments · {"pattern":"needle","path":"src","offset":2}',
-    );
-    expect(state.tools[4]?.supplementalLines).toContain(
-      "truncation · head · retained 128 B, 2 items / limit 51,200 B output, 100 items, 1,000 B per line · fields matches · total 6 items",
-    );
+    expect(state.tools[2]?.supplementalLines).toEqual(["-1 old", "+1 new"]);
+    expect(state.tools[3]?.supplementalLines).toEqual([
+      "tests started",
+      "file a",
+      "file b",
+      "one failure",
+      "Command exited with code 7",
+    ]);
+    expect(state.tools[4]?.supplementalLines).toEqual([
+      "a.ts:1: needle",
+      "b.ts:2: needle",
+    ]);
   });
 
   it("nests bounded result rows under each tool invocation at 80 columns", () => {
     let state = initialState();
+    const first = canonicalToolFixtures[0]!;
     const fixtures = [...canonicalToolFixtures, {
-      ...canonicalToolFixtures[0],
-      call: { ...canonicalToolFixtures[0].call, id: "read-2", arguments: { path: "README.md" } },
+      ...first,
+      call: { ...first.call, id: "read-2", arguments: { path: "README.md" } },
       result: {
-        ...canonicalToolFixtures[0].result,
-        result: {
-          ...canonicalToolFixtures[0].result.result,
-          resolvedPath: "/workspace/README.md",
-          realTargetPath: "/workspace/README.md",
-        },
+        content: first.result.content,
       },
     }];
     for (const fixture of fixtures) {
       state = reduceTuiState(state, {
         type: "harness-event",
-        event: { type: "tool-completed", toolCall: fixture.call, result: fixture.result },
+        event: {
+          type: "tool-completed",
+          toolCall: fixture.call,
+          result: fixture.result,
+          isError: fixture.isError,
+        },
       });
     }
 
@@ -384,29 +405,24 @@ describe("TUI Tool execution ledger", () => {
       { columns: 80 },
     );
     const lines = output.split("\n");
-    expect(lines[0]).toContain("read · src/link.ts · 已读 1 行 · 19 B");
-    expect(lines[1]).toContain("├ Resolved Path → Real Target Path · /workspace/src/link.ts");
-    expect(lines[2]).toContain("└ export const x = 1;");
-    expect(lines[3]).toContain("write · /outside/report.txt");
-    expect(lines[4]).toContain("edit · src/real.ts · 1 edit · 2 replacements · 24 B");
-    expect(lines[5]).toContain("├ @@ -1 +1 @@");
-    expect(lines[8]).toContain("truncation · head · retained 24 B, 3 lines");
-    expect(lines[9]).toContain("└ …其余 1 行省略");
-    expect(lines[10]).toContain("bash · pnpm test");
-    expect(lines[11]).toContain("stdout (tail) · tests started");
-    expect(lines[12]).toContain("stderr (tail) · one failure");
-    expect(lines[13]).toContain("termination · process-group");
-    expect(lines[14]).toContain("truncation · tail · retained 28 B");
-    expect(lines[15]).toContain("└ …其余 1 行省略");
-    expect(output).not.toContain("next arguments · unavailable");
-    expect(lines[16]).toContain("grep · src · /needle/ · 2 matches");
-    expect(lines[17]).toContain("├ truncation · head · retained 128 B, 2 items");
-    expect(lines[18]).toContain('└ next arguments · {"pattern":"needle","path":"src","offset":2}');
-    expect(lines[19]).toContain("find · . · **/*.ts · 0 entries");
-    expect(lines[20]).toContain("ls · src · 2 entries");
-    expect(lines[21]).toContain("├ index.ts");
-    expect(lines[22]).toContain("└ ui/");
-    expect(lines[23]).toContain("read · README.md · 已读 1 行 · 19 B");
-    expect(lines[24]).toContain("└ export const x = 1;");
+    expect(output).toContain("read · src/link.ts · 已读 1 行 · 19 B");
+    expect(output).toContain("export const x = 1;");
+    expect(output).toContain("write · /outside/report.txt");
+    expect(output).toContain("edit · src/link.ts · Successfully replaced");
+    expect(output).toContain("+1 new");
+    expect(output).not.toContain('"fields":["diff"]');
+    expect(output).toContain("bash · pnpm test");
+    expect(output).toContain("tests started");
+    expect(output).toContain("one failure");
+    expect(output).toContain("Command exited with code 7");
+    expect(output).toContain("grep · src · /needle/ · 2 matches");
+    expect(output).toContain("a.ts:1: needle");
+    expect(output).not.toContain("next arguments");
+    expect(output).toContain("find · . · **/*.ts · 0 entries");
+    expect(output).toContain("ls · src · 2 entries");
+    expect(output).toContain("index.ts");
+    expect(output).toContain("ui/");
+    expect(output).toContain("read · README.md · 已读 1 行 · 19 B");
+    expect(output).toContain("…其余");
   });
 });

@@ -1,32 +1,56 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { posix, win32, join } from "node:path";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  FIND_DEFAULT_LIMIT,
-  FIND_MAX_LIMIT,
+  FIND_PROMPT_GUIDELINES,
+  FIND_PROMPT_SNIPPET,
   createFindTool,
+  ensureTool,
+  relativizeFindResultPath,
+  type FindOperations,
   type FindTool,
+  type ToolResult,
 } from "../src/index.js";
 
-const POSIX = process.platform !== "win32";
+const FIND_DESCRIPTION =
+  "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).";
 
-type Entry = {
-  readonly path: string;
-  readonly type: string;
-};
+function textOf(result: ToolResult): string {
+  const block = result.content[0];
+  if (block === undefined || block.type !== "text") {
+    throw new Error("expected a text content block");
+  }
+  return block.text;
+}
 
-function entriesOf(result: unknown): readonly Entry[] {
-  const record = result as {
-    readonly result?: { readonly entries?: readonly Entry[] };
-  };
-  return record.result?.entries ?? [];
+function listingOf(result: ToolResult): string[] {
+  const text = textOf(result);
+  if (text === "No files found matching pattern") {
+    return [];
+  }
+  const noticeAt = text.indexOf("\n\n[");
+  const listing = noticeAt === -1 ? text : text.slice(0, noticeAt);
+  return listing.split("\n").filter((line) => line !== "");
+}
+
+function noticeOf(result: ToolResult): string | undefined {
+  const text = textOf(result);
+  const noticeAt = text.indexOf("\n\n[");
+  return noticeAt === -1 ? undefined : text.slice(noticeAt + 2);
 }
 
 describe("Find Tool", () => {
   let sessionCwd: string;
   let tool: FindTool;
+
+  beforeAll(async () => {
+    const fdPath = await ensureTool("fd");
+    if (!fdPath) {
+      throw new Error("fd is required for find tests");
+    }
+  }, 120_000);
 
   beforeEach(async () => {
     sessionCwd = await mkdtemp(join(tmpdir(), "susan-find-"));
@@ -37,490 +61,274 @@ describe("Find Tool", () => {
     await rm(sessionCwd, { force: true, recursive: true });
   });
 
-  it("exposes the find tool definition with a required pattern and bounded options", () => {
+  it("exposes the Pi find definition with empty guidelines", () => {
     expect(tool).toMatchObject({
       name: "find",
+      description: FIND_DESCRIPTION,
+      promptSnippet: FIND_PROMPT_SNIPPET,
+      promptGuidelines: FIND_PROMPT_GUIDELINES,
       parameters: {
         type: "object",
         additionalProperties: false,
         required: ["pattern"],
         properties: {
-          pattern: { type: "string" },
-          path: { type: "string" },
-          type: { type: "string", enum: ["file", "directory", "symlink", "all"] },
-          maxDepth: { type: "integer", minimum: 1, maximum: 1_000 },
-          includeIgnored: { type: "boolean" },
-          offset: { type: "integer", minimum: 0 },
-          limit: { type: "integer", minimum: 1, maximum: FIND_MAX_LIMIT },
+          pattern: {
+            type: "string",
+            description:
+              "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
+          },
+          path: {
+            type: "string",
+            description: "Directory to search in (default: current directory)",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of results (default: 1000)",
+          },
         },
       },
     });
-    expect(FIND_DEFAULT_LIMIT).toBe(1_000);
-    expect(FIND_MAX_LIMIT).toBe(10_000);
+    expect(FIND_PROMPT_SNIPPET).toBe(
+      "Find files by glob pattern (respects .gitignore)",
+    );
+    expect(FIND_PROMPT_GUIDELINES).toEqual([]);
   });
 
-  it("matches Search Root descendants by basename glob and sorts by full path", async () => {
+  it("rejects extra keys and wrong types", async () => {
+    await expect(tool.execute({})).rejects.toThrow("Invalid find arguments.");
+    await expect(tool.execute({ pattern: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", path: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", limit: "2" })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", limit: Number.NaN })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", type: "file" })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", maxDepth: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(
+      tool.execute({ pattern: "*", includeIgnored: true }),
+    ).rejects.toThrow("Invalid find arguments.");
+    await expect(tool.execute({ pattern: "*", offset: 0 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+    await expect(tool.execute({ pattern: "*", extra: 1 })).rejects.toThrow(
+      "Invalid find arguments.",
+    );
+  });
+
+  it("matches basename globs at any depth and returns relative paths", async () => {
     await mkdir(join(sessionCwd, "src", "nested"), { recursive: true });
     await writeFile(join(sessionCwd, "root.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "src", "app.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "src", "nested", "deep.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "src", "notes.md"), "# notes\n");
 
-    await expect(tool.execute({ pattern: "*.ts" })).resolves.toEqual({
-      ok: true,
-      result: {
-        resolvedPath: sessionCwd,
-        realTargetPath: await realpath(sessionCwd),
-        cwdRelation: "inside",
-        entries: [
-          { path: "root.ts", type: "file" },
-          { path: "src/app.ts", type: "file" },
-          { path: "src/nested/deep.ts", type: "file" },
-        ],
-        diagnostics: [],
-      },
-    });
+    expect(listingOf(await tool.execute({ pattern: "*.ts" })).sort()).toEqual([
+      "root.ts",
+      "src/app.ts",
+      "src/nested/deep.ts",
+    ]);
   });
 
-  it("filters by entry type and reports symlinks without following them", async () => {
-    await mkdir(join(sessionCwd, "src"));
-    await writeFile(join(sessionCwd, "src", "app.ts"), "export {}\n");
-    await mkdir(join(sessionCwd, "target"));
-    await writeFile(join(sessionCwd, "target", "hidden-child.ts"), "export {}\n");
-    await symlink(
-      join(sessionCwd, "target"),
-      join(sessionCwd, "link"),
-      process.platform === "win32" ? "dir" : undefined,
+  it("matches path-containing globs in full-path mode", async () => {
+    await mkdir(join(sessionCwd, "some", "parent", "child"), { recursive: true });
+    await mkdir(join(sessionCwd, "src", "foo", "bar"), { recursive: true });
+    await writeFile(join(sessionCwd, "some", "parent", "child", "file.ext"), "");
+    await writeFile(
+      join(sessionCwd, "some", "parent", "child", "test.spec.ts"),
+      "",
     );
+    await writeFile(join(sessionCwd, "src", "foo", "bar", "example.spec.ts"), "");
 
-    expect(entriesOf(await tool.execute({ pattern: "*" }))).toEqual([
-      { path: "link", type: "symlink" },
-      { path: "src", type: "directory" },
-      { path: "src/app.ts", type: "file" },
-      { path: "target", type: "directory" },
-      { path: "target/hidden-child.ts", type: "file" },
+    expect(listingOf(await tool.execute({ pattern: "*.spec.ts" })).sort()).toEqual([
+      "some/parent/child/test.spec.ts",
+      "src/foo/bar/example.spec.ts",
     ]);
-    expect(entriesOf(await tool.execute({ pattern: "*", type: "file" }))).toEqual([
-      { path: "src/app.ts", type: "file" },
-      { path: "target/hidden-child.ts", type: "file" },
-    ]);
+    const subtree = listingOf(
+      await tool.execute({ pattern: "some/parent/child/**" }),
+    );
+    expect(subtree).toContain("some/parent/child/file.ext");
+    expect(subtree).toContain("some/parent/child/test.spec.ts");
     expect(
-      entriesOf(await tool.execute({ pattern: "*", type: "directory" })),
-    ).toEqual([
-      { path: "src", type: "directory" },
-      { path: "target", type: "directory" },
-    ]);
-    expect(
-      entriesOf(await tool.execute({ pattern: "*", type: "symlink" })),
-    ).toEqual([{ path: "link", type: "symlink" }]);
-  });
-
-  it("matches full relative paths for patterns with a slash and never the Search Root", async () => {
-    await mkdir(join(sessionCwd, "src", "nested"), { recursive: true });
-    await writeFile(join(sessionCwd, "src", "app.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "src", "nested", "deep.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "app.ts"), "export {}\n");
-
-    expect(entriesOf(await tool.execute({ pattern: "src/*.ts" }))).toEqual([
-      { path: "src/app.ts", type: "file" },
-    ]);
-    expect(entriesOf(await tool.execute({ pattern: "src/**/*.ts" }))).toEqual([
-      { path: "src/app.ts", type: "file" },
-      { path: "src/nested/deep.ts", type: "file" },
-    ]);
-    expect(entriesOf(await tool.execute({ pattern: "**" }))).not.toContainEqual(
-      expect.objectContaining({ path: "" }),
+      listingOf(await tool.execute({ pattern: "**/parent/child/*" })).sort(),
+    ).toEqual(
+      expect.arrayContaining([
+        "some/parent/child/file.ext",
+        "some/parent/child/test.spec.ts",
+      ]),
+    );
+    expect(listingOf(await tool.execute({ pattern: "src/**/*.spec.ts" }))).toEqual(
+      ["src/foo/bar/example.spec.ts"],
     );
   });
 
-  it("limits traversal depth where maxDepth 1 means direct children only", async () => {
-    await mkdir(join(sessionCwd, "a", "b", "c"), { recursive: true });
-    await writeFile(join(sessionCwd, "top.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "a", "one.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "a", "b", "two.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "a", "b", "c", "three.ts"), "export {}\n");
-
-    expect(
-      entriesOf(await tool.execute({ pattern: "*.ts", maxDepth: 1 })),
-    ).toEqual([{ path: "top.ts", type: "file" }]);
-    expect(
-      entriesOf(await tool.execute({ pattern: "*.ts", maxDepth: 2 })),
-    ).toEqual([
-      { path: "a/one.ts", type: "file" },
-      { path: "top.ts", type: "file" },
-    ]);
-    expect(entriesOf(await tool.execute({ pattern: "*.ts" }))).toHaveLength(4);
-  });
-
-  it("matches dotfiles with wildcards and stays case-sensitive on every platform", async () => {
+  it("includes hidden files", async () => {
     await mkdir(join(sessionCwd, ".config"));
     await writeFile(join(sessionCwd, ".config", "settings.json"), "{}\n");
     await writeFile(join(sessionCwd, ".hidden.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "Case.ts"), "export {}\n");
 
-    expect(entriesOf(await tool.execute({ pattern: "*.ts" }))).toEqual([
-      { path: ".hidden.ts", type: "file" },
-      { path: "Case.ts", type: "file" },
+    expect(listingOf(await tool.execute({ pattern: "*.ts" })).sort()).toEqual([
+      ".hidden.ts",
+      "Case.ts",
     ]);
-    expect(entriesOf(await tool.execute({ pattern: ".*/*.json" }))).toEqual([
-      { path: ".config/settings.json", type: "file" },
-    ]);
-    expect(entriesOf(await tool.execute({ pattern: "case.ts" }))).toEqual([]);
-    expect(entriesOf(await tool.execute({ pattern: "Case.ts" }))).toEqual([
-      { path: "Case.ts", type: "file" },
+    expect(listingOf(await tool.execute({ pattern: "*.json" }))).toEqual([
+      ".config/settings.json",
     ]);
   });
 
-  it("applies nested .gitignore and the built-in .git ignore unless includeIgnored", async () => {
-    await writeFile(join(sessionCwd, ".gitignore"), "*.log\nbuild/\n");
+  it("scopes nested .gitignore rules to their own subtrees", async () => {
+    await mkdir(join(sessionCwd, "a", "deep"), { recursive: true });
+    await mkdir(join(sessionCwd, "b"));
+    await writeFile(join(sessionCwd, "a", ".gitignore"), "ignored.txt\n");
+    await writeFile(join(sessionCwd, "a", "deep", ".gitignore"), "secret.txt\n");
+    await writeFile(join(sessionCwd, "a", "ignored.txt"), "");
+    await writeFile(join(sessionCwd, "a", "kept.txt"), "");
+    await writeFile(join(sessionCwd, "a", "deep", "ignored.txt"), "");
+    await writeFile(join(sessionCwd, "a", "deep", "secret.txt"), "");
+    await writeFile(join(sessionCwd, "a", "deep", "kept.txt"), "");
+    await writeFile(join(sessionCwd, "b", "ignored.txt"), "");
+    await writeFile(join(sessionCwd, "b", "kept.txt"), "");
+    await writeFile(join(sessionCwd, "root.txt"), "");
+
+    expect(listingOf(await tool.execute({ pattern: "**/*.txt" })).sort()).toEqual([
+      "a/deep/kept.txt",
+      "a/kept.txt",
+      "b/ignored.txt",
+      "b/kept.txt",
+      "root.txt",
+    ]);
+  });
+
+  it("respects .gitignore inside a git repository", async () => {
+    expect(spawnSync("git", ["init"], { cwd: sessionCwd }).status).toBe(0);
+    await writeFile(join(sessionCwd, ".gitignore"), "*.log\n/root-only.ts\nbuild/\n");
     await mkdir(join(sessionCwd, "build"));
+    await mkdir(join(sessionCwd, "pkg"));
     await writeFile(join(sessionCwd, "build", "out.ts"), "export {}\n");
-    await mkdir(join(sessionCwd, ".git"));
-    await writeFile(join(sessionCwd, ".git", "config.ts"), "export {}\n");
+    await writeFile(join(sessionCwd, "root-only.ts"), "export {}\n");
+    await writeFile(join(sessionCwd, "pkg", "root-only.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
     await writeFile(join(sessionCwd, "drop.log"), "noise\n");
-    await mkdir(join(sessionCwd, "src"));
-    await writeFile(join(sessionCwd, "src", ".gitignore"), "local.ts\n!keep.ts\n");
-    await writeFile(join(sessionCwd, "src", "local.ts"), "export {}\n");
-    await writeFile(join(sessionCwd, "src", "keep.ts"), "export {}\n");
 
-    expect(entriesOf(await tool.execute({ pattern: "**/*.ts" }))).toEqual([
-      { path: "keep.ts", type: "file" },
-      { path: "src/keep.ts", type: "file" },
-    ]);
-    expect(
-      entriesOf(await tool.execute({ pattern: "**/*.ts", includeIgnored: true })),
-    ).toEqual([
-      { path: ".git/config.ts", type: "file" },
-      { path: "build/out.ts", type: "file" },
-      { path: "keep.ts", type: "file" },
-      { path: "src/keep.ts", type: "file" },
-      { path: "src/local.ts", type: "file" },
+    expect(listingOf(await tool.execute({ pattern: "*.ts" })).sort()).toEqual([
+      "keep.ts",
+      "pkg/root-only.ts",
     ]);
   });
 
-  it("treats an ignored directory as the Search Root because it is explicitly selected", async () => {
+  it("searches an explicitly selected ignored directory", async () => {
     await writeFile(join(sessionCwd, ".gitignore"), "build/\n");
     await mkdir(join(sessionCwd, "build"));
     await writeFile(join(sessionCwd, "build", "out.ts"), "export {}\n");
 
-    expect(entriesOf(await tool.execute({ pattern: "*.ts", path: "build" }))).toEqual([
-      { path: "out.ts", type: "file" },
+    expect(
+      listingOf(await tool.execute({ pattern: "*.ts", path: "build" })),
+    ).toEqual(["out.ts"]);
+  });
+
+  it("does not follow directory or file symlinks found while walking", async () => {
+    await mkdir(join(sessionCwd, "real"));
+    await writeFile(join(sessionCwd, "real", "a.ts"), "export {}\n");
+    await symlink(
+      join(sessionCwd, "real", "a.ts"),
+      join(sessionCwd, "file-link.ts"),
+      process.platform === "win32" ? "file" : undefined,
+    );
+    await symlink(
+      join(sessionCwd, "real"),
+      join(sessionCwd, "dir-link"),
+      process.platform === "win32" ? "dir" : undefined,
+    );
+
+    expect(listingOf(await tool.execute({ pattern: "*.ts" })).sort()).toEqual([
+      "file-link.ts",
+      "real/a.ts",
     ]);
+    expect(listingOf(await tool.execute({ pattern: "dir-link/**" }))).toEqual([]);
   });
 
-  it("rejects unknown fields, wrong types, and out-of-range options", async () => {
-    await expect(tool.execute({ pattern: "*", glob: "*" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "glob" } },
-    });
-    await expect(tool.execute({})).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "*", path: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "path" } },
-    });
-    await expect(tool.execute({ pattern: "*", type: 1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "type" } },
-    });
-    await expect(
-      tool.execute({ pattern: "*", includeIgnored: "yes" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "includeIgnored" } },
-    });
-    await expect(tool.execute({ pattern: "*", limit: 1.5 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "limit" } },
-    });
-  });
-
-  it("reports a dedicated error code for each invalid pattern, type, and bound", async () => {
-    await expect(tool.execute({ pattern: "" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "!*.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "{a,b}.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(tool.execute({ pattern: "*", type: "socket" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_TYPE", details: { field: "type" } },
-    });
-    await expect(tool.execute({ pattern: "*", maxDepth: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_DEPTH", details: { field: "maxDepth" } },
-    });
-    await expect(tool.execute({ pattern: "*", maxDepth: 1_001 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_DEPTH", details: { field: "maxDepth" } },
-    });
-    await expect(tool.execute({ pattern: "*", limit: 0 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(
-      tool.execute({ pattern: "*", limit: FIND_MAX_LIMIT + 1 }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_LIMIT", details: { field: "limit" } },
-    });
-    await expect(tool.execute({ pattern: "*", offset: -1 })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_OFFSET", details: { field: "offset" } },
-    });
-  });
-
-  it("resolves errors by schema, then options, then path, then root type", async () => {
-    await writeFile(join(sessionCwd, "file.txt"), "not a dir\n");
-
-    await expect(
-      tool.execute({ pattern: "", path: "missing", unknown: true }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL", details: { field: "unknown" } },
-    });
-    await expect(
-      tool.execute({ pattern: "", path: "missing", type: "socket" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_GLOB", details: { field: "pattern" } },
-    });
-    await expect(
-      tool.execute({ pattern: "*", type: "socket", path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "EINVAL_TYPE", details: { field: "type" } },
-    });
-    await expect(
-      tool.execute({ pattern: "*", path: "missing" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOENT",
-        details: { resolvedPath: join(sessionCwd, "missing"), cwdRelation: "inside" },
-      },
-    });
-    await expect(
-      tool.execute({ pattern: "*", path: "file.txt" }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "ENOTDIR",
-        details: {
-          resolvedPath: join(sessionCwd, "file.txt"),
-          realTargetPath: await realpath(join(sessionCwd, "file.txt")),
-          cwdRelation: "inside",
-        },
-      },
-    });
-  });
-
-  it.skipIf(!POSIX)("fails closed when the Search Root cannot be read", async () => {
-    const locked = join(sessionCwd, "locked");
-    await mkdir(locked);
-    await chmod(locked, 0o000);
-    try {
-      await expect(
-        tool.execute({ pattern: "*", path: "locked" }),
-      ).resolves.toMatchObject({
-        ok: false,
-        error: { code: "EACCES", details: { resolvedPath: locked, cwdRelation: "inside" } },
-      });
-    } finally {
-      await chmod(locked, 0o700);
-    }
-  });
-
-  it("returns an empty entries array for empty directories and unmatched patterns", async () => {
+  it("returns No files found matching pattern when nothing hits", async () => {
     await mkdir(join(sessionCwd, "empty"));
+    await writeFile(join(sessionCwd, "a.txt"), "nothing here\n");
 
-    await expect(tool.execute({ pattern: "*", path: "empty" })).resolves.toEqual({
-      ok: true,
-      result: {
-        resolvedPath: join(sessionCwd, "empty"),
-        realTargetPath: await realpath(join(sessionCwd, "empty")),
-        cwdRelation: "inside",
-        entries: [],
-        diagnostics: [],
-      },
-    });
     await expect(tool.execute({ pattern: "nothing-matches" })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [], diagnostics: [] },
+      content: [{ type: "text", text: "No files found matching pattern" }],
+      details: undefined,
     });
-  });
-
-  it.skipIf(!POSIX)("skips special files and unreadable directories with Traversal Diagnostics", async () => {
-    await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
-    expect(spawnSync("mkfifo", [join(sessionCwd, "pipe.ts")]).status).toBe(0);
-    const locked = join(sessionCwd, "locked");
-    await mkdir(locked);
-    await writeFile(join(locked, "inner.ts"), "export {}\n");
-    await chmod(locked, 0o000);
-
-    try {
-      await expect(tool.execute({ pattern: "**" })).resolves.toEqual({
-        ok: true,
-        result: {
-          resolvedPath: sessionCwd,
-          realTargetPath: await realpath(sessionCwd),
-          cwdRelation: "inside",
-          entries: [
-            { path: "keep.ts", type: "file" },
-            { path: "locked", type: "directory" },
-          ],
-          diagnostics: [
-            { path: "locked", operation: "read-directory", code: "EACCES" },
-            { path: "pipe.ts", operation: "read-metadata", code: "EUNSUPPORTED" },
-          ],
-        },
-      });
-    } finally {
-      await chmod(locked, 0o700);
-    }
-  });
-
-  it("records a Traversal Diagnostic for an invalid UTF-8 .gitignore and keeps querying", async () => {
-    await writeFile(join(sessionCwd, ".gitignore"), Buffer.from([0xff, 0xfe, 0xfd]));
-    await writeFile(join(sessionCwd, "keep.ts"), "export {}\n");
-
-    await expect(tool.execute({ pattern: "*.ts" })).resolves.toMatchObject({
-      ok: true,
-      result: {
-        entries: [{ path: "keep.ts", type: "file" }],
-        diagnostics: [
-          { path: ".gitignore", operation: "read-file", code: "EBINARY" },
-        ],
-      },
-    });
-  });
-
-  it("pages the fully sorted candidate set with accurate continuation arguments", async () => {
-    for (const name of ["a.ts", "b.ts", "c.ts", "d.ts"]) {
-      await writeFile(join(sessionCwd, name), "export {}\n");
-    }
-
-    const first = await tool.execute({ pattern: "*.ts", limit: 2 });
-    expect(first).toMatchObject({
-      ok: true,
-      result: {
-        entries: [
-          { path: "a.ts", type: "file" },
-          { path: "b.ts", type: "file" },
-        ],
-        diagnostics: [],
-      },
-      meta: {
-        truncation: {
-          reasons: ["items"],
-          strategy: "head",
-          fields: ["entries"],
-          retained: { items: 2 },
-          total: { items: 4 },
-          nextArguments: { pattern: "*.ts", path: ".", offset: 2, limit: 2 },
-        },
-      },
-    });
-
-    const second = await tool.execute(
-      first.ok ? first.meta?.truncation?.nextArguments : undefined,
-    );
-    expect(second).toMatchObject({
-      ok: true,
-      result: {
-        entries: [
-          { path: "c.ts", type: "file" },
-          { path: "d.ts", type: "file" },
-        ],
-      },
-    });
-    expect(second.ok && second.meta?.truncation).toBeUndefined();
-
-    await expect(tool.execute({ pattern: "*.ts", offset: 4 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [], diagnostics: [] },
-    });
-    await expect(tool.execute({ pattern: "*.ts", offset: 100 })).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [] },
-    });
-  });
-
-  it("carries type, maxDepth, and includeIgnored into continuation arguments", async () => {
-    await writeFile(join(sessionCwd, ".gitignore"), "b.ts\n");
-    for (const name of ["a.ts", "b.ts", "c.ts"]) {
-      await writeFile(join(sessionCwd, name), "export {}\n");
-    }
-
     await expect(
-      tool.execute({
-        pattern: "*.ts",
-        type: "file",
-        maxDepth: 2,
-        includeIgnored: true,
-        limit: 1,
-      }),
+      tool.execute({ pattern: "*.ts", path: "empty" }),
     ).resolves.toMatchObject({
-      ok: true,
-      result: { entries: [{ path: "a.ts", type: "file" }] },
-      meta: {
-        truncation: {
-          nextArguments: {
-            pattern: "*.ts",
-            path: ".",
-            offset: 1,
-            limit: 1,
-            type: "file",
-            maxDepth: 2,
-            includeIgnored: true,
-          },
-        },
-      },
+      content: [{ type: "text", text: "No files found matching pattern" }],
+      details: undefined,
     });
   });
 
-  it("truncates an oversized page at 50 KiB and continues from the first omitted entry", async () => {
-    const names = Array.from(
-      { length: 300 },
-      (_, index) => `${"x".repeat(180)}-${String(index).padStart(3, "0")}.ts`,
+  it("appends the Pi result-limit notice and doubles the suggested limit", async () => {
+    await writeFile(join(sessionCwd, "a.ts"), "export {}\n");
+    await writeFile(join(sessionCwd, "b.ts"), "export {}\n");
+    await writeFile(join(sessionCwd, "c.ts"), "export {}\n");
+
+    const result = await tool.execute({ pattern: "*.ts", limit: 2 });
+    expect(listingOf(result)).toHaveLength(2);
+    expect(noticeOf(result)).toBe(
+      "[2 results limit reached. Use limit=4 for more, or refine pattern]",
     );
-    for (const name of names) {
-      await writeFile(join(sessionCwd, name), "export {}\n");
-    }
+    expect(result.details).toMatchObject({ resultLimitReached: 2 });
+    expect(result.details?.truncation).toBeUndefined();
+  });
 
-    const first = await tool.execute({ pattern: "*.ts" });
-    expect(first.ok).toBe(true);
-    if (!first.ok) {
-      return;
-    }
-    expect(first.meta?.truncation?.reasons).toContain("bytes");
-    expect(first.meta?.truncation?.fields).toContain("entries");
-    const retained = entriesOf(first);
-    expect(retained.length).toBeGreaterThan(0);
-    expect(retained.length).toBeLessThan(names.length);
-    expect(retained[0]?.path).toBe(names[0]);
-    expect(first.meta?.truncation?.nextArguments).toMatchObject({
-      pattern: "*.ts",
-      path: ".",
-      offset: retained.length,
-      limit: FIND_DEFAULT_LIMIT,
-    });
+  it("truncates by 50KB and appends the size-limit notice", async () => {
+    const operations: FindOperations = {
+      exists: async () => true,
+      glob: async () =>
+        Array.from({ length: 20 }, (_, index) => `${"x".repeat(4000)}-${index}.ts`),
+    };
+    const isolated = createFindTool({ sessionCwd, operations });
+    const result = await isolated.execute({ pattern: "*.ts" });
+    expect(noticeOf(result)).toContain("50.0KB limit reached");
+    expect(result.details?.truncation?.truncated).toBe(true);
+    expect(result.details?.truncation?.truncatedBy).toBe("bytes");
+    expect(listingOf(result).length).toBeGreaterThan(0);
+    expect(listingOf(result).length).toBeLessThan(20);
+  });
 
-    const second = await tool.execute(first.meta?.truncation?.nextArguments);
-    expect(entriesOf(second)[0]?.path).toBe(names[retained.length]);
+  it("uses a shorter notice for custom glob when the result limit is hit", async () => {
+    const operations: FindOperations = {
+      exists: async () => true,
+      glob: async () => ["a.ts", "b.ts", "c.ts"],
+    };
+    const isolated = createFindTool({ sessionCwd, operations });
+    const result = await isolated.execute({ pattern: "*.ts", limit: 3 });
+    expect(listingOf(result)).toEqual(["a.ts", "b.ts", "c.ts"]);
+    expect(noticeOf(result)).toBe("[3 results limit reached]");
+    expect(result.details).toMatchObject({ resultLimitReached: 3 });
+  });
+
+  it("rejects a missing path with the Pi message when using custom glob", async () => {
+    const operations: FindOperations = {
+      exists: async () => false,
+      glob: async () => [],
+    };
+    const isolated = createFindTool({ sessionCwd, operations });
+    await expect(
+      isolated.execute({ pattern: "*", path: "missing" }),
+    ).rejects.toThrow(`Path not found: ${join(sessionCwd, "missing")}`);
+  });
+
+  it("rejects a missing path from fd", async () => {
+    await expect(tool.execute({ pattern: "*", path: "missing" })).rejects.toThrow(
+      /missing/,
+    );
   });
 
   it("resolves a relative path against Session cwd, not process cwd", async () => {
@@ -532,90 +340,156 @@ describe("Find Tool", () => {
       process.chdir(other);
       await mkdir(join(other, "nested"));
       await writeFile(join(other, "nested", "wrong.ts"), "export {}\n");
-
-      await expect(
-        tool.execute({ pattern: "*.ts", path: "nested" }),
-      ).resolves.toMatchObject({
-        ok: true,
-        result: {
-          resolvedPath: join(sessionCwd, "nested"),
-          cwdRelation: "inside",
-          entries: [{ path: "here.ts", type: "file" }],
-        },
-      });
+      expect(
+        listingOf(await tool.execute({ pattern: "*.ts", path: "nested" })),
+      ).toEqual(["here.ts"]);
     } finally {
       process.chdir(previous);
       await rm(other, { force: true, recursive: true });
     }
   });
 
-  it("queries a Search Root outside Session cwd and presents Resolved Path and Real Target Path", async () => {
+  it("searches an absolute path outside Session cwd", async () => {
     const outside = await mkdtemp(join(tmpdir(), "susan-find-outside-"));
     try {
       await writeFile(join(outside, "abs.ts"), "export {}\n");
-      const link = join(sessionCwd, "linked");
-      await symlink(
-        outside,
-        link,
-        process.platform === "win32" ? "junction" : undefined,
-      );
-
-      await expect(tool.execute({ pattern: "*.ts", path: outside })).resolves.toMatchObject({
-        ok: true,
-        result: {
-          resolvedPath: outside,
-          realTargetPath: await realpath(outside),
-          cwdRelation: "outside",
-          entries: [{ path: "abs.ts", type: "file" }],
-        },
-      });
-      await expect(tool.execute({ pattern: "*.ts", path: "linked" })).resolves.toMatchObject({
-        ok: true,
-        result: {
-          resolvedPath: link,
-          realTargetPath: await realpath(outside),
-          cwdRelation: "outside",
-          entries: [{ path: "abs.ts", type: "file" }],
-        },
-      });
+      expect(
+        listingOf(await tool.execute({ pattern: "*.ts", path: outside })),
+      ).toEqual(["abs.ts"]);
     } finally {
       await rm(outside, { force: true, recursive: true });
     }
   });
 
-  it("fails the entire query when the time budget is exceeded", async () => {
-    await writeFile(join(sessionCwd, "a.ts"), "export {}\n");
-    let nowMs = 0;
-    const isolated = createFindTool({
-      sessionCwd,
-      timeoutMs: 10,
-      now: () => {
-        nowMs += 1;
-        return nowMs === 1 ? 0 : 20_000;
-      },
+  it("maps an already-aborted signal to Operation aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(tool.execute({ pattern: "*" }, controller.signal)).rejects.toThrow(
+      "Operation aborted",
+    );
+  });
+
+  it("uses custom glob results and relativizes them", async () => {
+    const operations: FindOperations = {
+      exists: async () => true,
+      glob: async () => [join(sessionCwd, "src", "a.ts"), "relative.ts"],
+    };
+    const isolated = createFindTool({ sessionCwd, operations });
+    expect(listingOf(await isolated.execute({ pattern: "*.ts" }))).toEqual([
+      "src/a.ts",
+      "relative.ts",
+    ]);
+  });
+
+  it("fails when fd cannot be resolved", async () => {
+    const isolatedBin = await mkdtemp(join(tmpdir(), "susan-find-nofd-"));
+    const previousPath = process.env.PATH;
+    const previousBin = process.env.SUSAN_BIN_DIR;
+    const previousOffline = process.env.SUSAN_OFFLINE;
+    process.env.PATH = "/nonexistent";
+    process.env.SUSAN_BIN_DIR = isolatedBin;
+    process.env.SUSAN_OFFLINE = "1";
+    try {
+      await expect(tool.execute({ pattern: "*" })).rejects.toThrow(
+        "fd is not available and could not be downloaded",
+      );
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = previousPath;
+      }
+      if (previousBin === undefined) {
+        delete process.env.SUSAN_BIN_DIR;
+      } else {
+        process.env.SUSAN_BIN_DIR = previousBin;
+      }
+      if (previousOffline === undefined) {
+        delete process.env.SUSAN_OFFLINE;
+      } else {
+        process.env.SUSAN_OFFLINE = previousOffline;
+      }
+      await rm(isolatedBin, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("relativizeFindResultPath", () => {
+  describe("Windows drive root", () => {
+    const searchRoot = "I:\\";
+
+    it("preserves the first segment and emits one trailing slash for fd directory output", () => {
+      expect(
+        relativizeFindResultPath("I:\\AI\\Models\\TextGen\\gemma4\\", searchRoot, win32),
+      ).toBe("AI/Models/TextGen/gemma4/");
     });
 
-    await expect(isolated.execute({ pattern: "*.ts" })).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
+    it("handles fd output that uses forward slashes under a drive root", () => {
+      expect(
+        relativizeFindResultPath("I:/AI/Models/TextGen/gemma4/", searchRoot, win32),
+      ).toBe("AI/Models/TextGen/gemma4/");
+    });
+
+    it("keeps deeper search paths unchanged", () => {
+      expect(relativizeFindResultPath("I:\\AI\\Models\\", "I:\\AI", win32)).toBe(
+        "Models/",
+      );
+    });
+
+    it("does not relativize a sibling directory that shares a name prefix", () => {
+      expect(
+        relativizeFindResultPath("I:\\AI\\Models2\\file.txt", "I:\\AI\\Models", win32),
+      ).toBe("../Models2/file.txt");
+    });
+
+    it("normalizes relative custom-glob results without corrupting them", () => {
+      expect(
+        relativizeFindResultPath("AI\\Models\\TextGen\\gemma4\\", searchRoot, win32),
+      ).toBe("AI/Models/TextGen/gemma4/");
     });
   });
 
-  it("maps an already-aborted timeout signal to ETIMEDOUT and a cancellation to ETOOL", async () => {
-    const timeout = AbortSignal.timeout(0);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await expect(tool.execute({ pattern: "*" }, timeout)).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETIMEDOUT" },
+  describe("POSIX root", () => {
+    it("preserves the first segment for files under /", () => {
+      expect(relativizeFindResultPath("/home/user/file.txt", "/", posix)).toBe(
+        "home/user/file.txt",
+      );
     });
 
-    const controller = new AbortController();
-    controller.abort();
-    await expect(
-      tool.execute({ pattern: "*" }, controller.signal),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "ETOOL" },
+    it("preserves the first segment and one trailing slash for directories under /", () => {
+      expect(relativizeFindResultPath("/home/user/project/", "/", posix)).toBe(
+        "home/user/project/",
+      );
     });
+
+    it("preserves backslashes in POSIX filenames", () => {
+      expect(relativizeFindResultPath("/home/user/file\\", "/home/user", posix)).toBe(
+        "file\\",
+      );
+    });
+  });
+
+  it("falls back to path.relative when the absolute paths do not share a prefix", () => {
+    expect(
+      relativizeFindResultPath("/tmp/results/file.txt", "/workspace/project", posix),
+    ).toBe("../../tmp/results/file.txt");
+  });
+
+  it("keeps a trailing slash on directories resolved through path.relative", () => {
+    expect(
+      relativizeFindResultPath("/tmp/results/dir/", "/workspace/project", posix),
+    ).toBe("../../tmp/results/dir/");
+  });
+
+  it("relativizes custom glob results against a root search path", async () => {
+    const isolated = createFindTool({
+      sessionCwd: "/",
+      operations: {
+        exists: () => true,
+        glob: () => ["/home/user/project/", "/home/user/project/file.txt"],
+      },
+    });
+    const result = await isolated.execute({ pattern: "**" });
+    expect(textOf(result)).toBe("home/user/project/\nhome/user/project/file.txt");
   });
 });

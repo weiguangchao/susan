@@ -3,14 +3,9 @@ import type { ProviderToolCall, ToolResult } from "../../src/index.js";
 export type CanonicalToolFixture = {
   readonly call: ProviderToolCall;
   readonly result: ToolResult;
+  readonly isError: boolean;
   readonly summary: string;
 };
-
-const insidePath = {
-  resolvedPath: "/workspace/src/link.ts",
-  realTargetPath: "/workspace/src/index.ts",
-  cwdRelation: "inside",
-} as const;
 
 export const canonicalToolFixtures = [
   {
@@ -20,17 +15,9 @@ export const canonicalToolFixtures = [
       arguments: { path: "src/link.ts", offset: 1, limit: 2000 },
     },
     result: {
-      ok: true,
-      result: {
-        ...insidePath,
-        content: "export const x = 1;",
-        range: { startLine: 1, endLine: 1 },
-        totalLines: 1,
-        sizeBytes: 19,
-        bom: false,
-        lineEnding: "none",
-      },
+      content: [{ type: "text", text: "export const x = 1;" }],
     },
+    isError: false,
     summary: "已读 1 行 · 19 B",
   },
   {
@@ -40,19 +27,10 @@ export const canonicalToolFixtures = [
       arguments: { path: "/outside/report.txt", content: "hello world\n" },
     },
     result: {
-      ok: true,
-      result: {
-        resolvedPath: "/outside/report.txt",
-        realTargetPath: "/outside/report.txt",
-        cwdRelation: "outside",
-        operation: "overwritten",
-        bytesWritten: 12,
-        bom: false,
-        lineEnding: "lf",
-        detachedHardLinks: false,
-      },
+      content: [{ type: "text", text: "Successfully wrote to /outside/report.txt" }],
     },
-    summary: "overwritten · 12 B · outside cwd",
+    isError: false,
+    summary: "Successfully wrote to /outside/report.txt",
   },
   {
     call: {
@@ -60,71 +38,34 @@ export const canonicalToolFixtures = [
       name: "edit",
       arguments: {
         path: "src/link.ts",
-        edits: [{ oldText: "old", newText: "new", replaceAll: true }],
+        edits: [{ oldText: "old", newText: "new" }],
       },
     },
     result: {
-      ok: true,
-      result: {
-        resolvedPath: "/workspace/src/real.ts",
-        realTargetPath: "/workspace/src/real.ts",
-        cwdRelation: "inside",
-        editsApplied: 1,
-        replacementsApplied: 2,
-        bytesWritten: 24,
-        bom: false,
-        lineEnding: "lf",
-        detachedHardLinks: false,
-        diff: "@@ -1 +1 @@\n-old\n+new",
-      },
-      meta: {
-        truncation: {
-          reasons: ["bytes"],
-          strategy: "head",
-          fields: ["diff"],
-          retained: { bytes: 24, lines: 3 },
-          total: { bytes: 96, lines: 12 },
-        },
+      content: [{ type: "text", text: "Successfully replaced 1 block(s) in src/link.ts." }],
+      details: {
+        diff: "-1 old\n+1 new",
+        patch: "--- src/link.ts\n+++ src/link.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        firstChangedLine: 1,
       },
     },
-    summary: "1 edit · 2 replacements · 24 B",
+    isError: false,
+    summary: "Successfully replaced 1 block(s) in src/link.ts.",
   },
   {
     call: {
       id: "bash-1",
       name: "bash",
-      arguments: { command: "pnpm test", cwd: "." },
+      arguments: { command: "pnpm test" },
     },
     result: {
-      ok: false,
-      error: {
-        code: "EEXIT",
-        message: "Command exited with a non-zero status.",
-        details: {
-          resolvedPath: "/workspace",
-          realTargetPath: "/workspace",
-          cwdRelation: "inside",
-          exitCode: 7,
-          signal: null,
-          stdout: "tests started\n",
-          stderr: "one failure\n",
-          termination: {
-            scope: "process-group",
-            forced: false,
-            cleanupConfirmed: true,
-          },
-        },
-      },
-      meta: {
-        truncation: {
-          reasons: ["bytes"],
-          strategy: "tail",
-          fields: ["stdout", "stderr"],
-          retained: { bytes: 28 },
-        },
-      },
+      content: [{
+        type: "text",
+        text: "tests started\nfile a\nfile b\none failure\n\nCommand exited with code 7",
+      }],
     },
-    summary: "exit 7 · EEXIT · Command exited with a non-zero status.",
+    isError: true,
+    summary: "Command exited with code 7",
   },
   {
     call: {
@@ -133,32 +74,9 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "needle", path: "src" },
     },
     result: {
-      ok: true,
-      result: {
-        resolvedPath: "/workspace/src",
-        realTargetPath: "/workspace/src",
-        cwdRelation: "inside",
-        matches: [
-          { path: "a.ts", line: 1, text: "needle", before: [], after: [] },
-          { path: "b.ts", line: 2, text: "needle", before: [], after: [] },
-        ],
-        diagnostics: [],
-      },
-      meta: {
-        truncation: {
-          reasons: ["items", "line-length"],
-          strategy: "head",
-          fields: ["matches"],
-          retained: { bytes: 128, items: 2 },
-          total: { items: 6 },
-          nextArguments: {
-            pattern: "needle",
-            path: "src",
-            offset: 2,
-          },
-        },
-      },
+      content: [{ type: "text", text: "a.ts:1: needle\nb.ts:2: needle" }],
     },
+    isError: false,
     summary: "2 matches",
   },
   {
@@ -168,15 +86,9 @@ export const canonicalToolFixtures = [
       arguments: { pattern: "**/*.ts", path: "." },
     },
     result: {
-      ok: true,
-      result: {
-        resolvedPath: "/workspace",
-        realTargetPath: "/workspace",
-        cwdRelation: "inside",
-        entries: [],
-        diagnostics: [],
-      },
+      content: [{ type: "text", text: "No files found matching pattern" }],
     },
+    isError: false,
     summary: "0 entries",
   },
   {
@@ -186,18 +98,9 @@ export const canonicalToolFixtures = [
       arguments: { path: "src" },
     },
     result: {
-      ok: true,
-      result: {
-        resolvedPath: "/workspace/src",
-        realTargetPath: "/workspace/src",
-        cwdRelation: "inside",
-        entries: [
-          { name: "index.ts", type: "file" },
-          { name: "ui", type: "directory" },
-        ],
-        diagnostics: [],
-      },
+      content: [{ type: "text", text: "index.ts\nui/" }],
     },
+    isError: false,
     summary: "2 entries",
   },
 ] as const satisfies readonly CanonicalToolFixture[];

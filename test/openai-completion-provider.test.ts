@@ -39,7 +39,7 @@ const request = {
     {
       role: "tool",
       toolCallId: "call-1",
-      content: { ok: true, result: { content: "example" } },
+      content: [{ type: "text", text: "example" }],
     },
   ],
   tools: [
@@ -182,7 +182,7 @@ describe("openai-completion provider adapter", () => {
         {
           role: "tool",
           tool_call_id: "call-1",
-          content: '{"ok":true,"result":{"content":"example"}}',
+          content: "example",
         },
       ],
       tools: [
@@ -558,6 +558,39 @@ describe("openai-completion provider adapter", () => {
       }
       expect(events.filter((event) => event.type === "response-complete")).toHaveLength(0);
     }
+  });
+
+  it("maps a non-streaming length stop to an incomplete summary failure and forwards maxTokens", async () => {
+    let upstreamRequest: Record<string, unknown> | undefined;
+    const adapter = createOpenAICompletionAdapter(() => ({
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            upstreamRequest = body;
+            return {
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: "partial summary" },
+                  finish_reason: "length",
+                },
+              ],
+            };
+          },
+        },
+      },
+    }));
+    const client = adapter.createClient(resolvedConfig);
+    const result = await client.complete(
+      { ...request, maxTokens: 128, tools: undefined },
+      new AbortController().signal,
+    );
+    expect(upstreamRequest?.max_tokens).toBe(128);
+    expect(result).toEqual({
+      code: "PROVIDER_INCOMPLETE",
+      message: "Generation hit the token cap and the summary is incomplete",
+      hadSemanticOutput: false,
+    });
   });
 
   it("returns an incomplete failure for non-success finish reasons", async () => {

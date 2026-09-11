@@ -713,12 +713,8 @@ describe("TUI state", () => {
         type: "tool-completed",
         toolCall,
         result: {
-          ok: true,
-          result: {
-            resolvedPath: "/tmp/example.txt",
-            realTargetPath: "/tmp/example.txt",
-            cwdRelation: "inside",
-            content: "line one\nline two\nline three",
+          content: [{ type: "text", text: "line one\nline two\nline three" }],
+          details: {
             range: { startLine: 1, endLine: 3 },
             totalLines: 3,
             sizeBytes: 29,
@@ -726,6 +722,7 @@ describe("TUI state", () => {
             lineEnding: "lf",
           },
         },
+        isError: false,
       },
     });
     state = reduceTuiState(state, {
@@ -830,16 +827,16 @@ describe("TUI state", () => {
           type: "tool-completed",
           toolCall,
           result: {
-            ok: false,
-            error: { code: "ENOENT", message: "文件不存在" },
+            content: [{ type: "text", text: "文件不存在" }],
           },
+          isError: true,
         },
       },
     );
 
     expect(state.tools[0]).toMatchObject({
       status: "failed",
-      summary: "ENOENT · 文件不存在",
+      summary: "文件不存在",
     });
     expect(formatToolCallDetail(toolCall)).toBe("/tmp/example.txt");
   });
@@ -915,12 +912,8 @@ describe("TUI state", () => {
         type: "tool-completed",
         toolCall,
         result: {
-          ok: true,
-          result: {
-            resolvedPath: "/tmp/example.txt",
-            realTargetPath: "/tmp/example.txt",
-            cwdRelation: "inside",
-            content: "line one\nline two",
+          content: [{ type: "text", text: "line one\nline two" }],
+          details: {
             range: { startLine: 1, endLine: 2 },
             totalLines: 2,
             sizeBytes: 17,
@@ -928,6 +921,7 @@ describe("TUI state", () => {
             lineEnding: "lf",
           },
         },
+        isError: false,
       },
     });
     expect(state.tools[0]).toMatchObject({
@@ -958,15 +952,15 @@ describe("TUI state", () => {
         type: "tool-completed",
         toolCall,
         result: {
-          ok: false,
-          error: { code: "ENOENT", message: "文件不存在" },
+          content: [{ type: "text", text: "文件不存在" }],
         },
+        isError: true,
       },
     });
 
     expect(state.tools[0]).toMatchObject({
       status: "failed",
-      summary: "ENOENT · 文件不存在",
+      summary: "文件不存在",
     });
     expect(state.tools[0]?.status).not.toBe("denied");
   });
@@ -1071,11 +1065,12 @@ describe("TUI state", () => {
       visible: true,
       query: "/",
       candidates: [
+        { name: "/compact", label: "压缩上下文" },
         { name: "/exit", label: "退出" },
         { name: "/model", label: "模型" },
         { name: "/new", label: "新对话" },
       ],
-      selected: { name: "/exit" },
+      selected: { name: "/compact" },
     });
     expect(resolveSlashCommandMenu({
       input: "/m",
@@ -1138,7 +1133,11 @@ describe("TUI state", () => {
       type: "input-key",
       key: { input: "", downArrow: true },
     });
-    expect(state.slashCommandSelectedIndex).toBe(2);
+    state = reduceTuiState(state, {
+      type: "input-key",
+      key: { input: "", downArrow: true },
+    });
+    expect(state.slashCommandSelectedIndex).toBe(3);
     expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
       type: "clear",
     });
@@ -1194,6 +1193,11 @@ describe("TUI state", () => {
   });
 
   it("uses exact canonical Slash Commands and submits aliases or prose", () => {
+    expect(resolveSubmission("/compact")).toEqual({ type: "compact" });
+    expect(resolveSubmission("/compact preserve paths")).toEqual({
+      type: "compact",
+      customInstructions: "preserve paths",
+    });
     expect(resolveSubmission("/exit")).toEqual({ type: "exit" });
     expect(resolveSubmission("/new")).toEqual({ type: "clear" });
     expect(resolveSubmission("/model")).toEqual({ type: "model-picker" });
@@ -1240,7 +1244,8 @@ describe("TUI state", () => {
 
   it("executes every selected Slash Command while Pending", () => {
     for (const [query, expected] of [
-      ["/", { type: "exit" }],
+      ["/", { type: "compact" }],
+      ["/e", { type: "exit" }],
       ["/m", { type: "model-picker" }],
       ["/n", { type: "clear" }],
     ] as const) {
@@ -1279,53 +1284,7 @@ describe("TUI state", () => {
     ).toBe(false);
   });
 
-  it("presents a compatibility stop and refuses retry", () => {
-    const state = initialState({
-      status: "compatibility",
-      pending: { reason: "compatibility" },
-      messages: [
-        { role: "user", content: "Read AGENTS.md" },
-        {
-          role: "assistant",
-          content: "I will read it.",
-          toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "AGENTS.md" } },
-          ],
-        },
-      ],
-    });
-
-    expect(state.notice).toBe("旧 Tool Call 不可重放，请提交新的指令");
-    expect(state.tools).toEqual([
-      {
-        id: "call-1",
-        name: "read_file",
-        invocationLabel: "AGENTS.md",
-        supplementalLines: [],
-        status: "interrupted",
-        summary: "旧 Tool Call 不可重放",
-      },
-    ]);
-    expect(resolveInputIntent(state, { input: "r" })).toEqual({
-      type: "notice",
-      message: "旧 Tool Call 不可重放，请提交新的指令",
-    });
-    expect(resolveInputIntent(state, { input: "n" })).toEqual({
-      type: "new-session",
-    });
-    expect(
-      resolveInputIntent(
-        {
-          ...state,
-          input: "继续",
-          inputCursor: { row: 0, column: 2 },
-        },
-        { input: "\r", return: true },
-      ),
-    ).toEqual({ type: "submit", content: "继续" });
-  });
-
-  it("restores completed legacy read_file records into TUI messages and Tool cards", () => {
+  it("restores completed Tool Results into TUI messages and Tool cards", () => {
     const state = initialState({
       messages: [
         { role: "user", content: "Read the missing file and AGENTS.md" },
@@ -1333,26 +1292,20 @@ describe("TUI state", () => {
           role: "assistant",
           content: "I will read both.",
           toolCalls: [
-            { id: "call-1", name: "read_file", arguments: { path: "missing.txt" } },
-            { id: "call-2", name: "read_file", arguments: { path: "AGENTS.md" } },
+            { id: "call-1", name: "read", arguments: { path: "missing.txt" } },
+            { id: "call-2", name: "read", arguments: { path: "AGENTS.md" } },
           ],
         },
         {
           role: "tool",
           toolCallId: "call-1",
-          content: {
-            ok: false,
-            error: {
-              code: "ENOENT",
-              message: "File not found",
-              path: "/workspace/missing.txt",
-            },
-          },
+          content: [{ type: "text", text: "File not found" }],
+          isError: true,
         },
         {
           role: "tool",
           toolCallId: "call-2",
-          content: { ok: true, result: { content: "# Agents\n" } },
+          content: [{ type: "text", text: "# Agents\n" }],
         },
         { role: "assistant", content: "AGENTS.md describes the workflow." },
       ],
@@ -1366,17 +1319,17 @@ describe("TUI state", () => {
     expect(state.tools).toEqual([
       {
         id: "call-1",
-        name: "read_file",
+        name: "read",
         invocationLabel: "missing.txt",
-        supplementalLines: [],
+        supplementalLines: ["File not found"],
         status: "failed",
-        summary: "ENOENT · File not found",
+        summary: "File not found",
       },
       {
         id: "call-2",
-        name: "read_file",
+        name: "read",
         invocationLabel: "AGENTS.md",
-        supplementalLines: [],
+        supplementalLines: ["# Agents", ""],
         status: "completed",
         summary: "已读 2 行 · 9 B",
       },

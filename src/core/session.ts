@@ -12,14 +12,14 @@ import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { isJsonValue, isRecord } from "./json.js";
 import { isReasoningEffort } from "./provider.js";
-import { isToolResult } from "./tool-result.js";
+import { isToolResultContent } from "./tool-result.js";
 import type {
   CompletionMessage,
   ProviderUsage,
   ReasoningEffort,
 } from "./provider.js";
 
-export type SessionFormatVersion = 1 | 2 | 3;
+export type SessionFormatVersion = 5;
 
 export type SessionHeader = {
   type: "session";
@@ -34,13 +34,16 @@ export type SessionMessageRecord = {
   message: CompletionMessage;
 };
 
-export type SessionCompactionRecord = {
+export type CompactionEntry = {
   type: "compaction";
   summary: string;
-  firstKeptMessageIndex: number;
+  /** Stable message ordinal in Susan's linear append-only transcript. */
+  firstKeptEntryId: string;
+  retainedTail: CompletionMessage[];
   tokensBefore: number;
-  tokensAfterEstimate: number;
-  createdAt: string;
+  details: { readFiles: string[]; modifiedFiles: string[] };
+  usage?: ProviderUsage;
+  timestamp: string;
 };
 
 export type SessionUsageRecord = {
@@ -57,7 +60,7 @@ export type SessionUsageAudit = Pick<
 
 export type SessionRecord =
   | SessionMessageRecord
-  | SessionCompactionRecord
+  | CompactionEntry
   | SessionUsageRecord;
 
 export const DEFAULT_SESSIONS_DIRECTORY = join(
@@ -109,7 +112,7 @@ export type SessionStore = {
   ): Promise<SessionStoreResult<void>>;
   appendCompaction(
     sessionId: string,
-    checkpoint: SessionCompactionRecord,
+    checkpoint: CompactionEntry,
   ): Promise<SessionStoreResult<void>>;
   appendUsage(
     sessionId: string,
@@ -151,13 +154,10 @@ function failure<T = void>(
 function isSupportedSessionFormatVersion(
   value: unknown,
 ): value is SessionFormatVersion {
-  return value === 1 || value === 2 || value === 3;
+  return value === 5;
 }
 
-function isCompletionMessage(
-  value: unknown,
-  version: SessionFormatVersion = 2,
-): value is CompletionMessage {
+function isCompletionMessage(value: unknown): value is CompletionMessage {
   if (!isRecord(value)) {
     return false;
   }
@@ -191,7 +191,9 @@ function isCompletionMessage(
   if (value.role === "tool") {
     return (
       typeof value.toolCallId === "string" &&
-      (version === 1 ? isJsonValue(value.content) : isToolResult(value.content))
+      isToolResultContent(value.content) &&
+      (value.isError === undefined || typeof value.isError === "boolean") &&
+      (value.details === undefined || isJsonValue(value.details))
     );
   }
   return false;
@@ -260,44 +262,29 @@ function isProviderUsage(value: unknown): value is ProviderUsage {
   );
 }
 
-function isSessionRecord(
-  value: unknown,
-  version: SessionFormatVersion = 2,
-): value is SessionRecord {
+function isSessionRecord(value: unknown): value is SessionRecord {
   if (!isRecord(value) || typeof value.type !== "string") {
     return false;
   }
   if (value.type === "message") {
     return (
       hasExactKeys(value, ["type", "message"]) &&
-      isCompletionMessage(value.message, version)
+      isCompletionMessage(value.message)
     );
   }
   if (value.type === "compaction") {
     return (
-      hasExactKeys(
-        value,
-        [
-          "type",
-          "summary",
-          "firstKeptMessageIndex",
-          "tokensBefore",
-          "tokensAfterEstimate",
-          "createdAt",
-        ],
-      ) &&
+      Object.keys(value).every((key) => ["type", "summary", "firstKeptEntryId", "retainedTail", "tokensBefore", "details", "usage", "timestamp"].includes(key)) &&
       typeof value.summary === "string" &&
-      typeof value.firstKeptMessageIndex === "number" &&
-      Number.isInteger(value.firstKeptMessageIndex) &&
-      value.firstKeptMessageIndex >= 0 &&
-      typeof value.tokensBefore === "number" &&
-      Number.isInteger(value.tokensBefore) &&
-      value.tokensBefore >= 0 &&
-      typeof value.tokensAfterEstimate === "number" &&
-      Number.isInteger(value.tokensAfterEstimate) &&
-      value.tokensAfterEstimate >= 0 &&
-      typeof value.createdAt === "string" &&
-      !Number.isNaN(Date.parse(value.createdAt))
+      typeof value.firstKeptEntryId === "string" && /^message:(0|[1-9][0-9]*)$/.test(value.firstKeptEntryId) &&
+      Number.isSafeInteger(Number(value.firstKeptEntryId.slice(8))) &&
+      Array.isArray(value.retainedTail) && value.retainedTail.every(isCompletionMessage) &&
+      isNonNegativeInteger(value.tokensBefore) &&
+      isRecord(value.details) && hasExactKeys(value.details, ["readFiles", "modifiedFiles"]) &&
+      Array.isArray(value.details.readFiles) && value.details.readFiles.every((f) => typeof f === "string") &&
+      Array.isArray(value.details.modifiedFiles) && value.details.modifiedFiles.every((f) => typeof f === "string") &&
+      (value.usage === undefined || isProviderUsage(value.usage)) &&
+      typeof value.timestamp === "string" && !Number.isNaN(Date.parse(value.timestamp))
     );
   }
   if (value.type === "usage") {
@@ -327,6 +314,19 @@ function formatSessionTimestamp(date: Date): string {
     11,
     13,
   )}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
+}
+
+/** 旧格式 Session（version < 5）不迁移也不回放：列表与历史直接跳过。 */
+function isUnsupportedVersionSession(text: string): boolean {
+  const firstNewline = text.indexOf("\n");
+  const headerLine =
+    firstNewline === -1 ? text : text.slice(0, firstNewline);
+  try {
+    const header: unknown = JSON.parse(headerLine);
+    return isSessionHeaderShape(header) && !isSupportedSessionFormatVersion(header.version);
+  } catch {
+    return false;
+  }
 }
 
 async function ensureSessionsDirectory(
@@ -411,7 +411,7 @@ function parseSessionText(
       }
       return parsed;
     }
-    if (!isSessionRecord(parsed.value, header.value.version)) {
+    if (!isSessionRecord(parsed.value)) {
       return failure(
         "SUSAN_SESSION_SCHEMA",
         `Invalid session record on line ${index + 1}`,
@@ -536,7 +536,7 @@ export function createSessionStore(
       const createdAt = new Date().toISOString();
       const header: SessionHeader = {
         type: "session",
-        version: 3,
+        version: 5,
         id,
         createdAt,
         cwd: resolvedCwd,
@@ -641,7 +641,7 @@ export function createSessionStore(
       if (!isSessionRecord(checkpoint) || checkpoint.type !== "compaction") {
         return failure(
           "SUSAN_SESSION_SCHEMA",
-          "checkpoint must be a valid SessionCompactionRecord",
+          "checkpoint must be a valid CompactionEntry",
         );
       }
 
@@ -751,18 +751,9 @@ export function createSessionStore(
         if (!parsed.ok) {
           return parsed;
         }
-        const formatVersion = parsed.value.header.version;
-        const persistedUsage: ProviderUsage =
-          formatVersion >= 3 || usage.cachedInputTokens === undefined
-            ? usage
-            : {
-                inputTokens: usage.inputTokens,
-                outputTokens: usage.outputTokens,
-                totalTokens: usage.totalTokens,
-              };
         const record: SessionUsageRecord = {
           type: "usage",
-          usage: persistedUsage,
+          usage,
           ...(modelConfiguration === undefined
             ? {}
             : {
@@ -770,7 +761,7 @@ export function createSessionStore(
                 reasoningEffort: modelConfiguration.reasoningEffort,
               }),
         };
-        if (!isSessionRecord(record, formatVersion)) {
+        if (!isSessionRecord(record)) {
           return failure(
             "SUSAN_SESSION_SCHEMA",
             "usage must contain valid Provider token totals",
@@ -870,6 +861,9 @@ export function createSessionStore(
         const text = await readSessionFile(filePath);
         if (!text.ok) {
           return text;
+        }
+        if (isUnsupportedVersionSession(text.value)) {
+          continue;
         }
         const parsed = parseSessionText(text.value, filePath);
         if (!parsed.ok) {

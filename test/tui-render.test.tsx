@@ -113,6 +113,7 @@ function createEventHarness(initial: HarnessSnapshot = idleSnapshot()) {
   const listeners = new Set<(event: HarnessEvent) => void>();
   const commands: HarnessCommand[] = [];
   const harness: Harness = {
+    async compact() { return { ok: true as const }; },
     async dispatch(command) {
       commands.push(command);
       return { ok: true };
@@ -278,7 +279,7 @@ describe("TUI context usage display", () => {
     return {
       header: {
         type: "session",
-        version: 2,
+        version: 5,
         id: "00000000-0000-4000-8000-000000000002",
         createdAt: "2026-09-03T00:00:00.000Z",
         cwd: "/workspace",
@@ -449,10 +450,8 @@ describe("TUI completed output history", () => {
           ...toolCalls.map((toolCall, index) => ({
             role: "tool" as const,
             toolCallId: toolCall.id,
-            content: {
-              ok: false as const,
-              error: { code: "EEXIT", message: `failure-${index}` },
-            },
+            content: [{ type: "text" as const, text: `failure-${index}` }],
+            isError: true,
           })),
         ],
       }),
@@ -632,11 +631,11 @@ describe("TUI Tool rendering", () => {
       name: toolCall.name,
       invocationLabel: "/tmp/example.txt offset=1 limit=2000",
       status: "failed",
-      summary: "ENOENT · 文件不存在",
+      summary: "文件不存在",
       supplementalLines: [],
     });
     expect(failed).toContain("read · /tmp/example.txt offset=1 limit=2000");
-    expect(failed).toContain("ENOENT · 文件不存在");
+    expect(failed).toContain("文件不存在");
     expect(approvalPromptFragments(failed)).toEqual([]);
   });
 
@@ -704,12 +703,8 @@ describe("TUI Tool rendering", () => {
       type: "tool-completed",
       toolCall,
       result: {
-        ok: true,
-        result: {
-          resolvedPath: "/tmp/example.txt",
-          realTargetPath: "/tmp/example.txt",
-          cwdRelation: "inside",
-          content: "line one\nline two",
+        content: [{ type: "text", text: "line one\nline two" }],
+        details: {
           range: { startLine: 1, endLine: 2 },
           totalLines: 2,
           sizeBytes: 17,
@@ -717,6 +712,7 @@ describe("TUI Tool rendering", () => {
           lineEnding: "lf",
         },
       },
+      isError: false,
     });
     await flushEffects();
     await instance.waitUntilRenderFlush();
@@ -783,14 +779,14 @@ describe("TUI Tool rendering", () => {
       type: "tool-completed",
       toolCall,
       result: {
-        ok: false,
-        error: { code: "ENOENT", message: "文件不存在" },
+        content: [{ type: "text", text: "文件不存在" }],
       },
+      isError: true,
     });
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const failed = frames.join("");
-    expect(failed).toContain("ENOENT · 文件不存在");
+    expect(failed).toContain("文件不存在");
     expect(approvalPromptFragments(failed)).toEqual([]);
 
     instance.unmount();

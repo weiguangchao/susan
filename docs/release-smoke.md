@@ -19,9 +19,9 @@
 - [ ] 取消：在 Provider streaming 与长时间 Bash Tool 运行中分别按取消键；界面回到稳定状态，进程按平台保证结束。
 - [ ] 恢复：`susan --resume`、`susan --resume --last` 与指定 Session id 可恢复；Pending Agent Loop 不会自动请求 Provider。
 - [ ] 七类 Tool 卡：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls` 都显示 requested/running/completed 或 failed 的准确状态与摘要。
-- [ ] outside cwd：通过绝对路径或 symlink 命中 Session cwd 外目标，Tool Result 与卡片均明确显示 `outside cwd`，但 Yolo 行为不被改成 sandbox。
+- [ ] outside cwd：通过绝对路径命中 Session cwd 外目标，执行中卡片以绝对路径与 `· outside cwd` 展示；Yolo 行为不被改成 sandbox。
 - [ ] 失败：观察至少一个 Config、路径、Tool 非零退出或 capability failure；稳定 error code、错误信息与退出状态一致。
-- [ ] truncation：制造超过 Canonical Tool Result 预算的输出，卡片显示 truncation strategy、retained/total 与可用的 next arguments，不出现未截断的第二份完成态输出。
+- [ ] truncation：制造超过 Pi 截断阈值的输出（如 bash 超过 2000 行或 50KB），卡片显示 truncation details，bash 截断时可见 temp file footer；不出现未截断的第二份完成态输出。
 - [ ] Session：退出并重新恢复后，已完成 Tool Result、失败与 truncation 信息保持一致。
 - [ ] 退出：`/exit` 与终端中断都能结束进程，不留下仍占用终端的前台任务。
 

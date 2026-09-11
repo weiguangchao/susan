@@ -75,70 +75,18 @@ export type {
   JsonValue,
 } from "./core/json.js";
 export {
-  SHARED_TOOL_ERROR_CODES,
-  TOOL_RESULT_FIXED_BUDGET_BYTES,
-  TOOL_RESULT_OUTPUT_BUDGET_BYTES,
-  boundToolFailure,
-  boundToolResult,
+  createErrorToolResult,
   isToolResult,
-  normalizeToolResult,
+  isToolResultContent,
+  textToolResult,
+  toolResultText,
 } from "./core/tool-result.js";
 export type {
-  BoundToolFailureOptions,
-  BoundToolResultOptions,
-  SharedToolErrorCode,
-  ToolError,
-  ToolResultContinuationContext,
-  ToolResultField,
-  ToolResultRecord,
-  ToolResultStrategy,
+  ImageContent,
+  TextContent,
   ToolResult,
-  ToolResultMeta,
-  ToolTruncationReason,
+  ToolResultContent,
 } from "./core/tool-result.js";
-export { observeReplacementTarget, replaceFile } from "./core/file-replacement.js";
-export type {
-  FileReplacementBaseline,
-  FileReplacementError,
-  FileReplacementErrorCode,
-  FileReplacementHooks,
-  FileReplacementIdentity,
-  FileReplacementOptions,
-  FileReplacementResult,
-  FileReplacementSuccess,
-} from "./core/file-replacement.js";
-export { createSessionPathResolver } from "./core/path-resolver.js";
-export type {
-  CwdRelation,
-  PathExistence,
-  PathResolution,
-  PathResolutionError,
-  PathResolutionErrorCode,
-  PathResolutionOptions,
-  PathResolutionResult,
-  PathSymlinkPolicy,
-  SessionPathResolver,
-} from "./core/path-resolver.js";
-export {
-  TRAVERSAL_DEFAULT_TIMEOUT_MS,
-  TRAVERSAL_ENTRY_BUDGET,
-  TRAVERSAL_MAX_DEPTH,
-  TRAVERSAL_MAX_DIAGNOSTICS,
-  compileGlob,
-  traverse,
-} from "./core/traverse.js";
-export type {
-  GlobMatcher,
-  TraverseOptions,
-  TraversalDiagnostic,
-  TraversalDiagnosticOperation,
-  TraversalEntry,
-  TraversalEntryType,
-  TraversalError,
-  TraversalErrorCode,
-  TraversalResult,
-  TraversalSuccess,
-} from "./core/traverse.js";
 export type {
   AssistantMessage,
   CompletionMessage,
@@ -146,6 +94,8 @@ export type {
   ProviderClient,
   ProviderFailure,
   ProviderRequest,
+  ModelInput,
+  ToolExecutionContext,
   ProviderResponse,
   ProviderStreamEvent,
   ProviderToolCall,
@@ -161,7 +111,7 @@ export {
   REASONING_EFFORTS,
 } from "./core/provider.js";
 export type {
-  SessionCompactionRecord,
+  CompactionEntry,
   SessionFormatVersion,
   SessionHeader,
   SessionMessageRecord,
@@ -181,104 +131,103 @@ export {
   createSessionStore,
 } from "./core/session.js";
 export {
-  READ_DEFAULT_TIMEOUT_MS,
-  READ_MAX_FILE_BYTES,
-  READ_MAX_LINES,
+  READ_PROMPT_GUIDELINES,
+  READ_PROMPT_SNIPPET,
   createReadTool,
   executeRead,
 } from "./core/read.js";
 export type {
-  ReadErrorCode,
-  ReadLineEnding,
   ReadTool,
+  ReadToolDetails,
   ReadToolOptions,
 } from "./core/read.js";
 export {
-  WRITE_DEFAULT_TIMEOUT_MS,
-  WRITE_MAX_CONTENT_BYTES,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+} from "./core/truncate.js";
+export type { TruncationResult } from "./core/truncate.js";
+export {
+  WRITE_PROMPT_GUIDELINES,
+  WRITE_PROMPT_SNIPPET,
   createWriteTool,
   executeWrite,
 } from "./core/write.js";
 export type {
-  WriteErrorCode,
-  WriteLineEnding,
   WriteTool,
   WriteToolOptions,
 } from "./core/write.js";
 export {
-  EDIT_DEFAULT_TIMEOUT_MS,
-  EDIT_MAX_CONTENT_BYTES,
-  EDIT_MAX_EDITS,
+  EDIT_PROMPT_SNIPPET,
+  EDIT_PROMPT_GUIDELINES,
   createEditTool,
   executeEdit,
 } from "./core/edit.js";
 export type {
-  EditErrorCode,
-  EditLineEnding,
+  EditOperations,
   EditTool,
+  EditToolDetails,
   EditToolOptions,
 } from "./core/edit.js";
 export type { LineEnding } from "./core/text-file.js";
 export {
-  BASH_COMMAND_MAX_BYTES,
-  BASH_DEFAULT_TIMEOUT_MS,
-  BASH_KILL_GRACE_MS,
-  BASH_MAX_TIMEOUT_MS,
-  BASH_MIN_TIMEOUT_MS,
+  BASH_PROMPT_GUIDELINES,
+  BASH_PROMPT_SNIPPET,
   createBashTool,
   executeBash,
 } from "./core/bash.js";
 export type {
-  BashErrorCode,
-  BashTermination,
-  BashTerminationScope,
+  BashOperations,
   BashTool,
+  BashToolDetails,
   BashToolOptions,
 } from "./core/bash.js";
 export {
-  LS_DEFAULT_LIMIT,
-  LS_DEFAULT_TIMEOUT_MS,
-  LS_MAX_LIMIT,
+  LS_PROMPT_GUIDELINES,
+  LS_PROMPT_SNIPPET,
   createLsTool,
   executeLs,
 } from "./core/ls.js";
 export type {
-  LsErrorCode,
+  LsOperations,
   LsTool,
+  LsToolDetails,
   LsToolOptions,
 } from "./core/ls.js";
 export {
-  GREP_DEFAULT_LIMIT,
-  GREP_DEFAULT_TIMEOUT_MS,
-  GREP_MAX_CONTEXT,
-  GREP_MAX_FILE_BYTES,
-  GREP_MAX_LIMIT,
-  GREP_MAX_LINE_TEXT_BYTES,
+  GREP_PROMPT_GUIDELINES,
+  GREP_PROMPT_SNIPPET,
   createGrepTool,
   executeGrep,
 } from "./core/grep.js";
 export type {
-  GrepErrorCode,
+  GrepOperations,
   GrepTool,
+  GrepToolDetails,
   GrepToolOptions,
 } from "./core/grep.js";
 export {
-  FIND_DEFAULT_LIMIT,
-  FIND_DEFAULT_TIMEOUT_MS,
-  FIND_MAX_LIMIT,
+  FIND_PROMPT_GUIDELINES,
+  FIND_PROMPT_SNIPPET,
   createFindTool,
   executeFind,
+  relativizeFindResultPath,
 } from "./core/find.js";
 export type {
-  FindErrorCode,
+  FindOperations,
   FindTool,
+  FindToolDetails,
   FindToolOptions,
 } from "./core/find.js";
 export {
-  CANONICAL_SYSTEM_PROMPT,
-  buildSystemPrompt,
-  createHarness,
-} from "./core/harness.js";
+  ensureTool,
+  getBinDir,
+  getLatestVersion,
+  getToolAssetName,
+  getToolPath,
+} from "./core/tools-manager.js";
+export type { ToolStatus } from "./core/tools-manager.js";
+export { buildSystemPrompt } from "./core/system-prompt.js";
+export { createHarness } from "./core/harness.js";
 export { createBuiltInToolSet } from "./core/built-in-tools.js";
 export type { BuiltInToolSetOptions } from "./core/built-in-tools.js";
 export { TuiApp } from "./ui/tui.js";

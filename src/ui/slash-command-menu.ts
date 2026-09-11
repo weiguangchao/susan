@@ -1,6 +1,7 @@
 import type { HarnessStatus } from "../core/harness.js";
 
 export const slashCommands = [
+  { name: "/compact", label: "压缩上下文", intent: "compact" },
   { name: "/exit", label: "退出", intent: "exit" },
   { name: "/new", label: "新对话", intent: "clear" },
   { name: "/model", label: "模型", intent: "model-picker" },

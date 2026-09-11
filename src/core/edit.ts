@@ -1,887 +1,272 @@
-import { readFile } from "node:fs/promises";
+/*!
+ * Ported from Pi 400d6905ce46ec46e79da8a7701b1b48850192df.
+ * MIT License
+ *
+ * Copyright (c) 2025 Mario Zechner
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+import { constants } from "node:fs";
 import {
-  observeReplacementTarget,
-  replaceFile,
-  type FileReplacementError,
-  type FileReplacementHooks,
-  type FileReplacementIdentity,
-} from "./file-replacement.js";
-import { isRecord, type JsonObject } from "./json.js";
+  access as fsAccess,
+  readFile as fsReadFile,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
 import {
-  createSessionPathResolver,
-  type CwdRelation,
-  type PathResolution,
-  type PathResolutionError,
-} from "./path-resolver.js";
-import {
-  countLineEndings,
-  decodeUtf8Text,
+  applyEditsToNormalizedContent,
   detectLineEnding,
-  isWellFormedUnicode,
-  type LineEnding,
-} from "./text-file.js";
-import {
-  boundToolFailure,
-  boundToolResult,
-  type ToolResult,
-} from "./tool-result.js";
+  type Edit,
+  generateDiffString,
+  generateUnifiedPatch,
+  normalizeToLF,
+  restoreLineEndings,
+  stripBom,
+} from "./edit-diff.js";
+import { withFileMutationQueue } from "./file-mutation-queue.js";
+import { resolveToCwd } from "./path-utils.js";
+import { isRecord, type JsonObject } from "./json.js";
+import type { ToolResult } from "./tool-result.js";
+export const editToolSystemPromptContribution = {
+  snippet:
+    "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+  guidelines: [
+    "Use edit for precise changes (edits[].oldText must match exactly)",
+    "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+    "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+    "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+  ],
+} as const;
 
-export const EDIT_MAX_CONTENT_BYTES = 10 * 1024 * 1024;
-export const EDIT_MAX_EDITS = 100;
-export const EDIT_DEFAULT_TIMEOUT_MS = 10_000;
+export const EDIT_PROMPT_SNIPPET = editToolSystemPromptContribution.snippet;
+export const EDIT_PROMPT_GUIDELINES =
+  editToolSystemPromptContribution.guidelines;
+export type EditToolInput = { path: string; edits: Edit[] };
+type LegacyEditToolInput = EditToolInput & {
+  oldText?: unknown;
+  newText?: unknown;
+};
 
-const DIFF_CONTEXT_LINES = 3;
-const DIFF_NO_NEWLINE_MARKER = "\\ No newline at end of file";
+type SingleEditInput = { oldText: string; newText: string };
 
-const EDIT_DESCRIPTION =
-  "Apply one batch of exact text replacements to an existing UTF-8 regular file. Use edit instead of shell text-processing commands when the existing text to change is known. Replacements are validated against the original content before one commit; matching is not fuzzy, each match must be unique by default, and replaceAll must be requested explicitly. The result includes a bounded unified diff.";
+function isSingleEditInput(value: unknown): value is SingleEditInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
 
-export type EditLineEnding = LineEnding;
+  const edit = value as Record<string, unknown>;
+  return typeof edit.oldText === "string" && typeof edit.newText === "string";
+}
 
-export type EditErrorCode =
-  | "EINVAL"
-  | "EINVAL_PATH"
-  | "ENOENT"
-  | "EACCES"
-  | "ELOOP"
-  | "EIO"
-  | "EISDIR"
-  | "EUNSUPPORTED"
-  | "EFILE_TOO_LARGE"
-  | "EBINARY"
-  | "EINVAL_EDIT"
-  | "ENOMATCH"
-  | "ENONUNIQUE"
-  | "EOVERLAP"
-  | "ENOCHANGE"
-  | "ECONFLICT"
-  | "ESYMLINK"
-  | "ETIMEDOUT"
-  | "ETOOL";
+export interface EditToolDetails {
+  /** Display-oriented diff of the changes made */
+  diff: string;
+  /** Standard unified patch of the changes made */
+  patch: string;
+  /** Line number of the first change in the new file (for editor navigation) */
+  firstChangedLine?: number;
+}
+
+/**
+ * Pluggable operations for the edit tool.
+ * Override these to delegate file editing to remote systems (for example SSH).
+ */
+export interface EditOperations {
+  /** Read file contents as a Buffer */
+  readFile: (absolutePath: string) => Promise<Buffer>;
+  /** Write content to a file */
+  writeFile: (absolutePath: string, content: string) => Promise<void>;
+  /** Check if file is readable and writable (throw if not) */
+  access: (absolutePath: string) => Promise<void>;
+}
+
+const defaultEditOperations: EditOperations = {
+  readFile: (path) => fsReadFile(path),
+  writeFile: (path, content) => fsWriteFile(path, content, "utf-8"),
+  access: (path) => fsAccess(path, constants.R_OK | constants.W_OK),
+};
+
+function prepareEditArguments(input: unknown): EditToolInput {
+  if (!input || typeof input !== "object") {
+    return input as EditToolInput;
+  }
+
+  const args = input as Record<string, unknown>;
+
+  // Some models (Opus 4.6, GLM-5.1) send edits as a JSON string instead of an array.
+  // Others send a single edit object instead of a one-element edits array.
+  if (typeof args.edits === "string") {
+    try {
+      const parsed = JSON.parse(args.edits);
+      if (Array.isArray(parsed)) {
+        args.edits = parsed;
+      } else if (isSingleEditInput(parsed)) {
+        args.edits = [parsed];
+      }
+    } catch {}
+  } else if (isSingleEditInput(args.edits)) {
+    args.edits = [args.edits];
+  }
+
+  const legacy = args as LegacyEditToolInput;
+  if (
+    typeof legacy.oldText !== "string" ||
+    typeof legacy.newText !== "string"
+  ) {
+    return args as EditToolInput;
+  }
+
+  const edits = Array.isArray(legacy.edits) ? [...legacy.edits] : [];
+  edits.push({ oldText: legacy.oldText, newText: legacy.newText });
+  const { oldText: _oldText, newText: _newText, ...rest } = legacy;
+  return { ...rest, edits } as EditToolInput;
+}
+
+function validateEditInput(input: EditToolInput): {
+  path: string;
+  edits: Edit[];
+} {
+  if (!Array.isArray(input.edits) || input.edits.length === 0) {
+    throw new Error(
+      "Edit tool input is invalid. edits must contain at least one replacement.",
+    );
+  }
+  return { path: input.path, edits: input.edits };
+}
 
 export type EditToolOptions = {
   readonly sessionCwd: string;
-  readonly timeoutMs?: number;
-  readonly replacementHooks?: FileReplacementHooks;
+  readonly operations?: EditOperations;
 };
-
 export type EditTool = {
   readonly name: "edit";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  readonly promptSnippet: string;
+  readonly promptGuidelines: readonly string[];
+  execute(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<ToolResult<EditToolDetails>>;
 };
-
-type ValidatedEdit = {
-  readonly oldText: string;
-  readonly newText: string;
-  readonly replaceAll: boolean;
-};
-
-type ValidatedArguments = {
-  readonly path: string;
-  readonly edits: readonly ValidatedEdit[];
-};
-
-type PathFacts = {
-  readonly resolvedPath: string;
-  readonly realTargetPath: string;
-  readonly cwdRelation: CwdRelation;
-};
-
-/** A source span of the original content together with its replacement text. */
-type ReplacementSpan = {
-  readonly start: number;
-  readonly end: number;
-  readonly editIndex: number;
-  readonly replacement: string;
-};
-
-type PlanFailure =
-  | { readonly code: "ENOMATCH"; readonly editIndex: number }
-  | {
-      readonly code: "ENONUNIQUE";
-      readonly editIndex: number;
-      readonly matches: number;
-    }
-  | {
-      readonly code: "EOVERLAP";
-      readonly editIndexes: readonly [number, number];
-    };
-
-type ReplacementPlan =
-  | { readonly ok: true; readonly spans: readonly ReplacementSpan[] }
-  | { readonly ok: false; readonly failure: PlanFailure };
-
-/** Offsets of every line of the original content, terminators excluded and included. */
-type LineIndex = {
-  readonly starts: readonly number[];
-  readonly contentEnds: readonly number[];
-  readonly ends: readonly number[];
-};
-
-/** A contiguous run of original lines replaced by `newLines`. */
-type ChangeGroup = {
-  readonly firstLine: number;
-  readonly lastLine: number;
-  readonly newLines: readonly string[];
-  readonly reachesUpdatedEnd: boolean;
-};
-
-function fail(
-  code: EditErrorCode,
-  message: string,
-  details?: JsonObject,
-): ToolResult {
-  if (details === undefined) {
-    return { ok: false, error: { code, message } };
-  }
-  try {
-    return boundToolFailure({
-      error: { code, message, details },
-      fields: [],
-      records: [],
-      strategy: "head",
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
-}
-
-function invalid(field: string): ToolResult {
-  return fail("EINVAL", "Invalid edit arguments.", { field });
-}
-
-function invalidEdit(message: string, details: JsonObject): ToolResult {
-  return fail("EINVAL_EDIT", message, details);
-}
-
-function validateEdit(
-  value: unknown,
-  editIndex: number,
-):
-  | { readonly ok: true; readonly value: ValidatedEdit }
-  | { readonly ok: false; readonly result: ToolResult } {
-  if (!isRecord(value)) {
-    return {
-      ok: false,
-      result: invalidEdit("Each edit must be an object.", { editIndex }),
-    };
-  }
-  const extra = Object.keys(value).find(
-    (key) => key !== "oldText" && key !== "newText" && key !== "replaceAll",
-  );
-  if (extra !== undefined) {
-    return {
-      ok: false,
-      result: invalidEdit("Edit has an unknown field.", {
-        editIndex,
-        field: extra,
-      }),
-    };
-  }
-  if (typeof value.oldText !== "string" || value.oldText.length === 0) {
-    return {
-      ok: false,
-      result: invalidEdit("oldText must be a non-empty string.", {
-        editIndex,
-        field: "oldText",
-      }),
-    };
-  }
-  if (typeof value.newText !== "string") {
-    return {
-      ok: false,
-      result: invalidEdit("newText must be a string.", {
-        editIndex,
-        field: "newText",
-      }),
-    };
-  }
-  if (value.replaceAll !== undefined && typeof value.replaceAll !== "boolean") {
-    return {
-      ok: false,
-      result: invalidEdit("replaceAll must be a boolean.", {
-        editIndex,
-        field: "replaceAll",
-      }),
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      oldText: value.oldText,
-      newText: value.newText,
-      replaceAll: value.replaceAll ?? false,
-    },
-  };
-}
-
-function validateArguments(input: unknown):
-  | { readonly ok: true; readonly value: ValidatedArguments }
-  | { readonly ok: false; readonly result: ToolResult } {
-  if (!isRecord(input)) {
-    return { ok: false, result: invalid("path") };
-  }
-  const extra = Object.keys(input).find(
-    (key) => key !== "path" && key !== "edits",
-  );
-  if (extra !== undefined) {
-    return { ok: false, result: invalid(extra) };
-  }
-  if (typeof input.path !== "string") {
-    return { ok: false, result: invalid("path") };
-  }
-  if (!Array.isArray(input.edits)) {
-    return { ok: false, result: invalid("edits") };
-  }
-  if (input.edits.length === 0 || input.edits.length > EDIT_MAX_EDITS) {
-    return {
-      ok: false,
-      result: invalidEdit(`edits must hold 1 to ${EDIT_MAX_EDITS} items.`, {
-        field: "edits",
-        actualItems: input.edits.length,
-        limitItems: EDIT_MAX_EDITS,
-      }),
-    };
-  }
-  const edits: ValidatedEdit[] = [];
-  for (const [editIndex, candidate] of input.edits.entries()) {
-    const validated = validateEdit(candidate, editIndex);
-    if (!validated.ok) {
-      return { ok: false, result: validated.result };
-    }
-    edits.push(validated.value);
-  }
-  return { ok: true, value: { path: input.path, edits } };
-}
-
-function pathFacts(resolution: PathResolution): PathFacts {
-  return {
-    resolvedPath: resolution.resolvedPath,
-    realTargetPath: resolution.realTargetPath,
-    cwdRelation: resolution.cwdRelation,
-  };
-}
-
-function mapPathError(error: PathResolutionError): ToolResult {
-  const details = error.details === undefined ? undefined : { ...error.details };
-  const messages: Record<PathResolutionError["code"], string> = {
-    EINVAL_PATH: "Path syntax is invalid.",
-    ENOENT: "Path does not exist.",
-    ELOOP: "Path contains a symlink loop.",
-    EACCES: "Path cannot be edited.",
-    EIO: "Path cannot be resolved.",
-    ESYMLINK: "Final path component is a symlink.",
-  };
-  return fail(error.code, messages[error.code], details);
-}
-
-function mapReplacementError(
-  error: FileReplacementError,
-  facts: PathFacts,
-): ToolResult {
-  return fail(error.code, error.message, { ...facts, ...error.details });
-}
-
-function nodeErrorCode(error: unknown): string | undefined {
-  return error instanceof Error && "code" in error && typeof error.code === "string"
-    ? error.code
-    : undefined;
-}
-
-function mapReadError(error: unknown, facts: PathFacts): ToolResult {
-  const code = nodeErrorCode(error);
-  return code === "ENOENT"
-    ? fail("ECONFLICT", "File changed during edit.", facts)
-    : code === "EACCES" || code === "EPERM"
-      ? fail("EACCES", "File cannot be read.", facts)
-      : code === "EISDIR"
-        ? fail("EISDIR", "Path is a directory.", facts)
-        : fail("EIO", "File cannot be read.", facts);
-}
-
-function isTimeoutReason(reason: unknown): boolean {
-  return reason instanceof Error && reason.name === "TimeoutError";
-}
-
-function abortResult(signal: AbortSignal, details?: JsonObject): ToolResult {
-  return isTimeoutReason(signal.reason)
-    ? fail("ETIMEDOUT", "Edit timed out.", details)
-    : fail("ETOOL", "Tool execution failed.", details);
-}
-
-function mapPlanFailure(failure: PlanFailure, facts: PathFacts): ToolResult {
-  if (failure.code === "ENOMATCH") {
-    return fail("ENOMATCH", "oldText does not appear in the file.", {
-      ...facts,
-      editIndex: failure.editIndex,
-    });
-  }
-  if (failure.code === "ENONUNIQUE") {
-    return fail("ENONUNIQUE", "oldText appears more than once.", {
-      ...facts,
-      editIndex: failure.editIndex,
-      matches: failure.matches,
-    });
-  }
-  return fail("EOVERLAP", "Two edits replace the same source text.", {
-    ...facts,
-    editIndexes: [...failure.editIndexes],
-  });
-}
-
-/**
- * The original content with CRLF folded to LF, plus the original offset of every
- * folded position. `offsets` is omitted when the content holds no CRLF, in which
- * case folded positions are original offsets.
- */
-type MatchIndex = {
-  readonly folded: string;
-  readonly offsets: readonly number[] | undefined;
-};
-
-function buildMatchIndex(text: string): MatchIndex {
-  if (!text.includes("\r\n")) {
-    return { folded: text, offsets: undefined };
-  }
-  const folded = text.replaceAll("\r\n", "\n");
-  const offsets = new Array<number>(folded.length + 1);
-  let position = 0;
-  let index = 0;
-  while (index < text.length) {
-    offsets[position] = index;
-    position += 1;
-    index += text[index] === "\r" && text[index + 1] === "\n" ? 2 : 1;
-  }
-  offsets[position] = text.length;
-  return { folded, offsets };
-}
-
-function originalOffset(index: MatchIndex, position: number): number {
-  return index.offsets === undefined ? position : index.offsets[position]!;
-}
-
-function foldToLf(text: string): string {
-  return text.replaceAll("\r\n", "\n");
-}
-
-function applyLineEnding(text: string, ending: "lf" | "crlf"): string {
-  const folded = foldToLf(text);
-  return ending === "crlf" ? folded.replaceAll("\n", "\r\n") : folded;
-}
-
-function regionLineEnding(region: string): "lf" | "crlf" {
-  const at = region.indexOf("\n");
-  return at > 0 && region[at - 1] === "\r" ? "crlf" : "lf";
-}
-
-function findMatches(haystack: string, needle: string): readonly number[] {
-  const positions: number[] = [];
-  let from = 0;
-  while (true) {
-    const at = haystack.indexOf(needle, from);
-    if (at === -1) {
-      return positions;
-    }
-    positions.push(at);
-    from = at + needle.length;
-  }
-}
-
-/**
- * Resolves every edit against the same original content and returns the source
- * spans in source order, or the first deterministic match or overlap failure.
- */
-function planReplacements(
-  text: string,
-  edits: readonly ValidatedEdit[],
-): ReplacementPlan {
-  const matchIndex = buildMatchIndex(text);
-  const { lf, crlf } = countLineEndings(text);
-  const dominant = crlf > lf ? "crlf" : lf > crlf ? "lf" : undefined;
-  const spans: ReplacementSpan[] = [];
-  for (const [editIndex, edit] of edits.entries()) {
-    const needle = foldToLf(edit.oldText);
-    const positions = findMatches(matchIndex.folded, needle);
-    if (positions.length === 0) {
-      return { ok: false, failure: { code: "ENOMATCH", editIndex } };
-    }
-    if (!edit.replaceAll && positions.length > 1) {
-      return {
-        ok: false,
-        failure: {
-          code: "ENONUNIQUE",
-          editIndex,
-          matches: positions.length,
-        },
-      };
-    }
-    for (const position of positions) {
-      const start = originalOffset(matchIndex, position);
-      const end = originalOffset(matchIndex, position + needle.length);
-      spans.push({
-        start,
-        end,
-        editIndex,
-        replacement: applyLineEnding(
-          edit.newText,
-          dominant ?? regionLineEnding(text.slice(start, end)),
-        ),
-      });
-    }
-  }
-
-  const ordered = [...spans].sort((left, right) => left.start - right.start);
-  for (let index = 1; index < ordered.length; index += 1) {
-    const previous = ordered[index - 1]!;
-    const current = ordered[index]!;
-    if (current.start < previous.end) {
-      return {
-        ok: false,
-        failure: {
-          code: "EOVERLAP",
-          editIndexes: [
-            Math.min(previous.editIndex, current.editIndex),
-            Math.max(previous.editIndex, current.editIndex),
-          ],
-        },
-      };
-    }
-  }
-  return { ok: true, spans: ordered };
-}
-
-function applyReplacements(
-  text: string,
-  spans: readonly ReplacementSpan[],
-): string {
-  const parts: string[] = [];
-  let cursor = 0;
-  for (const span of spans) {
-    parts.push(text.slice(cursor, span.start), span.replacement);
-    cursor = span.end;
-  }
-  parts.push(text.slice(cursor));
-  return parts.join("");
-}
-
-function indexLines(text: string): LineIndex {
-  const starts: number[] = [];
-  const contentEnds: number[] = [];
-  const ends: number[] = [];
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== "\n") {
-      continue;
-    }
-    starts.push(start);
-    contentEnds.push(index > start && text[index - 1] === "\r" ? index - 1 : index);
-    ends.push(index + 1);
-    start = index + 1;
-  }
-  if (start < text.length) {
-    starts.push(start);
-    contentEnds.push(text.length);
-    ends.push(text.length);
-  }
-  return { starts, contentEnds, ends };
-}
-
-function lineAt(lines: LineIndex, offset: number): number {
-  let low = 0;
-  let high = lines.starts.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (lines.starts[middle]! <= offset) {
-      low = middle;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return low;
-}
-
-function splitRegionLines(region: string): readonly string[] {
-  if (region === "") {
-    return [];
-  }
-  const body = region.endsWith("\r\n")
-    ? region.slice(0, -2)
-    : region.endsWith("\n")
-      ? region.slice(0, -1)
-      : region;
-  return body.split(/\r\n|\n/);
-}
-
-function buildChangeGroups(
-  updated: string,
-  spans: readonly ReplacementSpan[],
-  lines: LineIndex,
-): readonly ChangeGroup[] {
-  const runs: { firstLine: number; lastLine: number }[] = [];
-  for (const span of spans) {
-    const firstLine = lineAt(lines, span.start);
-    const lastLine = lineAt(lines, span.end - 1);
-    const previous = runs.at(-1);
-    if (previous !== undefined && firstLine <= previous.lastLine + 1) {
-      previous.lastLine = Math.max(previous.lastLine, lastLine);
-      continue;
-    }
-    runs.push({ firstLine, lastLine });
-  }
-
-  const groups: ChangeGroup[] = [];
-  let spanIndex = 0;
-  let delta = 0;
-  for (const run of runs) {
-    const regionStart = lines.starts[run.firstLine]!;
-    const regionEnd = lines.ends[run.lastLine]!;
-    while (spanIndex < spans.length && spans[spanIndex]!.end <= regionStart) {
-      const span = spans[spanIndex]!;
-      delta += span.replacement.length - (span.end - span.start);
-      spanIndex += 1;
-    }
-    const updatedStart = regionStart + delta;
-    while (spanIndex < spans.length && spans[spanIndex]!.end <= regionEnd) {
-      const span = spans[spanIndex]!;
-      delta += span.replacement.length - (span.end - span.start);
-      spanIndex += 1;
-    }
-    const updatedEnd = regionEnd + delta;
-    groups.push({
-      firstLine: run.firstLine,
-      lastLine: run.lastLine,
-      newLines: splitRegionLines(updated.slice(updatedStart, updatedEnd)),
-      reachesUpdatedEnd: updatedEnd === updated.length,
-    });
-  }
-  return groups;
-}
-
-/**
- * Renders the applied spans as a compact unified diff without file headers.
- * Returned as one string per diff line so the caller can bound it line by line.
- */
-function buildDiffLines(
-  original: string,
-  updated: string,
-  spans: readonly ReplacementSpan[],
-): readonly string[] {
-  const lines = indexLines(original);
-  const groups = buildChangeGroups(updated, spans, lines);
-  if (groups.length === 0) {
-    return [];
-  }
-  const lastLine = lines.starts.length - 1;
-  const originalOpenEnded = original.length > 0 && !original.endsWith("\n");
-  const updatedOpenEnded = updated.length > 0 && !updated.endsWith("\n");
-  const lineText = (index: number): string =>
-    original.slice(lines.starts[index]!, lines.contentEnds[index]!);
-
-  const hunks: ChangeGroup[][] = [];
-  for (const group of groups) {
-    const current = hunks.at(-1);
-    if (
-      current !== undefined &&
-      group.firstLine - current.at(-1)!.lastLine - 1 <= DIFF_CONTEXT_LINES * 2
-    ) {
-      current.push(group);
-      continue;
-    }
-    hunks.push([group]);
-  }
-
-  const output: string[] = [];
-  let lineDelta = 0;
-  for (const hunk of hunks) {
-    const start = Math.max(0, hunk[0]!.firstLine - DIFF_CONTEXT_LINES);
-    const end = Math.min(lastLine, hunk.at(-1)!.lastLine + DIFF_CONTEXT_LINES);
-    const body: string[] = [];
-    let contextCount = 0;
-    let addedCount = 0;
-    let cursor = start;
-    for (const group of hunk) {
-      for (let line = cursor; line < group.firstLine; line += 1) {
-        body.push(` ${lineText(line)}`);
-        contextCount += 1;
-      }
-      for (let line = group.firstLine; line <= group.lastLine; line += 1) {
-        body.push(`-${lineText(line)}`);
-      }
-      if (group.lastLine === lastLine && originalOpenEnded) {
-        body.push(DIFF_NO_NEWLINE_MARKER);
-      }
-      for (const line of group.newLines) {
-        body.push(`+${line}`);
-        addedCount += 1;
-      }
-      if (
-        group.newLines.length > 0 &&
-        group.reachesUpdatedEnd &&
-        updatedOpenEnded
-      ) {
-        body.push(DIFF_NO_NEWLINE_MARKER);
-      }
-      cursor = group.lastLine + 1;
-    }
-    for (let line = cursor; line <= end; line += 1) {
-      body.push(` ${lineText(line)}`);
-      contextCount += 1;
-    }
-    if (cursor <= end && end === lastLine && originalOpenEnded) {
-      body.push(DIFF_NO_NEWLINE_MARKER);
-    }
-    const originalCount = end - start + 1;
-    const updatedCount = contextCount + addedCount;
-    output.push(
-      `@@ -${formatDiffRange(start, originalCount)} +${formatDiffRange(start + lineDelta, updatedCount)} @@`,
-      ...body,
-    );
-    lineDelta += updatedCount - originalCount;
-  }
-  return output;
-}
-
-function formatDiffRange(start: number, count: number): string {
-  return count === 0
-    ? `${start},0`
-    : count === 1
-      ? `${start + 1}`
-      : `${start + 1},${count}`;
-}
-
-function failOversized(
-  facts: PathFacts,
-  actualBytes: number,
-  message: string,
-): ToolResult {
-  return fail("EFILE_TOO_LARGE", message, {
-    ...facts,
-    actualBytes,
-    limitBytes: EDIT_MAX_CONTENT_BYTES,
-  });
-}
-
-function boundedSuccess(
-  facts: PathFacts,
-  identity: FileReplacementIdentity,
-  edits: readonly ValidatedEdit[],
-  spans: readonly ReplacementSpan[],
-  updated: string,
-  bom: boolean,
-  bytesWritten: number,
-  diffLines: readonly string[],
-): ToolResult {
-  try {
-    return boundToolResult({
-      result: {
-        ...facts,
-        editsApplied: edits.length,
-        replacementsApplied: spans.length,
-        bytesWritten,
-        bom,
-        lineEnding: detectLineEnding(updated),
-        detachedHardLinks: identity.nlink > 1,
-      },
-      fields: [
-        {
-          name: "diff",
-          kind: "text",
-          separator: "\n",
-          truncateOversizedRecords: true,
-        },
-      ],
-      records: diffLines.map((line) => ({
-        field: "diff",
-        value: line,
-        lines: 1 as const,
-      })),
-      strategy: "head",
-      includeTotal: ["bytes", "lines"],
-    });
-  } catch {
-    return {
-      ok: false,
-      error: { code: "ETOOL", message: "Tool result exceeds its size limit." },
-    };
-  }
-}
-
 export async function executeEdit(
   input: unknown,
   options: EditToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult> {
-  const validated = validateArguments(input);
-  if (!validated.ok) {
-    return validated.result;
-  }
+): Promise<ToolResult<EditToolDetails>> {
+  const prepared = prepareEditArguments(input);
+  if (!isRecord(prepared) || typeof prepared.path !== "string")
+    throw new Error("Invalid edit arguments.");
+  const { path, edits } = validateEditInput(prepared);
+  if (!edits.every(isSingleEditInput))
+    throw new Error("Invalid edit arguments.");
+  const absolutePath = resolveToCwd(path, options.sessionCwd);
+  const ops = options.operations ?? defaultEditOperations;
+  const signal = options.signal;
+  return withFileMutationQueue(absolutePath, async () => {
+    // Do not reject from an abort event listener here: that would release the
+    // mutation queue while an in-flight filesystem operation may still finish.
+    // Checking signal.aborted after each await observes the same aborts while
+    // keeping the queue locked until the current operation has settled.
+    const throwIfAborted = (): void => {
+      if (signal?.aborted) throw new Error("Operation aborted");
+    };
 
-  const timeout = AbortSignal.timeout(
-    options.timeoutMs ?? EDIT_DEFAULT_TIMEOUT_MS,
-  );
-  const signal = options.signal === undefined
-    ? timeout
-    : AbortSignal.any([timeout, options.signal]);
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
+    throwIfAborted();
 
-  const resolverResult = await createSessionPathResolver(options.sessionCwd);
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
-  if (!resolverResult.ok) {
-    return mapPathError(resolverResult.error);
-  }
-  const resolved = await resolverResult.value.resolve(validated.value.path, {
-    existence: "required",
-    symlinks: "reject-final",
+    // Check if file exists.
+    try {
+      await ops.access(absolutePath);
+    } catch (error: unknown) {
+      throwIfAborted();
+      const errorMessage =
+        error instanceof Error && "code" in error
+          ? `Error code: ${error.code}`
+          : String(error);
+      throw new Error(`Could not edit file: ${path}. ${errorMessage}.`);
+    }
+    throwIfAborted();
+
+    // Read the file.
+    const buffer = await ops.readFile(absolutePath);
+    const rawContent = buffer.toString("utf-8");
+    throwIfAborted();
+
+    // Strip BOM before matching. The model will not include an invisible BOM in oldText.
+    const { bom, text: content } = stripBom(rawContent);
+    const originalEnding = detectLineEnding(content);
+    const normalizedContent = normalizeToLF(content);
+    const { baseContent, newContent } = applyEditsToNormalizedContent(
+      normalizedContent,
+      edits,
+      path,
+    );
+    throwIfAborted();
+
+    const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+    await ops.writeFile(absolutePath, finalContent);
+    throwIfAborted();
+
+    const diffResult = generateDiffString(baseContent, newContent);
+    const patch = generateUnifiedPatch(path, baseContent, newContent);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Successfully replaced ${edits.length} block(s) in ${path}.`,
+        },
+      ],
+      details: {
+        diff: diffResult.diff,
+        patch,
+        firstChangedLine: diffResult.firstChangedLine,
+      },
+    };
   });
-  if (signal.aborted) {
-    return abortResult(signal);
-  }
-  if (!resolved.ok) {
-    return mapPathError(resolved.error);
-  }
-  const facts = pathFacts(resolved.value);
-
-  const observed = await observeReplacementTarget(facts.realTargetPath);
-  if (signal.aborted) {
-    return abortResult(signal, facts);
-  }
-  if (!observed.ok) {
-    return mapReplacementError(observed.error, facts);
-  }
-  const baseline = observed.value;
-  if (!baseline.exists) {
-    return fail("ENOENT", "Path does not exist.", facts);
-  }
-  if (baseline.identity.size > EDIT_MAX_CONTENT_BYTES) {
-    return failOversized(
-      facts,
-      baseline.identity.size,
-      "File exceeds the 10 MiB size limit.",
-    );
-  }
-
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(facts.realTargetPath, { signal });
-  } catch (error) {
-    return signal.aborted
-      ? abortResult(signal, facts)
-      : mapReadError(error, facts);
-  }
-  const decoded = decodeUtf8Text(bytes);
-  if (!decoded.ok) {
-    return fail("EBINARY", "File is not valid UTF-8 text.", facts);
-  }
-  const binaryEditIndex = validated.value.edits.findIndex(
-    (edit) => edit.newText.includes("\0") || !isWellFormedUnicode(edit.newText),
-  );
-  if (binaryEditIndex !== -1) {
-    return fail(
-      "EBINARY",
-      "newText must be valid UTF-8 text without NUL bytes.",
-      { ...facts, editIndex: binaryEditIndex, field: "newText" },
-    );
-  }
-  if (signal.aborted) {
-    return abortResult(signal, facts);
-  }
-
-  const planned = planReplacements(decoded.text, validated.value.edits);
-  if (!planned.ok) {
-    return mapPlanFailure(planned.failure, facts);
-  }
-  const updated = applyReplacements(decoded.text, planned.spans);
-  const contents = `${decoded.bom ? "\uFEFF" : ""}${updated}`;
-  const bytesWritten = Buffer.byteLength(contents, "utf8");
-  if (bytesWritten > EDIT_MAX_CONTENT_BYTES) {
-    return failOversized(
-      facts,
-      bytesWritten,
-      "Edit result exceeds the 10 MiB size limit.",
-    );
-  }
-  if (updated === decoded.text) {
-    return fail("ENOCHANGE", "The batch leaves the file unchanged.", facts);
-  }
-  if (bytes.byteLength !== baseline.identity.size) {
-    return fail("ECONFLICT", "File changed during edit.", facts);
-  }
-
-  const successResult = boundedSuccess(
-    facts,
-    baseline.identity,
-    validated.value.edits,
-    planned.spans,
-    updated,
-    decoded.bom,
-    bytesWritten,
-    buildDiffLines(decoded.text, updated, planned.spans),
-  );
-  if (!successResult.ok) {
-    return successResult;
-  }
-  if (signal.aborted) {
-    return abortResult(signal, facts);
-  }
-
-  const replaced = await replaceFile({
-    targetPath: facts.realTargetPath,
-    contents: Buffer.from(contents, "utf8"),
-    baseline,
-    signal,
-    ...(options.replacementHooks === undefined
-      ? {}
-      : { hooks: options.replacementHooks }),
-  });
-  return replaced.ok
-    ? successResult
-    : mapReplacementError(replaced.error, facts);
 }
-
 export function createEditTool(options: EditToolOptions): EditTool {
   return {
     name: "edit",
-    description: EDIT_DESCRIPTION,
+    description:
+      "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+    promptSnippet: EDIT_PROMPT_SNIPPET,
+    promptGuidelines: [...EDIT_PROMPT_GUIDELINES],
     parameters: {
       type: "object",
-      additionalProperties: false,
       properties: {
         path: {
           type: "string",
-          description: "Absolute or Session-cwd-relative file path",
+          description: "Path to the file to edit (relative or absolute)",
         },
         edits: {
           type: "array",
-          minItems: 1,
-          maxItems: EDIT_MAX_EDITS,
           description:
-            "Replacements to apply as one batch, all matched against the original content",
+            "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
           items: {
             type: "object",
-            additionalProperties: false,
             properties: {
               oldText: {
                 type: "string",
-                minLength: 1,
                 description:
-                  "Exact text to replace; include enough surrounding text to make it unique",
+                  "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call.",
               },
               newText: {
                 type: "string",
-                description: "Replacement text; empty deletes oldText",
-              },
-              replaceAll: {
-                type: "boolean",
-                description:
-                  "Replace every non-overlapping match instead of requiring exactly one; defaults to false",
+                description: "Replacement text for this targeted edit.",
               },
             },
             required: ["oldText", "newText"],
@@ -891,10 +276,7 @@ export function createEditTool(options: EditToolOptions): EditTool {
       required: ["path", "edits"],
     },
     execute(input, signal) {
-      return executeEdit(input, {
-        ...options,
-        ...(signal === undefined ? {} : { signal }),
-      });
+      return executeEdit(input, { ...options, signal });
     },
   };
 }

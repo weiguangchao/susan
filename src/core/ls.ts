@@ -1,278 +1,190 @@
+// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
+import { readdir as fsReaddir, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
 import { isRecord, type JsonObject } from "./json.js";
-import {
-  createSessionPathResolver,
-  type CwdRelation,
-  type PathResolution,
-  type PathResolutionError,
-} from "./path-resolver.js";
+import { pathExists, resolveToCwd } from "./path-utils.js";
 import { type ToolResult } from "./tool-result.js";
 import {
-  TRAVERSAL_DEFAULT_TIMEOUT_MS,
-  traverse,
-  type TraversalDiagnostic,
-  type TraversalEntry,
-  type TraversalError,
-} from "./traverse.js";
+  DEFAULT_MAX_BYTES,
+  formatSize,
+  type TruncationResult,
+  truncateHead,
+} from "./truncate.js";
 
-export const LS_DEFAULT_LIMIT = 500;
-export const LS_MAX_LIMIT = 5_000;
-export const LS_DEFAULT_TIMEOUT_MS = TRAVERSAL_DEFAULT_TIMEOUT_MS;
+export const LS_PROMPT_SNIPPET = "List directory contents";
+export const LS_PROMPT_GUIDELINES = [] as const;
+
+const DEFAULT_LIMIT = 500;
 
 const LS_DESCRIPTION =
-  "List a directory's direct children without recursion. Use ls to inspect a known directory and find for deeper path discovery. It returns deterministically ordered file, directory, and symlink entries, applies ignore rules unless requested otherwise, and does not follow symlinks. Results may include Traversal Diagnostics.";
+  `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`;
 
-const ALLOWED_FIELDS = new Set(["path", "includeIgnored", "limit", "offset"]);
+export type LsToolDetails = {
+  readonly truncation?: TruncationResult;
+  readonly entryLimitReached?: number;
+};
+
+/**
+ * Pluggable operations for the ls tool.
+ * Override these to delegate directory listing to remote systems (for example SSH).
+ */
+export type LsOperations = {
+  exists: (absolutePath: string) => Promise<boolean> | boolean;
+  stat: (
+    absolutePath: string,
+  ) => Promise<{ isDirectory: () => boolean }> | { isDirectory: () => boolean };
+  readdir: (absolutePath: string) => Promise<string[]> | string[];
+};
+
+const defaultLsOperations: LsOperations = {
+  exists: pathExists,
+  stat: fsStat,
+  readdir: fsReaddir,
+};
 
 export type LsToolOptions = {
   readonly sessionCwd: string;
-  readonly timeoutMs?: number;
-  readonly now?: () => number;
-};
-
-export type LsEntry = {
-  readonly name: string;
-  readonly type: TraversalEntry["type"];
-};
-
-export type LsToolDetails = {
-  readonly resolvedPath: string;
-  readonly realTargetPath: string;
-  readonly cwdRelation: CwdRelation;
-  readonly entries: readonly LsEntry[];
-  readonly diagnostics: readonly TraversalDiagnostic[];
-  readonly truncation?: {
-    readonly truncatedBy: "items";
-    readonly outputItems: number;
-    readonly nextOffset: number;
-    readonly includeIgnored?: true;
-  };
+  readonly operations?: LsOperations;
 };
 
 export type LsTool = {
   readonly name: "ls";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<LsToolDetails>>;
+  readonly promptSnippet: string;
+  readonly promptGuidelines: readonly string[];
+  execute(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<ToolResult<LsToolDetails | undefined>>;
 };
 
 type ValidatedArguments = {
-  readonly path: string;
-  readonly includeIgnored: boolean;
-  readonly limit: number;
-  readonly offset: number;
+  readonly path?: string;
+  readonly limit?: number;
 };
-
-type PathFacts = {
-  readonly resolvedPath: string;
-  readonly realTargetPath: string;
-  readonly cwdRelation: CwdRelation;
-};
-
-function fail(message: string): never {
-  throw new Error(message);
-}
-
-function invalid(_field: string): never {
-  fail("Invalid ls arguments.");
-}
-
-function isSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value);
-}
 
 function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    invalid("path");
+    throw new Error("Invalid ls arguments.");
   }
-  const extra = Object.keys(input).find((key) => !ALLOWED_FIELDS.has(key));
+  const extra = Object.keys(input).find(
+    (key) => key !== "path" && key !== "limit",
+  );
   if (extra !== undefined) {
-    invalid(extra);
+    throw new Error("Invalid ls arguments.");
   }
   if (input.path !== undefined && typeof input.path !== "string") {
-    invalid("path");
+    throw new Error("Invalid ls arguments.");
   }
-  if (input.includeIgnored !== undefined && typeof input.includeIgnored !== "boolean") {
-    invalid("includeIgnored");
-  }
-  if (input.limit !== undefined && !isSafeInteger(input.limit)) {
-    invalid("limit");
-  }
-  if (input.offset !== undefined && !isSafeInteger(input.offset)) {
-    invalid("offset");
-  }
-  if (
-    input.limit !== undefined &&
-    (input.limit < 1 || input.limit > LS_MAX_LIMIT)
-  ) {
-    fail(`limit must be an integer between 1 and ${LS_MAX_LIMIT}.`);
-  }
-  if (input.offset !== undefined && input.offset < 0) {
-    fail("offset must be a non-negative integer.");
+  if (input.limit !== undefined) {
+    if (typeof input.limit !== "number" || !Number.isFinite(input.limit)) {
+      throw new Error("Invalid ls arguments.");
+    }
   }
   return {
-    path: input.path ?? ".",
-    includeIgnored: input.includeIgnored === true,
-    limit: input.limit ?? LS_DEFAULT_LIMIT,
-    offset: input.offset ?? 0,
+    ...(input.path === undefined ? {} : { path: input.path }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
   };
 }
 
-function pathFacts(resolution: PathResolution): PathFacts {
-  return {
-    resolvedPath: resolution.resolvedPath,
-    realTargetPath: resolution.realTargetPath,
-    cwdRelation: resolution.cwdRelation,
-  };
-}
-
-function mapPathError(error: PathResolutionError): never {
-  if (error.code === "ESYMLINK") {
-    fail("Path cannot be resolved.");
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("Operation aborted");
   }
-  const messages: Record<Exclude<PathResolutionError["code"], "ESYMLINK">, string> = {
-    EINVAL_PATH: "Path syntax is invalid.",
-    ENOENT: "Path does not exist.",
-    ELOOP: "Path contains a symlink loop.",
-    EACCES: "Path cannot be read.",
-    EIO: "Path cannot be resolved.",
-  };
-  fail(messages[error.code]);
-}
-
-function mapTraversalError(error: TraversalError): never {
-  if (error.code === "ENOTDIR") {
-    fail("Path is not a directory.");
-  }
-  if (error.code === "ENOENT") {
-    fail("Path does not exist.");
-  }
-  if (error.code === "EACCES") {
-    fail("Path cannot be read.");
-  }
-  if (error.code === "ELOOP") {
-    fail("Path contains a symlink loop.");
-  }
-  if (error.code === "EQUERY_TOO_LARGE") {
-    fail("Query exceeded the entry budget.");
-  }
-  if (error.code === "ETIMEDOUT") {
-    fail("Ls timed out.");
-  }
-  fail("Path cannot be listed.");
-}
-
-function isTimeoutReason(reason: unknown): boolean {
-  return reason instanceof Error && reason.name === "TimeoutError";
-}
-
-function abortResult(signal: AbortSignal): never {
-  if (isTimeoutReason(signal.reason)) {
-    fail("Ls timed out.");
-  }
-  fail("Tool execution failed.");
-}
-
-function toLsEntry(entry: TraversalEntry): LsEntry {
-  return { name: entry.path, type: entry.type };
-}
-
-function formatLsEntry(entry: LsEntry): string {
-  if (entry.type === "directory") {
-    return `${entry.name}/`;
-  }
-  if (entry.type === "symlink") {
-    return `${entry.name}@`;
-  }
-  return entry.name;
-}
-
-function formatLsContent(
-  entries: readonly LsEntry[],
-  remaining: number,
-  nextOffset: number,
-): string {
-  const listing = entries.map(formatLsEntry).join("\n");
-  if (remaining <= 0) {
-    return listing;
-  }
-  const note = `[${remaining} more entries. Use offset=${nextOffset} to continue.]`;
-  if (listing === "") {
-    return note;
-  }
-  return `${listing}\n\n${note}`;
 }
 
 export async function executeLs(
   input: unknown,
   options: LsToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult<LsToolDetails>> {
-  const validated = validateArguments(input);
+): Promise<ToolResult<LsToolDetails | undefined>> {
+  const { path, limit } = validateArguments(input);
+  const signal = options.signal;
+  const ops = options.operations ?? defaultLsOperations;
+  throwIfAborted(signal);
 
-  const timeoutMs = options.timeoutMs ?? LS_DEFAULT_TIMEOUT_MS;
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = options.signal === undefined
-    ? timeout
-    : AbortSignal.any([timeout, options.signal]);
-  if (signal.aborted) {
-    abortResult(signal);
-  }
+  const dirPath = resolveToCwd(path || ".", options.sessionCwd);
+  const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
-  const resolverResult = await createSessionPathResolver(options.sessionCwd);
-  if (signal.aborted) {
-    abortResult(signal);
+  if (!(await ops.exists(dirPath))) {
+    throwIfAborted(signal);
+    throw new Error(`Path not found: ${dirPath}`);
   }
-  if (!resolverResult.ok) {
-    mapPathError(resolverResult.error);
-  }
+  throwIfAborted(signal);
 
-  const resolved = await resolverResult.value.resolve(validated.path, {
-    existence: "required",
-    symlinks: "follow",
-  });
-  if (signal.aborted) {
-    abortResult(signal);
-  }
-  if (!resolved.ok) {
-    mapPathError(resolved.error);
+  const stat = await ops.stat(dirPath);
+  throwIfAborted(signal);
+  if (!stat.isDirectory()) {
+    throw new Error(`Not a directory: ${dirPath}`);
   }
 
-  const facts = pathFacts(resolved.value);
-  const walked = await traverse({
-    searchRoot: facts.realTargetPath,
-    maxDepth: 1,
-    includeIgnored: validated.includeIgnored,
-    timeoutMs,
-    signal,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
-  if (!walked.ok) {
-    if (signal.aborted) {
-      abortResult(signal);
+  let entries: string[];
+  try {
+    entries = await ops.readdir(dirPath);
+  } catch (error) {
+    throwIfAborted(signal);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot read directory: ${message}`);
+  }
+  throwIfAborted(signal);
+
+  entries.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+  const results: string[] = [];
+  let entryLimitReached = false;
+  for (const entry of entries) {
+    if (results.length >= effectiveLimit) {
+      entryLimitReached = true;
+      break;
     }
-    mapTraversalError(walked.error);
+
+    const fullPath = join(dirPath, entry);
+    let suffix = "";
+    try {
+      const entryStat = await ops.stat(fullPath);
+      if (entryStat.isDirectory()) {
+        suffix = "/";
+      }
+    } catch {
+      continue;
+    }
+    throwIfAborted(signal);
+    results.push(entry + suffix);
   }
 
-  const remaining = walked.value.entries.slice(validated.offset).map(toLsEntry);
-  const paged = remaining.slice(0, validated.limit);
-  const omitted = remaining.length - paged.length;
-  const nextOffset = validated.offset + paged.length;
-  const details: LsToolDetails = {
-    ...facts,
-    entries: paged,
-    diagnostics: walked.value.diagnostics,
-    ...(omitted > 0
+  if (results.length === 0) {
+    return {
+      content: [{ type: "text", text: "(empty directory)" }],
+      details: undefined,
+    };
+  }
+
+  const rawOutput = results.join("\n");
+  const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
+  let output = truncation.content;
+  const notices: string[] = [];
+  if (entryLimitReached) {
+    notices.push(
+      `${effectiveLimit} entries limit reached. Use limit=${effectiveLimit * 2} for more`,
+    );
+  }
+  if (truncation.truncated) {
+    notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+  }
+  if (notices.length > 0) {
+    output += `\n\n[${notices.join(". ")}]`;
+  }
+
+  const details: LsToolDetails | undefined =
+    entryLimitReached || truncation.truncated
       ? {
-          truncation: {
-            truncatedBy: "items" as const,
-            outputItems: paged.length,
-            nextOffset,
-            ...(validated.includeIgnored ? { includeIgnored: true as const } : {}),
-          },
+          ...(entryLimitReached ? { entryLimitReached: effectiveLimit } : {}),
+          ...(truncation.truncated ? { truncation } : {}),
         }
-      : {}),
-  };
+      : undefined;
+
   return {
-    content: [{ type: "text", text: formatLsContent(paged, omitted, nextOffset) }],
+    content: [{ type: "text", text: output }],
     details,
   };
 }
@@ -281,31 +193,19 @@ export function createLsTool(options: LsToolOptions): LsTool {
   return {
     name: "ls",
     description: LS_DESCRIPTION,
+    promptSnippet: LS_PROMPT_SNIPPET,
+    promptGuidelines: [...LS_PROMPT_GUIDELINES],
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         path: {
           type: "string",
-          description:
-            "Absolute or Session-cwd-relative directory path; defaults to .",
-        },
-        includeIgnored: {
-          type: "boolean",
-          description:
-            "When true, do not apply the target directory .gitignore or the built-in .git/ ignore; defaults to false",
-        },
-        offset: {
-          type: "integer",
-          minimum: 0,
-          description:
-            "Number of sorted entries to skip; defaults to 0",
+          description: "Directory to list (default: current directory)",
         },
         limit: {
-          type: "integer",
-          minimum: 1,
-          maximum: LS_MAX_LIMIT,
-          description: `Maximum number of entries to return; defaults to ${LS_DEFAULT_LIMIT}`,
+          type: "number",
+          description: "Maximum number of entries to return (default: 500)",
         },
       },
     },

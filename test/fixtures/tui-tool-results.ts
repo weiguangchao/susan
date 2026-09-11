@@ -121,16 +121,6 @@ export const canonicalToolFixtures = [
     },
     result: {
       content: [{ type: "text", text: "index.ts\nui/" }],
-      details: {
-        resolvedPath: "/workspace/src",
-        realTargetPath: "/workspace/src",
-        cwdRelation: "inside",
-        entries: [
-          { name: "index.ts", type: "file" },
-          { name: "ui", type: "directory" },
-        ],
-        diagnostics: [],
-      },
     },
     isError: false,
     summary: "2 entries",

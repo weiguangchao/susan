@@ -225,14 +225,13 @@ export type {
   BashToolOptions,
 } from "./core/bash.js";
 export {
-  LS_DEFAULT_LIMIT,
-  LS_DEFAULT_TIMEOUT_MS,
-  LS_MAX_LIMIT,
+  LS_PROMPT_GUIDELINES,
+  LS_PROMPT_SNIPPET,
   createLsTool,
   executeLs,
 } from "./core/ls.js";
 export type {
-  LsEntry,
+  LsOperations,
   LsTool,
   LsToolDetails,
   LsToolOptions,

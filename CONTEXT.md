@@ -69,7 +69,7 @@ Built-in Tool Set 中按平台无关 glob 查询 Search Root 下路径名称的 
 _Avoid_: file search, fd wrapper, glob tool
 
 **Ls Tool**:
-Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，以结构化类型区分 file、directory 与 symlink。
+Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧名称为 `ls`，返回按字母序排列的纯文本条目，目录带 `/` 后缀，包含 dotfiles。
 _Avoid_: list tool, directory reader, recursive ls
 
 **Search Root**:
@@ -77,7 +77,7 @@ _Avoid_: list tool, directory reader, recursive ls
 _Avoid_: workspace, project root, scan root
 
 **Traversal Diagnostic**:
-`grep`、`find` 或 `ls` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
+`grep` 或 `find` 在有效入口下遇到局部不可读、消失或 metadata 获取失败的条目时返回的有界结构化事实；它使已取得的结果仍可成功返回，但不得被解释为完整无误的遍历。
 _Avoid_: warning text, skipped error, partial failure
 
 **Tool Result**:

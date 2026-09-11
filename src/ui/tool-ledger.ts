@@ -119,22 +119,13 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       `${path} · ${stringField(arguments_, "pattern") ?? ""}`,
   },
   ls: {
-    summary: (result, payload) =>
-      `${arrayLength(payload, "entries")} entries${diagnosticSuffix(payload)}`,
-    supplementalLines: (result, payload) => {
-      if (!Array.isArray(payload?.entries)) {
-        return [];
-      }
-      if (payload.entries.length === 0) {
+    summary: (result) => `${lsListingLines(toolResultText(result.content)).length} entries`,
+    supplementalLines: (result) => {
+      const content = toolResultText(result.content);
+      if (content === "" || content === "(empty directory)") {
         return ["空目录"];
       }
-      return payload.entries.flatMap((entry: unknown) => {
-        const name = stringField(entry, "name");
-        const type = stringField(entry, "type");
-        return name === undefined ? [] : [
-          `${name}${type === "directory" ? "/" : type === "symlink" ? "@" : ""}`,
-        ];
-      });
+      return content.split("\n").filter((line) => line.trim() !== "");
     },
   },
 };
@@ -322,6 +313,15 @@ function failureSupplement(
 function lastNonEmptyLine(text: string): string | undefined {
   const lines = text.split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
   return lines.at(-1);
+}
+
+function lsListingLines(content: string): string[] {
+  if (content === "" || content === "(empty directory)") {
+    return [];
+  }
+  const noticeAt = content.indexOf("\n\n[");
+  const listing = noticeAt === -1 ? content : content.slice(0, noticeAt);
+  return listing.split("\n").filter((line) => line !== "");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

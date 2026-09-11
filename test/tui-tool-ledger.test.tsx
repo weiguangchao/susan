@@ -151,7 +151,7 @@ describe("TUI Tool execution ledger", () => {
     },
     {
       name: "ls",
-      result: { content: [{ type: "text", text: "" }], details: { entries: [] } },
+      result: { content: [{ type: "text", text: "(empty directory)" }] },
       rows: ["└ 空目录"],
     },
     {
@@ -162,16 +162,9 @@ describe("TUI Tool execution ledger", () => {
     {
       name: "ls",
       result: {
-        content: [{ type: "text", text: "" }],
-        details: {
-          entries: [
-            { name: "file.ts", type: "file" },
-            { name: "src", type: "directory" },
-            { name: "link", type: "symlink" },
-          ],
-        },
+        content: [{ type: "text", text: "file.ts\nsrc/\nlink" }],
       },
-      rows: ["├ file.ts", "├ src/", "└ link@"],
+      rows: ["├ file.ts", "├ src/", "└ link"],
     },
   ])("renders normal $name result rows without content prefixes", ({ name, result, rows }) => {
     const state = reduceTuiState(initialState(), {
@@ -201,37 +194,32 @@ describe("TUI Tool execution ledger", () => {
       },
     });
     expect(state.tools[0]?.supplementalLines).toEqual(
-      name === "read"
-        ? ["Missing path", 'error details · {"path":"missing"}']
-        : ['error details · {"path":"missing"}'],
+      ["Missing path", 'error details · {"path":"missing"}'],
     );
   });
 
-  it("shares the four-row budget between Ls entries and pagination metadata", () => {
+  it("shares the four-row budget between Ls entries and the Pi limit notice", () => {
     const state = reduceTuiState(initialState(), {
       type: "harness-event",
       event: {
         type: "tool-completed",
         toolCall: { id: "page", name: "ls", arguments: { path: ".", limit: 4 } },
         result: {
-          content: [{ type: "text", text: "a\nb\nc\nd" }],
-          details: {
-            entries: [
-              { name: "a", type: "file" }, { name: "b", type: "file" },
-              { name: "c", type: "file" }, { name: "d", type: "file" },
-            ],
-            truncation: {
-              truncatedBy: ["items"],
-              outputItems: 4,
-              nextOffset: 4,
-            },
-          },
+          content: [{
+            type: "text",
+            text: "a\nb\nc\nd\n\n[4 entries limit reached. Use limit=8 for more]",
+          }],
+          details: { entryLimitReached: 4 },
         },
         isError: false,
       },
     });
-    expect(state.tools[0]?.supplementalLines.slice(4)).toEqual([
-      'truncation · {"truncatedBy":["items"],"outputItems":4,"nextOffset":4}',
+    expect(state.tools[0]?.supplementalLines).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "[4 entries limit reached. Use limit=8 for more]",
     ]);
     const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
     expect(output.split("\n").slice(1).map((line) => line.trim())).toEqual([

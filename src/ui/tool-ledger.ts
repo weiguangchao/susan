@@ -49,6 +49,10 @@ type ToolPresenter = {
     result: ToolResult,
     payload: Record<string, unknown> | undefined,
   ) => string;
+  readonly errorSummary?: (
+    result: ToolResult,
+    payload: Record<string, unknown> | undefined,
+  ) => string;
   readonly invocationLabel?: (
     arguments_: Record<string, unknown>,
     path: string,
@@ -85,21 +89,17 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   bash: {
-    summary: (result, payload) => {
-      const exit = numericField(payload, "exitCode");
-      return exit === undefined ? "completed" : `exit ${exit}`;
+    summary: () => "completed",
+    errorSummary: (result) => lastNonEmptyLine(toolResultText(result.content)) || "failed",
+    supplementalLines: (result) => {
+      const content = toolResultText(result.content);
+      if (content === "" || content === "(no output)") {
+        return [];
+      }
+      return content.split("\n").filter((line) => line.trim() !== "");
     },
-    supplementalLines: (result, payload) => bashSupplementalLines(payload),
     invocationLabel: (arguments_) =>
       stringField(arguments_, "command") ?? "bash",
-    failurePrefix: bashFailurePrefix,
-    hiddenFailureFields: [
-      "exitCode",
-      "signal",
-      "stdout",
-      "stderr",
-      "termination",
-    ],
   },
   grep: {
     summary: (result, payload) =>
@@ -177,12 +177,15 @@ export function createCompletedToolCard(
     isError,
   );
   if (isError) {
-    const failurePrefix =
-      toolPresenters[toolCall.name]?.failurePrefix?.(payload) ?? "";
+    const presenter = toolPresenters[toolCall.name];
+    const failurePrefix = presenter?.failurePrefix?.(payload) ?? "";
+    const errorText =
+      presenter?.errorSummary?.(result, payload) ??
+      toolResultText(result.content);
     return {
       ...createToolCard(toolCall, "failed"),
       invocationLabel,
-      summary: `${failurePrefix}${toolResultText(result.content)}${outside}`,
+      summary: `${failurePrefix}${errorText}${outside}`,
       supplementalLines,
     };
   }
@@ -269,27 +272,6 @@ function buildSupplementalLines(
   return lines;
 }
 
-function bashSupplementalLines(
-  payload: Record<string, unknown> | undefined,
-): readonly string[] {
-  const lines: string[] = [];
-  for (const field of ["stdout", "stderr"] as const) {
-    const output = stringField(payload, field)?.trimEnd();
-    if (output !== undefined && output !== "") {
-      lines.push(
-        ...output.split("\n").map((line) => `${field} (full) · ${line}`),
-      );
-    }
-  }
-  const termination = asRecord(payload?.termination);
-  if (termination !== undefined) {
-    lines.push(
-      `termination · ${String(termination.scope)} · ${termination.forced === true ? "forced" : "graceful"} · ${termination.cleanupConfirmed === true ? "cleanup confirmed" : "cleanup unconfirmed"}`,
-    );
-  }
-  return lines;
-}
-
 function lexicalPathPresentation(
   toolCall: ProviderToolCall,
   sessionCwd?: string,
@@ -320,17 +302,6 @@ function lexicalPathPresentation(
   };
 }
 
-function bashFailurePrefix(
-  payload: Record<string, unknown> | undefined,
-): string {
-  const exit = numericField(payload, "exitCode");
-  if (exit !== undefined) {
-    return `exit ${exit} · `;
-  }
-  const signal = stringField(payload, "signal");
-  return signal === undefined ? "" : `signal ${signal} · `;
-}
-
 function failureSupplement(
   payload: Record<string, unknown> | undefined,
   hiddenFields: readonly string[],
@@ -346,6 +317,11 @@ function failureSupplement(
   ]);
   const entries = Object.entries(payload).filter(([key]) => !omitted.has(key));
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function lastNonEmptyLine(text: string): string | undefined {
+  const lines = text.split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
+  return lines.at(-1);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -1,918 +1,538 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
-import { access, lstat, stat, constants } from "node:fs/promises";
+// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { access as fsAccess, constants } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { env as processEnv, platform as processPlatform } from "node:process";
-import { finished } from "node:stream/promises";
 import { isRecord, type JsonObject } from "./json.js";
-import {
-  createSessionPathResolver,
-  type CwdRelation,
-  type PathResolution,
-  type PathResolutionError,
-  type SessionPathResolver,
-} from "./path-resolver.js";
+import { OutputAccumulator, type OutputSnapshot } from "./output-accumulator.js";
 import { type ToolResult } from "./tool-result.js";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  formatSize,
+  type TruncationResult,
+} from "./truncate.js";
 
-export const BASH_OUTPUT_BUDGET_BYTES = 50 * 1024;
+export const BASH_PROMPT_SNIPPET = "Execute bash commands (ls, grep, find, etc.)";
+export const BASH_PROMPT_GUIDELINES = [] as const;
 
-export const BASH_COMMAND_MAX_BYTES = 256 * 1024;
-export const BASH_DEFAULT_TIMEOUT_MS = 120_000;
-export const BASH_MIN_TIMEOUT_MS = 1;
-export const BASH_MAX_TIMEOUT_MS = 3_600_000;
-export const BASH_KILL_GRACE_MS = 2_000;
-
-const BASH_PROBE_TIMEOUT_MS = 3_000;
 const BASH_DESCRIPTION =
-  "Run one non-interactive, non-login Bash command as a one-shot process. Use bash for program execution, builds, tests, real Bash semantics, or work the dedicated Tools cannot express; do not use it as a substitute for read, write, edit, grep, find, or ls merely because a shell command is familiar. It supports an execution cwd, timeout, and environment overlay, but no PTY, persistent session, background-process contract, or later stdin. The command runs with Susan's process permissions, and bash.cwd does not restrict paths accessed by the command.";
+  `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`;
 
-export type BashTerminationScope =
-  | "process-group"
-  | "process-tree-best-effort"
-  | "direct-process";
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+const EXIT_STDIO_GRACE_MS = 100;
+const TEMP_FILE_PREFIX = "pi-bash";
 
-export type BashTermination = {
-  readonly scope: BashTerminationScope;
-  readonly forced: boolean;
-  readonly cleanupConfirmed: boolean;
+export type BashToolDetails = {
+  readonly truncation?: TruncationResult;
+  readonly fullOutputPath?: string;
+};
+
+export type BashOperations = {
+  exec: (
+    command: string,
+    cwd: string,
+    options: {
+      onData: (data: Buffer) => void;
+      signal?: AbortSignal;
+      timeout?: number;
+      env?: NodeJS.ProcessEnv;
+    },
+  ) => Promise<{ exitCode: number | null }>;
 };
 
 export type BashToolOptions = {
   readonly sessionCwd: string;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly platform?: NodeJS.Platform;
-};
-
-export type BashToolDetails = {
-  readonly bashPath: string;
-  readonly resolvedPath: string;
-  readonly realTargetPath?: string;
-  readonly cwdRelation: CwdRelation;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number | null;
-  readonly signal: string | null;
-  readonly decodeLoss?: readonly ("stdout" | "stderr")[];
-  readonly timeoutMs?: number;
-  readonly termination: BashTermination;
-  readonly truncation?: {
-    readonly truncatedBy: "bytes";
-    readonly fields: readonly ("stdout" | "stderr")[];
-  };
+  readonly operations?: BashOperations;
 };
 
 export type BashTool = {
   readonly name: "bash";
   readonly description: string;
   readonly parameters: JsonObject;
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult<BashToolDetails>>;
+  readonly promptSnippet: string;
+  readonly promptGuidelines: readonly string[];
+  execute(
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<ToolResult<BashToolDetails | undefined>>;
+};
+
+type ShellConfig = {
+  readonly shell: string;
+  readonly args: readonly string[];
+  readonly commandTransport?: "argv" | "stdin";
 };
 
 type ValidatedArguments = {
   readonly command: string;
-  readonly cwd?: string;
-  readonly timeoutMs: number;
-  readonly env?: Record<string, string | null>;
+  readonly timeout?: number;
 };
 
-type OutputChunk = {
-  field: "stdout" | "stderr";
-  text: string;
-};
-
-type PathFacts = {
-  readonly resolvedPath: string;
-  readonly realTargetPath?: string;
-  readonly cwdRelation: CwdRelation;
-};
-
-type ExecutionCwd = PathFacts & { readonly spawnCwd: string };
-
-
-type ExecutionLock = "timeout" | "cancel" | "exit";
-
-function nodeErrorCode(error: unknown): string | undefined {
-  return error instanceof Error && "code" in error && typeof error.code === "string"
-    ? error.code
-    : undefined;
-}
-
-function fail(message: string): never {
-  throw new Error(message);
-}
-
-function invalid(_field: string, message = "Invalid bash arguments."): never {
-  fail(message);
-}
-
-function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
-  if (left.length === 0) {
-    return right;
+function resolveTimeoutMs(timeout: number | undefined): number | undefined {
+  if (timeout === undefined) {
+    return undefined;
   }
-  if (right.length === 0) {
-    return left;
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    throw new Error("Invalid timeout: must be a finite number of seconds");
   }
-  const bytes = new Uint8Array(left.length + right.length);
-  bytes.set(left, 0);
-  bytes.set(right, left.length);
-  return bytes;
-}
-
-function incompleteUtf8SuffixLength(data: Uint8Array): number {
-  if (data.length === 0) {
-    return 0;
+  const timeoutMs = timeout * 1000;
+  if (timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error(
+      `Invalid timeout: maximum is ${MAX_TIMEOUT_SECONDS} seconds`,
+    );
   }
-  let index = data.length - 1;
-  let continuations = 0;
-  while (index >= 0 && (data[index]! & 0xc0) === 0x80) {
-    continuations += 1;
-    index -= 1;
-  }
-  if (index < 0) {
-    return 0;
-  }
-  const lead = data[index]!;
-  const expected =
-    lead < 0x80
-      ? 1
-      : (lead & 0xe0) === 0xc0
-        ? 2
-        : (lead & 0xf0) === 0xe0
-          ? 3
-          : (lead & 0xf8) === 0xf0
-            ? 4
-            : 0;
-  if (expected === 0) {
-    return 0;
-  }
-  const have = continuations + 1;
-  return have < expected ? have : 0;
-}
-
-class Utf8StreamDecoder {
-  lost = false;
-  private pending: Uint8Array = new Uint8Array();
-
-  decode(chunk: Uint8Array, finalize = false): string {
-    const data = concatBytes(this.pending, chunk);
-    if (!finalize) {
-      const keep = incompleteUtf8SuffixLength(data);
-      this.pending =
-        keep === 0 ? new Uint8Array() : new Uint8Array(data.subarray(data.length - keep));
-      return this.decodeComplete(data.subarray(0, data.length - keep));
-    }
-    this.pending = new Uint8Array();
-    if (data.length === 0) {
-      return "";
-    }
-    const keep = incompleteUtf8SuffixLength(data);
-    const complete = this.decodeComplete(data.subarray(0, data.length - keep));
-    if (keep === 0) {
-      return complete;
-    }
-    this.lost = true;
-    return complete + new TextDecoder("utf-8").decode(data.subarray(data.length - keep));
-  }
-
-  private decodeComplete(bytes: Uint8Array): string {
-    if (bytes.length === 0) {
-      return "";
-    }
-    try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      this.lost = true;
-      return new TextDecoder("utf-8").decode(bytes);
-    }
-  }
-}
-
-function projectChunks(chunks: readonly OutputChunk[]): {
-  readonly stdout: string;
-  readonly stderr: string;
-} {
-  let stdout = "";
-  let stderr = "";
-  for (const chunk of chunks) {
-    if (chunk.field === "stdout") {
-      stdout += chunk.text;
-    } else {
-      stderr += chunk.text;
-    }
-  }
-  return { stdout, stderr };
-}
-
-function projectedOutputBytes(chunks: readonly OutputChunk[]): number {
-  const { stdout, stderr } = projectChunks(chunks);
-  return (
-    Buffer.byteLength(JSON.stringify(stdout), "utf8") +
-    Buffer.byteLength(JSON.stringify(stderr), "utf8")
-  );
-}
-
-function trimJointTail(chunks: OutputChunk[]): Array<"stdout" | "stderr"> {
-  const truncated: Array<"stdout" | "stderr"> = [];
-  while (
-    chunks.length > 0 &&
-    projectedOutputBytes(chunks) > BASH_OUTPUT_BUDGET_BYTES
-  ) {
-    const first = chunks[0]!;
-    const rest = chunks.slice(1);
-    if (projectedOutputBytes(rest) >= BASH_OUTPUT_BUDGET_BYTES) {
-      truncated.push(first.field);
-      chunks.shift();
-      continue;
-    }
-    const codePoints = Array.from(first.text);
-    let low = 0;
-    let high = codePoints.length;
-    let kept = "";
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2);
-      const candidate = codePoints.slice(codePoints.length - middle).join("");
-      const bytes = projectedOutputBytes([
-        { field: first.field, text: candidate },
-        ...rest,
-      ]);
-      if (bytes <= BASH_OUTPUT_BUDGET_BYTES) {
-        kept = candidate;
-        low = middle + 1;
-      } else {
-        high = middle - 1;
-      }
-    }
-    if (kept.length === 0) {
-      chunks.shift();
-    } else {
-      first.text = kept;
-    }
-    truncated.push(first.field);
-    break;
-  }
-  return truncated;
-}
-
-function pushChunk(
-  chunks: OutputChunk[],
-  field: "stdout" | "stderr",
-  text: string,
-  truncatedFields: Set<"stdout" | "stderr">,
-): void {
-  if (text.length === 0) {
-    return;
-  }
-  chunks.push({ field, text });
-  for (const truncated of trimJointTail(chunks)) {
-    truncatedFields.add(truncated);
-  }
-}
-
-function collectStream(
-  stream: NodeJS.ReadableStream | null | undefined,
-  decoder: Utf8StreamDecoder,
-  field: "stdout" | "stderr",
-  chunks: OutputChunk[],
-  truncatedFields: Set<"stdout" | "stderr">,
-): Promise<void> {
-  if (stream === undefined || stream === null) {
-    return Promise.resolve();
-  }
-  stream.on("data", (chunk: Buffer | string) => {
-    const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-    pushChunk(chunks, field, decoder.decode(bytes), truncatedFields);
-  });
-  return finished(stream, { cleanup: true })
-    .catch(() => undefined)
-    .then(() => {
-      pushChunk(chunks, field, decoder.decode(new Uint8Array(), true), truncatedFields);
-    });
-}
-
-function copyEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(source)) {
-    if (value !== undefined) {
-      env[key] = value;
-    }
-  }
-  return env;
-}
-
-function findEnvKey(
-  env: NodeJS.ProcessEnv,
-  key: string,
-  platform: NodeJS.Platform,
-): string | undefined {
-  if (platform !== "win32") {
-    return Object.hasOwn(env, key) ? key : undefined;
-  }
-  const lower = key.toLowerCase();
-  return Object.keys(env).find((candidate) => candidate.toLowerCase() === lower);
-}
-
-function applyEnvOverlay(
-  base: NodeJS.ProcessEnv,
-  overlay: Record<string, string | null>,
-  platform: NodeJS.Platform,
-): NodeJS.ProcessEnv {
-  const seen = new Map<string, string>();
-  for (const key of Object.keys(overlay)) {
-    if (key.length === 0 || key.includes("=") || key.includes("\0")) {
-      invalid("env");
-    }
-    const value = overlay[key];
-    if (value !== null && (typeof value !== "string" || value.includes("\0"))) {
-      invalid("env");
-    }
-    if (platform === "win32") {
-      const lower = key.toLowerCase();
-      const previous = seen.get(lower);
-      if (previous !== undefined && previous !== key) {
-        invalid("env");
-      }
-      seen.set(lower, key);
-    }
-  }
-  const env = copyEnv(base);
-  for (const [key, value] of Object.entries(overlay)) {
-    const existing = findEnvKey(env, key, platform);
-    if (existing !== undefined) {
-      delete env[existing];
-    }
-    if (value !== null) {
-      env[key] = value;
-    }
-  }
-  return env;
+  return timeoutMs;
 }
 
 function validateArguments(input: unknown): ValidatedArguments {
   if (!isRecord(input)) {
-    invalid("command");
+    throw new Error("Invalid bash arguments.");
   }
-  const allowed = new Set(["command", "cwd", "timeoutMs", "env"]);
-  if (Object.keys(input).some((key) => !allowed.has(key))) {
-    invalid("command");
+  const extra = Object.keys(input).find(
+    (key) => key !== "command" && key !== "timeout",
+  );
+  if (extra !== undefined) {
+    throw new Error("Invalid bash arguments.");
   }
-  const command = input.command;
-  if (typeof command !== "string" || command.length === 0 || command.includes("\0")) {
-    invalid("command");
+  if (typeof input.command !== "string") {
+    throw new Error("Invalid bash arguments.");
   }
-  if (Buffer.byteLength(command, "utf8") > BASH_COMMAND_MAX_BYTES) {
-    invalid("command");
-  }
-  const cwd = input.cwd;
-  if (cwd !== undefined && typeof cwd !== "string") {
-    invalid("cwd");
-  }
-  const timeoutMs = input.timeoutMs === undefined
-    ? BASH_DEFAULT_TIMEOUT_MS
-    : input.timeoutMs;
-  if (
-    typeof timeoutMs !== "number" ||
-    !Number.isInteger(timeoutMs) ||
-    timeoutMs < BASH_MIN_TIMEOUT_MS ||
-    timeoutMs > BASH_MAX_TIMEOUT_MS
-  ) {
-    invalid("timeoutMs");
-  }
-  const env = input.env;
-  if (env !== undefined) {
-    if (!isRecord(env)) {
-      invalid("env");
+  if (input.timeout !== undefined) {
+    if (typeof input.timeout !== "number") {
+      throw new Error("Invalid bash arguments.");
     }
-    for (const value of Object.values(env)) {
-      if (value !== null && typeof value !== "string") {
-        invalid("env");
-      }
-    }
+    resolveTimeoutMs(input.timeout);
   }
   return {
-    command,
-    timeoutMs,
-    ...(cwd === undefined ? {} : { cwd }),
-    ...(env === undefined ? {} : { env: env as Record<string, string | null> }),
+    command: input.command,
+    ...(input.timeout === undefined ? {} : { timeout: input.timeout }),
   };
 }
 
-function isWslGateway(candidate: string): boolean {
-  const normalized = candidate.replaceAll("\\", "/").toLowerCase();
-  return (
-    normalized.endsWith("/system32/bash.exe") ||
-    normalized.endsWith("/sysnative/bash.exe") ||
-    normalized.endsWith("/syswow64/bash.exe")
+function isLegacyWslBashPath(path: string): boolean {
+  const normalized = path.replaceAll("/", "\\").toLowerCase();
+  return /^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$/.test(
+    normalized,
   );
 }
 
-function bashCandidatePaths(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): string[] {
-  const candidates: string[] = [];
-  const seen = new Set<string>();
-  const add = (candidate: string) => {
-    if (candidate.length === 0 || isWslGateway(candidate)) {
-      return;
-    }
-    const key = platform === "win32" ? candidate.replaceAll("/", "\\").toLowerCase() : candidate;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    candidates.push(candidate);
-  };
-  const pathValue = platform === "win32"
-    ? (env.PATH ?? env.Path ?? "")
-    : (env.PATH ?? "");
-  const executable = platform === "win32" ? "bash.exe" : "bash";
-  if (platform !== "win32") {
-    add("/bin/bash");
-  }
-  for (const directory of pathValue.split(delimiter)) {
-    if (directory.length > 0) {
-      add(join(directory, executable));
-    }
-  }
-  if (platform === "win32") {
-    const programFiles = env.ProgramFiles ?? "C:\\Program Files";
-    const programFilesX86 = env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
-    add(join(programFiles, "Git", "bin", "bash.exe"));
-    add(join(programFilesX86, "Git", "bin", "bash.exe"));
-    if (env.LOCALAPPDATA !== undefined && env.LOCALAPPDATA.length > 0) {
-      add(join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe"));
-    }
-  }
-  return candidates;
+function getBashShellConfig(shell: string): ShellConfig {
+  return isLegacyWslBashPath(shell)
+    ? { shell, args: ["-s"], commandTransport: "stdin" }
+    : { shell, args: ["-c"] };
 }
 
-async function probeBash(
-  executable: string,
-  env: NodeJS.ProcessEnv,
-): Promise<boolean> {
-  const child = spawn(executable, ["--version"], {
-    env,
-    stdio: "ignore",
-    windowsHide: true,
-    shell: false,
-  });
-  return await new Promise<boolean>((resolve) => {
+function findExecutableOnPath(executable: string): string | null {
+  if (process.platform === "win32") {
+    try {
+      const result = spawnSync("where", [executable], {
+        encoding: "utf-8",
+        timeout: 5000,
+        windowsHide: true,
+      });
+      if (result.status === 0 && result.stdout) {
+        const firstMatch = result.stdout.trim().split(/\r?\n/)[0];
+        if (firstMatch !== undefined && existsSync(firstMatch)) {
+          return firstMatch;
+        }
+      }
+    } catch {
+      // Ignore lookup errors and fall through.
+    }
+    return null;
+  }
+
+  try {
+    const result = spawnSync("which", [executable], {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
+    if (result.status === 0 && result.stdout) {
+      const firstMatch = result.stdout.trim().split(/\r?\n/)[0];
+      if (firstMatch) {
+        return firstMatch;
+      }
+    }
+  } catch {
+    // Ignore lookup errors and fall through.
+  }
+  return null;
+}
+
+function getShellConfig(): ShellConfig {
+  if (process.platform === "win32") {
+    const paths: string[] = [];
+    const programFiles = process.env.ProgramFiles;
+    if (programFiles) {
+      paths.push(`${programFiles}\\Git\\bin\\bash.exe`);
+    }
+    const programFilesX86 = process.env["ProgramFiles(x86)"];
+    if (programFilesX86) {
+      paths.push(`${programFilesX86}\\Git\\bin\\bash.exe`);
+    }
+    for (const path of paths) {
+      if (existsSync(path)) {
+        return getBashShellConfig(path);
+      }
+    }
+    const bashOnPath = findExecutableOnPath("bash.exe");
+    if (bashOnPath !== null) {
+      return getBashShellConfig(bashOnPath);
+    }
+    throw new Error(
+      `No bash shell found. Options:\n` +
+        `  1. Install Git for Windows: https://git-scm.com/download/win\n` +
+        `  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n\n` +
+        `Searched Git Bash in:\n${paths.map((path) => `  ${path}`).join("\n")}`,
+    );
+  }
+
+  if (existsSync("/bin/bash")) {
+    return getBashShellConfig("/bin/bash");
+  }
+  const bashOnPath = findExecutableOnPath("bash");
+  if (bashOnPath !== null) {
+    return getBashShellConfig(bashOnPath);
+  }
+  return { shell: "sh", args: ["-c"] };
+}
+
+function killProcessTree(pid: number): void {
+  if (process.platform === "win32") {
+    try {
+      const child = spawn(
+        join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+        ["/F", "/T", "/PID", String(pid)],
+        {
+          stdio: "ignore",
+          detached: true,
+          windowsHide: true,
+        },
+      );
+      child.once("error", () => {});
+    } catch {
+      // Ignore taskkill failures.
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Process already dead.
+    }
+  }
+}
+
+function waitForChildProcess(child: ChildProcess): Promise<number | null> {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (value: boolean) => {
+    let exited = false;
+    let exitCode: number | null = null;
+    let postExitTimer: NodeJS.Timeout | undefined;
+    let stdoutEnded = child.stdout === null;
+    let stderrEnded = child.stderr === null;
+
+    const cleanup = () => {
+      if (postExitTimer !== undefined) {
+        clearTimeout(postExitTimer);
+        postExitTimer = undefined;
+      }
+      child.removeListener("error", onError);
+      child.removeListener("exit", onExit);
+      child.removeListener("close", onClose);
+      child.stdout?.removeListener("end", onStdoutEnd);
+      child.stderr?.removeListener("end", onStderrEnd);
+      child.stdout?.removeListener("data", onData);
+      child.stderr?.removeListener("data", onData);
+    };
+
+    const finalize = (code: number | null) => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timer);
-      resolve(value);
+      cleanup();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve(code);
     };
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish(false);
-    }, BASH_PROBE_TIMEOUT_MS);
-    child.once("error", () => finish(false));
-    child.once("exit", (code) => finish(code === 0));
+
+    const maybeFinalizeAfterExit = () => {
+      if (!exited || settled) {
+        return;
+      }
+      if (stdoutEnded && stderrEnded) {
+        finalize(exitCode);
+      }
+    };
+
+    const armIdleTimer = () => {
+      if (postExitTimer !== undefined) {
+        clearTimeout(postExitTimer);
+      }
+      postExitTimer = setTimeout(() => finalize(exitCode), EXIT_STDIO_GRACE_MS);
+    };
+
+    const onData = () => {
+      if (exited && !settled) {
+        armIdleTimer();
+      }
+    };
+
+    const onStdoutEnd = () => {
+      stdoutEnded = true;
+      maybeFinalizeAfterExit();
+    };
+
+    const onStderrEnd = () => {
+      stderrEnded = true;
+      maybeFinalizeAfterExit();
+    };
+
+    const onError = (err: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const onExit = (code: number | null) => {
+      exited = true;
+      exitCode = code;
+      maybeFinalizeAfterExit();
+      if (!settled) {
+        armIdleTimer();
+      }
+    };
+
+    const onClose = (code: number | null) => {
+      finalize(code);
+    };
+
+    child.stdout?.once("end", onStdoutEnd);
+    child.stderr?.once("end", onStderrEnd);
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+    child.once("error", onError);
+    child.once("exit", onExit);
+    child.once("close", onClose);
   });
 }
 
-async function resolveBashExecutable(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): Promise<{ ok: true; path: string } | { ok: false; code: "EUNSUPPORTED" | "EACCES" }> {
-  let permissionDenied = false;
-  for (const candidate of bashCandidatePaths(env, platform)) {
-    try {
-      const stats = await stat(candidate);
-      if (!stats.isFile()) {
-        continue;
-      }
-      await access(candidate, constants.X_OK);
-    } catch (error) {
-      const code = nodeErrorCode(error);
-      if (code === "EACCES" || code === "EPERM") {
-        permissionDenied = true;
-      }
-      continue;
-    }
-    if (await probeBash(candidate, env)) {
-      return { ok: true, path: candidate };
-    }
-  }
-  return { ok: false, code: permissionDenied ? "EACCES" : "EUNSUPPORTED" };
-}
-
-function pathFacts(resolution: PathResolution): PathFacts {
+function createLocalBashOperations(): BashOperations {
   return {
-    resolvedPath: resolution.resolvedPath,
-    cwdRelation: resolution.cwdRelation,
-    ...(resolution.resolvedPath === resolution.realTargetPath
-      ? {}
-      : { realTargetPath: resolution.realTargetPath }),
+    exec: async (command, cwd, { onData, signal, timeout, env }) => {
+      const timeoutMs = resolveTimeoutMs(timeout);
+      if (signal?.aborted) {
+        throw new Error("aborted");
+      }
+      const shellConfig = getShellConfig();
+      try {
+        await fsAccess(cwd, constants.F_OK);
+      } catch {
+        throw new Error(
+          `Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
+        );
+      }
+
+      const commandFromStdin = shellConfig.commandTransport === "stdin";
+      const child = spawn(
+        shellConfig.shell,
+        commandFromStdin
+          ? [...shellConfig.args]
+          : [...shellConfig.args, command],
+        {
+          cwd,
+          detached: process.platform !== "win32",
+          env: env ?? process.env,
+          stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
+          windowsHide: true,
+        },
+      );
+      if (commandFromStdin) {
+        child.stdin?.on("error", () => {});
+        child.stdin?.end(command);
+      }
+      let timedOut = false;
+      let timeoutHandle: NodeJS.Timeout | undefined;
+      const onAbort = () => {
+        if (child.pid !== undefined) {
+          killProcessTree(child.pid);
+        }
+      };
+
+      try {
+        if (timeoutMs !== undefined) {
+          timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            if (child.pid !== undefined) {
+              killProcessTree(child.pid);
+            }
+          }, timeoutMs);
+        }
+        child.stdout?.on("data", onData);
+        child.stderr?.on("data", onData);
+        if (signal) {
+          if (signal.aborted) {
+            onAbort();
+          } else {
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+        }
+        const exitCode = await waitForChildProcess(child);
+        if (signal?.aborted) {
+          throw new Error("aborted");
+        }
+        if (timedOut) {
+          throw new Error(`timeout:${timeout}`);
+        }
+        return { exitCode };
+      } finally {
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
+        }
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+      }
+    },
   };
 }
 
-function mapPathError(error: PathResolutionError, enotdir: boolean): never {
-  if (enotdir) {
-    fail("Working directory is not a directory.");
-  }
-  if (error.code === "ENOENT") {
-    fail("Working directory does not exist.");
-  }
-  if (error.code === "ELOOP") {
-    fail("Working directory contains a symlink loop.");
-  }
-  if (error.code === "EACCES") {
-    fail("Working directory cannot be accessed.");
-  }
-  if (error.code === "EINVAL_PATH") {
-    fail("Working directory path is invalid.");
-  }
-  fail("Working directory cannot be resolved.");
-}
-
-async function wasEnotdir(error: PathResolutionError): Promise<boolean> {
-  const resolvedPath = error.details?.resolvedPath;
-  if (resolvedPath === undefined) {
-    return false;
-  }
-  try {
-    await lstat(resolvedPath);
-    return false;
-  } catch (cause) {
-    return nodeErrorCode(cause) === "ENOTDIR";
-  }
-}
-
-async function resolveExecutionCwd(
-  resolver: SessionPathResolver,
-  cwd: string | undefined,
-): Promise<ExecutionCwd> {
-  if (cwd === undefined) {
-    const resolution = {
-      resolvedPath: resolver.sessionCwd,
-      realTargetPath: resolver.canonicalSessionCwd,
-      cwdRelation: "inside" as const,
+function formatOutput(
+  snapshot: OutputSnapshot,
+  lastLineBytes: number,
+  emptyText = "(no output)",
+): { text: string; details: BashToolDetails | undefined } {
+  const truncation = snapshot.truncation;
+  let text = snapshot.content || emptyText;
+  let details: BashToolDetails | undefined;
+  if (truncation.truncated) {
+    details = {
+      truncation,
+      ...(snapshot.fullOutputPath === undefined
+        ? {}
+        : { fullOutputPath: snapshot.fullOutputPath }),
     };
-    return { ...pathFacts(resolution), spawnCwd: resolution.realTargetPath };
-  }
-  const resolved = await resolver.resolve(cwd, {
-    existence: "required",
-    symlinks: "follow",
-  });
-  if (!resolved.ok) {
-    mapPathError(resolved.error, await wasEnotdir(resolved.error));
-  }
-  let stats: Awaited<ReturnType<typeof stat>>;
-  try {
-    stats = await stat(resolved.value.realTargetPath);
-  } catch (error) {
-    const code = nodeErrorCode(error);
-    if (code === "ENOTDIR") {
-      fail("Working directory is not a directory.");
+    const startLine = truncation.totalLines - truncation.outputLines + 1;
+    const endLine = truncation.totalLines;
+    if (truncation.lastLinePartial) {
+      const lastLineSize = formatSize(lastLineBytes);
+      text += `\n\n[Showing last ${formatSize(truncation.outputBytes)} of line ${endLine} (line is ${lastLineSize}). Full output: ${snapshot.fullOutputPath}]`;
+    } else if (truncation.truncatedBy === "lines") {
+      text += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines}. Full output: ${snapshot.fullOutputPath}]`;
+    } else {
+      text += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Full output: ${snapshot.fullOutputPath}]`;
     }
-    if (code === "ENOENT") {
-      fail("Working directory does not exist.");
-    }
-    if (code === "EACCES" || code === "EPERM") {
-      fail("Working directory cannot be accessed.");
-    }
-    fail("Working directory cannot be resolved.");
   }
-  if (!stats.isDirectory()) {
-    fail("Working directory is not a directory.");
-  }
-  try {
-    await access(resolved.value.realTargetPath, constants.X_OK);
-  } catch (error) {
-    const code = nodeErrorCode(error);
-    if (code === "EACCES" || code === "EPERM") {
-      fail("Working directory cannot be accessed.");
-    }
-    fail("Working directory cannot be resolved.");
-  }
-  return { ...pathFacts(resolved.value), spawnCwd: resolved.value.realTargetPath };
+  return { text, details };
 }
 
-function formatBashContent(stdout: string, stderr: string): string {
-  if (stdout !== "" && stderr !== "") {
-    return `${stdout}\n${stderr}`;
-  }
-  return stdout !== "" ? stdout : stderr;
-}
-
-function bashCommandResult(
-  facts: {
-    readonly bashPath: string;
-    readonly resolvedPath: string;
-    readonly realTargetPath?: string;
-    readonly cwdRelation: CwdRelation;
-    readonly decodeLoss?: readonly ("stdout" | "stderr")[];
-  },
-  stdout: string,
-  stderr: string,
-  exitCode: number | null,
-  signal: string | null,
-  termination: BashTermination,
-  truncatedFields: ReadonlySet<"stdout" | "stderr">,
-  timeoutMs?: number,
-): ToolResult<BashToolDetails> {
-  const details: BashToolDetails = {
-    ...facts,
-    stdout,
-    stderr,
-    exitCode,
-    signal,
-    termination,
-    ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    ...(truncatedFields.size === 0
-      ? {}
-      : {
-          truncation: {
-            truncatedBy: "bytes" as const,
-            fields: (["stdout", "stderr"] as const).filter((field) =>
-              truncatedFields.has(field),
-            ),
-          },
-        }),
-  };
-  return {
-    content: [{ type: "text", text: formatBashContent(stdout, stderr) }],
-    details,
-  };
-}
-
-function decodeLossDetails(
-  stdout: Utf8StreamDecoder,
-  stderr: Utf8StreamDecoder,
-): { readonly decodeLoss?: readonly ("stdout" | "stderr")[] } {
-  const fields: Array<"stdout" | "stderr"> = [];
-  if (stdout.lost) {
-    fields.push("stdout");
-  }
-  if (stderr.lost) {
-    fields.push("stderr");
-  }
-  return fields.length === 0 ? {} : { decodeLoss: fields };
-}
-
-function posixGroupAlive(pgid: number): boolean {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function killPosixGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal);
-  } catch (error) {
-    if (nodeErrorCode(error) === "ESRCH") {
-      return;
-    }
-    try {
-      process.kill(pid, signal);
-    } catch {}
-  }
-}
-
-async function killWindowsProcessTree(
-  pid: number,
-  child: ChildProcess,
-): Promise<BashTerminationScope> {
-  try {
-    const killer = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-      shell: false,
-    });
-    const [code] = (await once(killer, "exit")) as [number | null];
-    if (code === 0) {
-      return "process-tree-best-effort";
-    }
-  } catch {}
-  try {
-    child.kill();
-  } catch {}
-  return "direct-process";
-}
-
-function spawnFailure(_error: unknown): never {
-  fail("Failed to start Bash.");
+function appendStatus(text: string, status: string): string {
+  return `${text ? `${text}\n\n` : ""}${status}`;
 }
 
 export async function executeBash(
   input: unknown,
   options: BashToolOptions & { readonly signal?: AbortSignal },
-): Promise<ToolResult<BashToolDetails>> {
-  const validated = validateArguments(input);
-  const platform = options.platform ?? processPlatform;
-  const parentEnv = options.env ?? processEnv;
-  const posix = platform !== "win32";
-  const childEnv = validated.env === undefined
-    ? copyEnv(parentEnv)
-    : applyEnvOverlay(parentEnv, validated.env, platform);
-  const resolverResult = await createSessionPathResolver(options.sessionCwd);
-  if (!resolverResult.ok) {
-    mapPathError(resolverResult.error, false);
-  }
-  const cwd = await resolveExecutionCwd(resolverResult.value, validated.cwd);
-  const bash = await resolveBashExecutable(parentEnv, platform);
-  if (!bash.ok) {
-    fail(
-      bash.code === "EACCES" ? "Bash is not executable." : "Bash is not available.",
-    );
-  }
+): Promise<ToolResult<BashToolDetails | undefined>> {
+  const { command, timeout } = validateArguments(input);
+  const ops = options.operations ?? createLocalBashOperations();
+  const output = new OutputAccumulator({ tempFilePrefix: TEMP_FILE_PREFIX });
+  let acceptingOutput = true;
 
-  const chunks: OutputChunk[] = [];
-  const truncatedFields = new Set<"stdout" | "stderr">();
-  const stdoutDecoder = new Utf8StreamDecoder();
-  const stderrDecoder = new Utf8StreamDecoder();
-  const child = spawn(
-    bash.path,
-    ["--noprofile", "--norc", "-c", validated.command],
-    {
-      cwd: cwd.spawnCwd,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: posix,
-      windowsHide: true,
-      shell: false,
-    },
-  );
-  const stdoutDone = collectStream(
-    child.stdout,
-    stdoutDecoder,
-    "stdout",
-    chunks,
-    truncatedFields,
-  );
-  const stderrDone = collectStream(
-    child.stderr,
-    stderrDecoder,
-    "stderr",
-    chunks,
-    truncatedFields,
-  );
-
-  try {
-    await once(child, "spawn");
-  } catch (error) {
-    await Promise.all([stdoutDone, stderrDone]);
-    spawnFailure(error);
-  }
-
-  const pid = child.pid;
-  if (pid === undefined) {
-    await Promise.all([stdoutDone, stderrDone]);
-    fail("Failed to start Bash.");
-  }
-
-  let lock: ExecutionLock | undefined;
-  let usedForce = false;
-  let terminationScope: BashTerminationScope = posix
-    ? "process-group"
-    : "process-tree-best-effort";
-  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-  let forceTimer: ReturnType<typeof setTimeout> | undefined;
-  let windowsKill = Promise.resolve();
-
-  const tryLock = (reason: ExecutionLock): boolean => {
-    if (lock !== undefined) {
-      return false;
+  const handleData = (data: Buffer) => {
+    if (!acceptingOutput) {
+      return;
     }
-    lock = reason;
-    return true;
+    output.append(Buffer.isBuffer(data) ? data : Buffer.from(data));
   };
 
-  const terminate = (force: boolean): void => {
-    if (posix) {
-      if (force) {
-        usedForce = true;
+  const finishOutput = async (): Promise<OutputSnapshot> => {
+    acceptingOutput = false;
+    output.finish();
+    const snapshot = output.snapshot({ persistIfTruncated: true });
+    await output.closeTempFile();
+    return snapshot;
+  };
+
+  try {
+    let exitCode: number | null;
+    try {
+      const result = await ops.exec(command, options.sessionCwd, {
+        onData: handleData,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(timeout === undefined ? {} : { timeout }),
+        env: process.env,
+      });
+      exitCode = result.exitCode;
+    } catch (err) {
+      const snapshot = await finishOutput();
+      const { text } = formatOutput(snapshot, output.getLastLineBytes(), "");
+      if (err instanceof Error && err.message === "aborted") {
+        throw new Error(appendStatus(text, "Command aborted"));
       }
-      killPosixGroup(pid, force ? "SIGKILL" : "SIGTERM");
-      return;
+      if (err instanceof Error && err.message.startsWith("timeout:")) {
+        const timeoutSecs = err.message.split(":")[1];
+        throw new Error(
+          appendStatus(text, `Command timed out after ${timeoutSecs} seconds`),
+        );
+      }
+      throw err;
     }
-    usedForce = true;
-    windowsKill = killWindowsProcessTree(pid, child).then((scope) => {
-      terminationScope = scope;
-    });
-  };
 
-  const beginTermination = (reason: ExecutionLock): void => {
-    if (!tryLock(reason)) {
-      return;
+    const snapshot = await finishOutput();
+    const { text: outputText, details } = formatOutput(
+      snapshot,
+      output.getLastLineBytes(),
+    );
+    if (exitCode !== 0 && exitCode !== null) {
+      throw new Error(
+        appendStatus(outputText, `Command exited with code ${exitCode}`),
+      );
     }
-    if (posix) {
-      terminate(false);
-      forceTimer = setTimeout(() => terminate(true), BASH_KILL_GRACE_MS);
-      return;
-    }
-    terminate(true);
-  };
-
-  timeoutTimer = setTimeout(() => {
-    beginTermination("timeout");
-  }, validated.timeoutMs);
-
-  const onAbort = () => beginTermination("cancel");
-  if (options.signal?.aborted) {
-    onAbort();
-  } else {
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-  }
-
-  let exitCode: number | null = null;
-  let exitSignal: string | null = null;
-  try {
-    const [exit] = await Promise.all([
-      once(child, "exit") as Promise<[number | null, NodeJS.Signals | null]>,
-      stdoutDone,
-      stderrDone,
-    ]);
-    exitCode = exit[0];
-    exitSignal = exit[1];
-    tryLock("exit");
-    await windowsKill;
+    return {
+      content: [{ type: "text", text: outputText }],
+      details,
+    };
   } finally {
-    if (timeoutTimer !== undefined) {
-      clearTimeout(timeoutTimer);
-    }
-    if (forceTimer !== undefined) {
-      clearTimeout(forceTimer);
-    }
-    options.signal?.removeEventListener("abort", onAbort);
+    acceptingOutput = false;
   }
-
-  const decodeLoss = decodeLossDetails(stdoutDecoder, stderrDecoder);
-  const facts = {
-    bashPath: bash.path,
-    resolvedPath: cwd.resolvedPath,
-    cwdRelation: cwd.cwdRelation,
-    ...(cwd.realTargetPath === undefined
-      ? {}
-      : { realTargetPath: cwd.realTargetPath }),
-    ...decodeLoss,
-  };
-  const { stdout, stderr } = projectChunks(chunks);
-  const cleanupConfirmed = posix ? !posixGroupAlive(pid) : false;
-  const termination: BashTermination = {
-    scope: terminationScope,
-    forced: usedForce,
-    cleanupConfirmed,
-  };
-
-  if (lock === "cancel") {
-    fail("Tool execution failed.");
-  }
-
-  return bashCommandResult(
-    facts,
-    stdout,
-    stderr,
-    exitCode,
-    exitSignal,
-    termination,
-    truncatedFields,
-    lock === "timeout" ? validated.timeoutMs : undefined,
-  );
 }
 
 export function createBashTool(options: BashToolOptions): BashTool {
   return {
     name: "bash",
     description: BASH_DESCRIPTION,
+    promptSnippet: BASH_PROMPT_SNIPPET,
+    promptGuidelines: [...BASH_PROMPT_GUIDELINES],
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         command: {
           type: "string",
-          description: "Bash command passed as a single argv value to bash -c",
+          description: "Shell command to execute",
         },
-        cwd: {
-          type: "string",
-          description: "Optional execution directory relative to the Session cwd",
-        },
-        timeoutMs: {
-          type: "integer",
-          minimum: BASH_MIN_TIMEOUT_MS,
-          maximum: BASH_MAX_TIMEOUT_MS,
-          description: "Timeout in milliseconds; defaults to 120000",
-        },
-        env: {
-          type: "object",
-          additionalProperties: {
-            anyOf: [{ type: "string" }, { type: "null" }],
-          },
-          description: "Environment overlay; string sets a value and null deletes a key",
+        timeout: {
+          type: "number",
+          description: "Timeout in seconds (optional, no default timeout)",
         },
       },
       required: ["command"],
     },
     execute(input, signal) {
-      return executeBash(input, { ...options, ...(signal === undefined ? {} : { signal }) });
+      return executeBash(input, {
+        ...options,
+        ...(signal === undefined ? {} : { signal }),
+      });
     },
   };
 }

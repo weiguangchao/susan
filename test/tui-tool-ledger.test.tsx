@@ -364,7 +364,7 @@ describe("TUI Tool execution ledger", () => {
       { name: "read", invocationLabel: "src/link.ts", status: "completed", summary: "已读 1 行 · 19 B" },
       { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "Successfully wrote to /outside/report.txt" },
       { name: "edit", invocationLabel: "src/link.ts", status: "completed", summary: "Successfully replaced 1 block(s) in src/link.ts." },
-      { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "exit 7 · Command exited with a non-zero status." },
+      { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "Command exited with code 7" },
       { name: "grep", invocationLabel: "src · /needle/", status: "completed", summary: "2 matches" },
       { name: "find", invocationLabel: ". · **/*.ts", status: "completed", summary: "0 entries" },
       { name: "ls", invocationLabel: "src", status: "completed", summary: "2 entries" },
@@ -374,11 +374,13 @@ describe("TUI Tool execution ledger", () => {
     ]);
     expect(state.tools[6]?.supplementalLines).toEqual(["index.ts", "ui/"]);
     expect(state.tools[2]?.supplementalLines).toEqual(["-1 old", "+1 new"]);
-    expect(state.tools[3]?.supplementalLines).toContain("stdout (full) · tests started");
-    expect(state.tools[3]?.supplementalLines).toContain("stderr (full) · one failure");
-    expect(state.tools[3]?.supplementalLines).toContain(
-      "termination · process-group · graceful · cleanup confirmed",
-    );
+    expect(state.tools[3]?.supplementalLines).toEqual([
+      "tests started",
+      "file a",
+      "file b",
+      "one failure",
+      "Command exited with code 7",
+    ]);
     expect(state.tools[4]?.supplementalLines).toContain(
       'truncation · {"truncatedBy":["items","line-length"],"outputItems":2,"nextOffset":2}',
     );
@@ -424,9 +426,9 @@ describe("TUI Tool execution ledger", () => {
     expect(output).toContain("+1 new");
     expect(output).not.toContain('"fields":["diff"]');
     expect(output).toContain("bash · pnpm test");
-    expect(output).toContain("stdout (full) · tests started");
-    expect(output).toContain("stderr (full) · one failure");
-    expect(output).toContain("termination · process-group");
+    expect(output).toContain("tests started");
+    expect(output).toContain("one failure");
+    expect(output).toContain("Command exited with code 7");
     expect(output).toContain("grep · src · /needle/ · 2 matches");
     expect(output).toContain('truncation · {"truncatedBy":["items","line-length"]');
     expect(output).not.toContain("next arguments");

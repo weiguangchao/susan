@@ -213,19 +213,15 @@ export type {
 } from "./core/edit.js";
 export type { LineEnding } from "./core/text-file.js";
 export {
-  BASH_COMMAND_MAX_BYTES,
-  BASH_DEFAULT_TIMEOUT_MS,
-  BASH_KILL_GRACE_MS,
-  BASH_MAX_TIMEOUT_MS,
-  BASH_MIN_TIMEOUT_MS,
-  BASH_OUTPUT_BUDGET_BYTES,
+  BASH_PROMPT_GUIDELINES,
+  BASH_PROMPT_SNIPPET,
   createBashTool,
   executeBash,
 } from "./core/bash.js";
 export type {
-  BashTermination,
-  BashTerminationScope,
+  BashOperations,
   BashTool,
+  BashToolDetails,
   BashToolOptions,
 } from "./core/bash.js";
 export {

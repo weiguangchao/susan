@@ -56,31 +56,16 @@ export const canonicalToolFixtures = [
     call: {
       id: "bash-1",
       name: "bash",
-      arguments: { command: "pnpm test", cwd: "." },
+      arguments: { command: "pnpm test" },
     },
     result: {
-      content: [{ type: "text", text: "Command exited with a non-zero status." }],
-      details: {
-        resolvedPath: "/workspace",
-        realTargetPath: "/workspace",
-        cwdRelation: "inside",
-        exitCode: 7,
-        signal: null,
-        stdout: "tests started\n",
-        stderr: "one failure\n",
-        termination: {
-          scope: "process-group",
-          forced: false,
-          cleanupConfirmed: true,
-        },
-        truncation: {
-          truncatedBy: "bytes",
-          fields: ["stdout", "stderr"],
-        },
-      },
+      content: [{
+        type: "text",
+        text: "tests started\nfile a\nfile b\none failure\n\nCommand exited with code 7",
+      }],
     },
     isError: true,
-    summary: "exit 7 · Command exited with a non-zero status.",
+    summary: "Command exited with code 7",
   },
   {
     call: {

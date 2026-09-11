@@ -221,6 +221,8 @@ function readSummary(
   payload: Record<string, unknown> | undefined,
 ): string {
   const content = toolResultText(result.content);
+  const images = result.content.filter((block) => block.type === "image");
+  if (images.length) return `已读 ${images.length} 张图片 · ${images.map((block) => block.mimeType).join(", ")}`;
   const returnedLines = content === "" ? 0 : content.split("\n").length;
   const totalLines = numericField(payload, "totalLines");
   const lineSummary =

@@ -8,6 +8,9 @@ import type {
 } from "./session.js";
 import { toolResultText } from "./tool-result.js";
 
+// Fixed image estimate until provider usage supplies the next baseline.
+const ESTIMATED_IMAGE_TOKENS = 1200;
+
 export const RECENT_TAIL_TARGET_TOKENS = 20_000;
 
 export const COMPACTION_SUMMARY_PROMPT = `Update the rolling Session summary from the previous summary and the newly compacted transcript.
@@ -27,6 +30,7 @@ export function estimateMessageTokens(message: CompletionMessage): number {
   if (message.role === "tool") {
     return estimateTextTokens(message.toolCallId) +
       estimateTextTokens(toolResultText(message.content)) +
+      message.content.filter((block) => block.type === "image").length * ESTIMATED_IMAGE_TOKENS +
       (message.details === undefined
         ? 0
         : estimateTextTokens(JSON.stringify(message.details)));
@@ -164,7 +168,7 @@ export function serializeCompactionInput(
       }
       if (message.role === "tool") {
         // #96 临时适配：Compaction 整体移植 Pi 形态归 #101，这里仅保语义可用。
-        return `[Tool result ${message.toolCallId}]\n${toolResultText(message.content)}`;
+        return `[Tool result ${message.toolCallId}]\n${toolResultText(message.content)}${message.content.some((block) => block.type === "image") ? "\n[Image attachment]" : ""}`;
       }
       const parts = ["[Assistant]"];
       if (message.content !== undefined) {

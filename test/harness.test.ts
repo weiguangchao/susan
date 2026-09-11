@@ -213,6 +213,7 @@ describe("Harness", () => {
     expect(result).toEqual({ ok: true });
     expect(requests).toEqual([
       {
+        modelInput: ["text"],
         model: "deepseek-v4-flash",
         reasoningEffort: "medium",
         messages: [
@@ -328,6 +329,7 @@ describe("Harness", () => {
     });
     expect(requests).toEqual([
       {
+        modelInput: ["text"],
         model: "new-model",
         reasoningEffort: "low",
         messages: [

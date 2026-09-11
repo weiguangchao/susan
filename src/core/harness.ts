@@ -1,3 +1,4 @@
+import type { ModelInput, ToolExecutionContext } from "./provider.js";
 import {
   estimateMessageTokens,
   estimateMessagesTokens,
@@ -52,7 +53,7 @@ export function buildSystemPrompt(cwd: string): string {
 }
 
 export type HarnessTool = ProviderToolDefinition & {
-  execute(input: unknown, signal?: AbortSignal): Promise<ToolResult>;
+  execute(input: unknown, signal?: AbortSignal, context?: ToolExecutionContext): Promise<ToolResult>;
   readonly promptSnippet?: string;
   readonly promptGuidelines?: readonly string[];
 };
@@ -167,6 +168,7 @@ export type HarnessCommand =
       readonly type: "configure-model";
       readonly provider: ProviderClient;
       readonly model: string;
+      readonly modelInput?: ModelInput;
       readonly reasoningEffort: ReasoningEffort;
       readonly contextWindow: number;
       readonly maxOutputTokens: number;
@@ -200,6 +202,7 @@ export type HarnessOptions = {
   readonly sessionStore: SessionStore;
   readonly session: SessionTranscript;
   readonly model?: string;
+  readonly modelInput?: ModelInput;
   readonly reasoningEffort?: ReasoningEffort;
   readonly contextWindow: number;
   readonly maxOutputTokens: number;
@@ -389,6 +392,7 @@ export function createHarness(options: HarnessOptions): Harness {
   const random = options.random ?? Math.random;
   let provider = options.provider;
   let model = options.model;
+  let modelInput: ModelInput = options.modelInput ?? ["text"];
   let reasoningEffort = options.reasoningEffort;
   let contextWindow = options.contextWindow;
   let maxOutputTokens = options.maxOutputTokens;
@@ -570,6 +574,7 @@ export function createHarness(options: HarnessOptions): Harness {
     const complete = provider!.complete;
     const summaryRequest: ProviderRequest = {
       model: model!,
+      modelInput,
       reasoningEffort: reasoningEffort,
       messages: [
         {
@@ -719,6 +724,7 @@ export function createHarness(options: HarnessOptions): Harness {
     }
     const request: ProviderRequest = {
       model: model!,
+      modelInput,
       reasoningEffort: reasoningEffort,
       messages: [
         { role: "system", content: buildSystemPrompt(options.session.header.cwd) },
@@ -897,7 +903,7 @@ export function createHarness(options: HarnessOptions): Harness {
     );
     try {
       const outcome = await Promise.race([
-        tool.execute(toolCall.arguments, controller.signal).then(
+        tool.execute(toolCall.arguments, controller.signal, { modelInput }).then(
           (value) => ({ type: "result" as const, value }),
         ),
         clock
@@ -1113,6 +1119,7 @@ export function createHarness(options: HarnessOptions): Harness {
         }
         provider = command.provider;
         model = command.model;
+        modelInput = command.modelInput ?? ["text"];
         reasoningEffort = command.reasoningEffort;
         contextWindow = command.contextWindow;
         maxOutputTokens = command.maxOutputTokens;

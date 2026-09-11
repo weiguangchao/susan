@@ -1,3 +1,6 @@
+import { processImage } from "./image-process.js";
+import { detectSupportedImageMimeTypeFromFile } from "./mime.js";
+import type { ToolExecutionContext } from "./provider.js";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { isRecord, type JsonObject } from "./json.js";
@@ -17,10 +20,11 @@ export const READ_PROMPT_GUIDELINES = [
 ] as const;
 
 const READ_DESCRIPTION =
-  `Read the contents of a file. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`;
+  `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`;
 
 export type ReadToolOptions = {
   readonly sessionCwd: string;
+  readonly autoResizeImages?: boolean;
 };
 
 export type ReadToolDetails = {
@@ -36,6 +40,7 @@ export type ReadTool = {
   execute(
     input: unknown,
     signal?: AbortSignal,
+    context?: ToolExecutionContext,
   ): Promise<ToolResult<ReadToolDetails | undefined>>;
 };
 
@@ -83,7 +88,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 export async function executeRead(
   input: unknown,
-  options: ReadToolOptions & { readonly signal?: AbortSignal },
+  options: ReadToolOptions & { readonly signal?: AbortSignal; readonly context?: ToolExecutionContext },
 ): Promise<ToolResult<ReadToolDetails | undefined>> {
   const { path, offset, limit } = validateArguments(input);
   const signal = options.signal;
@@ -94,11 +99,30 @@ export async function executeRead(
     throwIfAborted(signal);
     await access(absolutePath, constants.R_OK);
     throwIfAborted(signal);
+    const mimeType = await detectSupportedImageMimeTypeFromFile(absolutePath);
+    throwIfAborted(signal);
     const buffer = await readFile(
       absolutePath,
       signal === undefined ? {} : { signal },
     );
     throwIfAborted(signal);
+
+    if (mimeType) {
+      const processed = await processImage(buffer, mimeType, { autoResizeImages: options.autoResizeImages });
+      throwIfAborted(signal);
+      let text = `Read image file [${processed.ok ? processed.mimeType : mimeType}]`;
+      if (processed.ok && processed.hints.length) text += `\n${processed.hints.join("\n")}`;
+      if (!processed.ok) text += `\n${processed.message}`;
+      if (options.context?.modelInput && !options.context.modelInput.includes("image")) {
+        text += "\n[Current model does not support images. The image will be omitted from this request.]";
+      }
+      return {
+        content: processed.ok
+          ? [{ type: "text", text }, { type: "image", data: processed.data, mimeType: processed.mimeType }]
+          : [{ type: "text", text }],
+        details: undefined,
+      };
+    }
 
     const textContent = buffer.toString("utf-8");
     const allLines = textContent.split("\n");
@@ -190,9 +214,10 @@ export function createReadTool(options: ReadToolOptions): ReadTool {
       },
       required: ["path"],
     },
-    execute(input, signal) {
+    execute(input, signal, context) {
       return executeRead(input, {
         ...options,
+        context,
         ...(signal === undefined ? {} : { signal }),
       });
     },

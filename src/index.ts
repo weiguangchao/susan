@@ -137,6 +137,8 @@ export type {
   ProviderClient,
   ProviderFailure,
   ProviderRequest,
+  ModelInput,
+  ToolExecutionContext,
   ProviderResponse,
   ProviderStreamEvent,
   ProviderToolCall,

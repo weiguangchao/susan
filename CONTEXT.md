@@ -41,8 +41,12 @@ Susan 面向本地 coding agent 场景提供的七个模型侧 Tool：`read`、`
 _Avoid_: tool pack, Pi-compatible tools
 
 **Read Tool**:
-Built-in Tool Set 中按路径分页读取 UTF-8 regular file 的 Tool；模型侧名称为 `read`，不保留 `read_file` alias。
+Built-in Tool Set 中按路径分页读取文本或读取图片附件的 Tool；模型侧名称为 `read`，不保留 `read_file` alias。
 _Avoid_: Read File Tool, file reader, cat tool
+
+**Image Content**:
+Tool Result 中供支持视觉输入的模型消费的图片附件；随 Session Transcript 保留，切换到不支持图片的模型时从 Provider 请求中省略。
+_Avoid_: image text, binary output
 
 **Write Tool**:
 Built-in Tool Set 中创建或完整覆盖一个 UTF-8 regular file 的 Tool；不提供 append 或权限修改模式。

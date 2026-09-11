@@ -71,7 +71,11 @@ export type ProviderToolDefinition = {
   parameters: JsonObject;
 };
 
+export type ModelInput = readonly ("text" | "image")[];
+export type ToolExecutionContext = { readonly modelInput?: ModelInput };
+
 export type ProviderRequest = {
+  modelInput?: ModelInput;
   model: string;
   reasoningEffort?: ReasoningEffort;
   messages: readonly CompletionMessage[];

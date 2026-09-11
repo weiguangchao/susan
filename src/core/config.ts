@@ -42,6 +42,7 @@ const providerAliasSchema = z
   );
 
 const modelEntrySchema = z.strictObject({
+  input: z.array(z.enum(["text", "image"])).min(1).optional(),
   id: z.string().min(1),
   contextWindow: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),
@@ -96,6 +97,7 @@ export type ProviderConfigEntry = z.input<typeof providerEntrySchema>;
 export type Config = z.input<typeof configSchema>;
 
 export type ResolvedModelEntry = {
+  input?: readonly ("text" | "image")[];
   id: string;
   contextWindow?: number;
   maxOutputTokens?: number;
@@ -109,6 +111,7 @@ export type ResolvedProviderEntry = {
 };
 
 export type ActiveModelConfiguration = {
+  modelInput?: readonly ("text" | "image")[];
   providerAlias: string;
   provider: ResolvedProviderConfig;
   model: string;
@@ -622,6 +625,7 @@ export function resolveConfig(
           providerAlias: parsed.defaultProvider,
           provider: resolvedProvider!,
           model: parsed.defaultModel,
+          modelInput: selectedModel?.input,
           reasoningEffort: parsed.defaultReasoningEffort,
           contextWindow:
             selectedModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,

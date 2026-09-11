@@ -78,12 +78,7 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   edit: {
-    summary: (result, payload) => {
-      const edits = numericField(payload, "editsApplied") ?? 0;
-      const replacements = numericField(payload, "replacementsApplied") ?? 0;
-      const bytes = numericField(payload, "bytesWritten") ?? 0;
-      return `${edits} ${plural(edits, "edit")} · ${replacements} ${plural(replacements, "replacement")} · ${formatNumber(bytes)} B`;
-    },
+    summary: (result) => toolResultText(result.content) || "completed",
     supplementalLines: (result, payload) => {
       const diff = stringField(payload, "diff");
       return diff === undefined || diff === "" ? [] : diff.split("\n");

@@ -38,30 +38,19 @@ export const canonicalToolFixtures = [
       name: "edit",
       arguments: {
         path: "src/link.ts",
-        edits: [{ oldText: "old", newText: "new", replaceAll: true }],
+        edits: [{ oldText: "old", newText: "new" }],
       },
     },
     result: {
-      content: [{ type: "text", text: "Successfully replaced 1 block(s) in /workspace/src/real.ts." }],
+      content: [{ type: "text", text: "Successfully replaced 1 block(s) in src/link.ts." }],
       details: {
-        resolvedPath: "/workspace/src/real.ts",
-        realTargetPath: "/workspace/src/real.ts",
-        cwdRelation: "inside",
-        editsApplied: 1,
-        replacementsApplied: 2,
-        bytesWritten: 24,
-        bom: false,
-        lineEnding: "lf",
-        detachedHardLinks: false,
-        diff: "@@ -1 +1 @@\n-old\n+new",
-        truncation: {
-          truncatedBy: "bytes",
-          fields: ["diff"],
-        },
+        diff: "-1 old\n+1 new",
+        patch: "--- src/link.ts\n+++ src/link.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        firstChangedLine: 1,
       },
     },
     isError: false,
-    summary: "1 edit · 2 replacements · 24 B",
+    summary: "Successfully replaced 1 block(s) in src/link.ts.",
   },
   {
     call: {

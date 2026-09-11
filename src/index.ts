@@ -200,14 +200,13 @@ export type {
   WriteToolOptions,
 } from "./core/write.js";
 export {
-  EDIT_DEFAULT_TIMEOUT_MS,
-  EDIT_MAX_CONTENT_BYTES,
-  EDIT_MAX_EDITS,
+  EDIT_PROMPT_SNIPPET,
+  EDIT_PROMPT_GUIDELINES,
   createEditTool,
   executeEdit,
 } from "./core/edit.js";
 export type {
-  EditLineEnding,
+  EditOperations,
   EditTool,
   EditToolDetails,
   EditToolOptions,

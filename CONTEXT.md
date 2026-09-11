@@ -53,7 +53,7 @@ Built-in Tool Set 中创建或完整覆盖一个 UTF-8 regular file 的 Tool；�
 _Avoid_: file writer, append tool
 
 **Edit Tool**:
-Built-in Tool Set 中对一个 UTF-8 regular file 执行一批精确文本替换的 Tool；整批 replacement 先基于原内容验证，再一次提交。
+Built-in Tool Set 中对一个文件执行一批定向文本替换的 Tool；优先精确匹配，必要时使用规范化后的模糊匹配，整批替换基于原内容验证唯一性与不重叠性后写回。
 _Avoid_: patch tool, fuzzy editor, replace tool
 
 **Bash Tool**:

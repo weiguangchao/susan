@@ -28,19 +28,9 @@ export const canonicalToolFixtures = [
     },
     result: {
       content: [{ type: "text", text: "Successfully wrote to /outside/report.txt" }],
-      details: {
-        resolvedPath: "/outside/report.txt",
-        realTargetPath: "/outside/report.txt",
-        cwdRelation: "outside",
-        operation: "overwritten",
-        bytesWritten: 12,
-        bom: false,
-        lineEnding: "lf",
-        detachedHardLinks: false,
-      },
     },
     isError: false,
-    summary: "overwritten · 12 B · outside cwd",
+    summary: "Successfully wrote to /outside/report.txt",
   },
   {
     call: {

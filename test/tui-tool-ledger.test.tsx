@@ -362,7 +362,7 @@ describe("TUI Tool execution ledger", () => {
       summary,
     }))).toEqual([
       { name: "read", invocationLabel: "src/link.ts", status: "completed", summary: "已读 1 行 · 19 B" },
-      { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "overwritten · 12 B · outside cwd" },
+      { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "Successfully wrote to /outside/report.txt" },
       { name: "edit", invocationLabel: "src/real.ts", status: "completed", summary: "1 edit · 2 replacements · 24 B" },
       { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "exit 7 · Command exited with a non-zero status." },
       { name: "grep", invocationLabel: "src · /needle/", status: "completed", summary: "2 matches" },

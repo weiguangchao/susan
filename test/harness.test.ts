@@ -1398,7 +1398,6 @@ describe("Harness", () => {
         content: [
           { type: "text", text: `Successfully wrote to ${path}` },
         ],
-        details: { resolvedPath: path, operation: "created", bytesWritten: 8 },
       });
       await expect(readFile(path, "utf8")).resolves.toBe("created\n");
     } finally {

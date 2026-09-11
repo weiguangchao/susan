@@ -5,8 +5,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
-  realpath,
   rm,
   stat,
   symlink,
@@ -16,12 +14,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  WRITE_MAX_CONTENT_BYTES,
+  WRITE_PROMPT_GUIDELINES,
+  WRITE_PROMPT_SNIPPET,
   createWriteTool,
+  type ToolResult,
   type WriteTool,
 } from "../src/index.js";
 
 const POSIX = process.platform !== "win32";
+
+const WRITE_DESCRIPTION =
+  "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.";
+
+function textOf(result: ToolResult): string {
+  const block = result.content[0];
+  if (block === undefined || block.type !== "text") {
+    throw new Error("expected a text content block");
+  }
+  return block.text;
+}
 
 describe("Write Tool", () => {
   let sessionCwd: string;
@@ -36,62 +47,71 @@ describe("Write Tool", () => {
     await rm(sessionCwd, { force: true, recursive: true });
   });
 
-  it("creates a UTF-8 regular file with the exact content", async () => {
+  it("exposes the Pi write definition", () => {
+    expect(tool).toMatchObject({
+      name: "write",
+      description: WRITE_DESCRIPTION,
+      promptSnippet: WRITE_PROMPT_SNIPPET,
+      promptGuidelines: WRITE_PROMPT_GUIDELINES,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: {
+            type: "string",
+            description: "Path to the file to write (relative or absolute)",
+          },
+          content: {
+            type: "string",
+            description: "Content to write to the file",
+          },
+        },
+        required: ["path", "content"],
+      },
+    });
+    expect(WRITE_PROMPT_SNIPPET).toBe("Create or overwrite files");
+    expect(WRITE_PROMPT_GUIDELINES).toEqual([
+      "Use write only for new files or complete rewrites.",
+    ]);
+  });
+
+  it("creates a UTF-8 file with the exact content and reports the input path", async () => {
     const path = join(sessionCwd, "notes.txt");
 
     const result = await tool.execute({ path, content: "first\nsecond" });
 
     expect(result).toEqual({
       content: [{ type: "text", text: `Successfully wrote to ${path}` }],
-      details: {
-        resolvedPath: path,
-        realTargetPath: await realpath(path),
-        cwdRelation: "inside",
-        operation: "created",
-        bytesWritten: 12,
-        bom: false,
-        lineEnding: "lf",
-        detachedHardLinks: false,
-      },
+      details: undefined,
     });
     await expect(readFile(path, "utf8")).resolves.toBe("first\nsecond");
   });
 
-  it("exposes a strict write({ path, content }) definition", () => {
-    expect(tool).toMatchObject({
-      name: "write",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          path: { type: "string" },
-          content: { type: "string" },
-        },
-        required: ["path", "content"],
-      },
-    });
+  it("writes empty content and a missing trailing newline as-is", async () => {
+    const empty = join(sessionCwd, "empty.txt");
+    const none = join(sessionCwd, "none.txt");
+
+    expect(textOf(await tool.execute({ path: empty, content: "" }))).toBe(
+      `Successfully wrote to ${empty}`,
+    );
+    expect(textOf(await tool.execute({ path: none, content: "a\nb" }))).toBe(
+      `Successfully wrote to ${none}`,
+    );
+    await expect(readFile(empty)).resolves.toEqual(Buffer.alloc(0));
+    await expect(readFile(none, "utf8")).resolves.toBe("a\nb");
   });
 
-  it("writes BOM only from a leading U+FEFF and reports line endings", async () => {
+  it("writes BOM, LF, CRLF, and mixed endings without rewriting them", async () => {
     const cases = [
-      ["empty.txt", "", false, "none"],
-      ["bom.txt", "\uFEFFhello\r\n", true, "crlf"],
-      ["embedded.txt", `a\uFEFFb\n`, false, "lf"],
-      ["mixed.txt", "a\r\nb\n", false, "mixed"],
+      ["bom.txt", "\uFEFFhello\r\n"],
+      ["lf.txt", "a\nb\n"],
+      ["crlf.txt", "a\r\nb\r\n"],
+      ["mixed.txt", "a\r\nb\n"],
     ] as const;
 
-    for (const [name, content, bom, lineEnding] of cases) {
+    for (const [name, content] of cases) {
       const path = join(sessionCwd, name);
-      const result = await tool.execute({ path, content });
-
-      expect(result).toMatchObject({
-        content: [{ type: "text", text: `Successfully wrote to ${path}` }],
-        details: {
-          bytesWritten: Buffer.byteLength(content, "utf8"),
-          bom,
-          lineEnding,
-        },
-      });
+      await tool.execute({ path, content });
       await expect(readFile(path)).resolves.toEqual(Buffer.from(content, "utf8"));
     }
   });
@@ -107,16 +127,12 @@ describe("Write Tool", () => {
         content: "nested",
       });
 
-      expect(result).toMatchObject({
+      expect(result).toEqual({
         content: [{
           type: "text",
-          text: `Successfully wrote to ${join(sessionCwd, "nested/deep/notes.txt")}`,
+          text: "Successfully wrote to nested/deep/notes.txt",
         }],
-        details: {
-          resolvedPath: join(sessionCwd, "nested/deep/notes.txt"),
-          cwdRelation: "inside",
-          operation: "created",
-        },
+        details: undefined,
       });
       await expect(
         readFile(join(sessionCwd, "nested/deep/notes.txt"), "utf8"),
@@ -135,12 +151,11 @@ describe("Write Tool", () => {
     const expectedDirectoryMode = (await stat(probeDirectory)).mode & 0o777;
     const expectedFileMode = (await stat(probeFile)).mode & 0o777;
 
-    const result = await tool.execute({
+    await tool.execute({
       path: "new-parent/new-file",
       content: "created",
     });
 
-    expect(result.details?.operation).toBe("created");
     expect((await stat(join(sessionCwd, "new-parent"))).mode & 0o777).toBe(
       expectedDirectoryMode,
     );
@@ -149,7 +164,7 @@ describe("Write Tool", () => {
     );
   });
 
-  it.skipIf(!POSIX)("preserves mode and detaches hard links on overwrite", async () => {
+  it.skipIf(!POSIX)("overwrites in place and keeps hard links sharing content", async () => {
     const path = join(sessionCwd, "script.sh");
     const otherPath = join(sessionCwd, "other.sh");
     await writeFile(path, "old\n", { mode: 0o755 });
@@ -159,18 +174,15 @@ describe("Write Tool", () => {
 
     const result = await tool.execute({ path, content: "new\n" });
 
-    expect(result).toMatchObject({
-      details: {
-        operation: "overwritten",
-        bytesWritten: 4,
-        detachedHardLinks: true,
-      },
+    expect(result).toEqual({
+      content: [{ type: "text", text: `Successfully wrote to ${path}` }],
+      details: undefined,
     });
     expect((await stat(path)).mode & 0o777).toBe(0o755);
-    expect((await stat(path)).ino).not.toBe(before.ino);
+    expect((await stat(path)).ino).toBe(before.ino);
     expect((await stat(otherPath)).ino).toBe(before.ino);
     await expect(readFile(path, "utf8")).resolves.toBe("new\n");
-    await expect(readFile(otherPath, "utf8")).resolves.toBe("old\n");
+    await expect(readFile(otherPath, "utf8")).resolves.toBe("new\n");
   });
 
   it("writes outside cwd and follows an existing parent symlink", async () => {
@@ -188,12 +200,12 @@ describe("Write Tool", () => {
         content: "outside",
       });
 
-      expect(result).toMatchObject({
-        details: {
-          resolvedPath: join(linkedParent, "created.txt"),
-          realTargetPath: join(await realpath(outside), "created.txt"),
-          cwdRelation: "outside",
-        },
+      expect(result).toEqual({
+        content: [{
+          type: "text",
+          text: "Successfully wrote to linked/created.txt",
+        }],
+        details: undefined,
       });
       await expect(readFile(join(outside, "created.txt"), "utf8")).resolves.toBe(
         "outside",
@@ -203,173 +215,117 @@ describe("Write Tool", () => {
     }
   });
 
-  it("rejects final symlinks, including dangling symlinks", async () => {
+  it("follows a final symlink and overwrites the target", async () => {
     const target = join(sessionCwd, "target.txt");
     const linked = join(sessionCwd, "linked.txt");
-    const dangling = join(sessionCwd, "dangling.txt");
     await writeFile(target, "kept");
     await symlink(
       target,
       linked,
       process.platform === "win32" ? "file" : undefined,
     );
+
+    const result = await tool.execute({ path: linked, content: "replaced" });
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `Successfully wrote to ${linked}` }],
+      details: undefined,
+    });
+    expect((await lstat(linked)).isSymbolicLink()).toBe(true);
+    await expect(readFile(target, "utf8")).resolves.toBe("replaced");
+    await expect(readFile(linked, "utf8")).resolves.toBe("replaced");
+  });
+
+  it("follows a dangling symlink and creates the target file", async () => {
+    const target = join(sessionCwd, "missing.txt");
+    const dangling = join(sessionCwd, "dangling.txt");
     await symlink(
-      join(sessionCwd, "missing.txt"),
+      target,
       dangling,
       process.platform === "win32" ? "file" : undefined,
     );
 
-    await expect(tool.execute({ path: linked, content: "nope" })).rejects.toThrow(
-      "Final path component is a symlink.",
-    );
-    await expect(
-      tool.execute({ path: dangling, content: "nope" }),
-    ).rejects.toThrow("Final path component is a symlink.");
-    await expect(readFile(target, "utf8")).resolves.toBe("kept");
+    await tool.execute({ path: dangling, content: "created" });
+
     expect((await lstat(dangling)).isSymbolicLink()).toBe(true);
+    await expect(readFile(target, "utf8")).resolves.toBe("created");
   });
 
-  it("returns a path error when an existing parent component is not a directory", async () => {
+  it("strips a leading @ from the path", async () => {
+    const result = await tool.execute({ path: "@at.txt", content: "at-file" });
+    expect(textOf(result)).toBe("Successfully wrote to @at.txt");
+    await expect(readFile(join(sessionCwd, "at.txt"), "utf8")).resolves.toBe(
+      "at-file",
+    );
+  });
+
+  it("normalizes unicode spaces in the path", async () => {
+    await tool.execute({ path: "file\u00A0name.txt", content: "spaced" });
+    await expect(
+      readFile(join(sessionCwd, "file name.txt"), "utf8"),
+    ).resolves.toBe("spaced");
+  });
+
+  it("writes content larger than 10 MiB", async () => {
+    const path = join(sessionCwd, "large.txt");
+    const content = "a".repeat(10 * 1024 * 1024 + 1);
+
+    const result = await tool.execute({ path, content });
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `Successfully wrote to ${path}` }],
+      details: undefined,
+    });
+    await expect(readFile(path, "utf8")).resolves.toBe(content);
+  });
+
+  it("serializes concurrent writes to the same path", async () => {
+    const path = join(sessionCwd, "raced.txt");
+
+    await Promise.all([
+      tool.execute({ path, content: "first" }),
+      tool.execute({ path, content: "second" }),
+    ]);
+
+    const written = await readFile(path, "utf8");
+    expect(written === "first" || written === "second").toBe(true);
+  });
+
+  it("rejects unknown fields and illegal argument types", async () => {
+    await expect(tool.execute("nope")).rejects.toThrow("Invalid write arguments.");
+    await expect(tool.execute({ path: 1, content: "x" })).rejects.toThrow(
+      "Invalid write arguments.",
+    );
+    await expect(tool.execute({ path: "a.txt" })).rejects.toThrow(
+      "Invalid write arguments.",
+    );
+    await expect(
+      tool.execute({ path: "a.txt", content: "x", extra: true }),
+    ).rejects.toThrow("Invalid write arguments.");
+  });
+
+  it("throws Node errors for directory and non-directory parent paths", async () => {
+    const directory = join(sessionCwd, "directory");
     const parent = join(sessionCwd, "file-parent");
+    await mkdir(directory);
     await writeFile(parent, "not a directory");
 
     await expect(
+      tool.execute({ path: directory, content: "nope" }),
+    ).rejects.toMatchObject({ code: "EISDIR" });
+    await expect(
       tool.execute({ path: join(parent, "child.txt"), content: "nope" }),
-    ).rejects.toThrow("Path syntax is invalid.");
+    ).rejects.toMatchObject({ code: "EEXIST" });
   });
 
-  it("uses stable schema, path, type, size, and binary errors in precedence order", async () => {
-    const directory = join(sessionCwd, "directory");
-    await mkdir(directory);
-    const oversizedBinary = `\0${"a".repeat(WRITE_MAX_CONTENT_BYTES)}`;
-
-    await expect(
-      tool.execute({ path: directory, content: oversizedBinary, extra: true }),
-    ).rejects.toThrow("Invalid write arguments.");
-    await expect(
-      tool.execute({ path: "", content: oversizedBinary }),
-    ).rejects.toThrow("Path syntax is invalid.");
-    await expect(
-      tool.execute({ path: directory, content: oversizedBinary }),
-    ).rejects.toThrow("Path is a directory.");
-    await expect(
-      tool.execute({ path: "large.txt", content: oversizedBinary }),
-    ).rejects.toThrow("Content exceeds the 10 MiB size limit.");
-    await expect(
-      tool.execute({ path: "binary.txt", content: "a\0b" }),
-    ).rejects.toThrow("Content must be valid UTF-8 text without NUL bytes.");
-    await expect(
-      tool.execute({ path: "invalid-unicode.txt", content: "\uD800" }),
-    ).rejects.toThrow("Content must be valid UTF-8 text without NUL bytes.");
-  });
-
-  it.skipIf(!POSIX)("rejects special-file targets", async () => {
-    await expect(
-      tool.execute({ path: "/dev/null", content: "nope" }),
-    ).rejects.toThrow("Path is not a regular file.");
-  });
-
-  it("detects a target conflict before commit and leaves external content", async () => {
-    const path = join(sessionCwd, "raced.txt");
-    await writeFile(path, "original");
-    tool = createWriteTool({
-      sessionCwd,
-      replacementHooks: {
-        afterFlush: async () => {
-          await writeFile(path, "external");
-        },
-      },
-    });
-
-    await expect(tool.execute({ path, content: "replacement" })).rejects.toThrow(
-      "Target changed before commit.",
-    );
-    await expect(readFile(path, "utf8")).resolves.toBe("external");
-  });
-
-  it("cancels before commit without changing the target or leaving a temporary file", async () => {
-    const path = join(sessionCwd, "cancelled.txt");
-    await writeFile(path, "original");
+  it("maps an already-aborted signal to Operation aborted", async () => {
+    const path = join(sessionCwd, "abort.txt");
     const controller = new AbortController();
-    tool = createWriteTool({
-      sessionCwd,
-      replacementHooks: {
-        afterFlush: async () => {
-          controller.abort();
-        },
-      },
-    });
+    controller.abort();
 
     await expect(
-      tool.execute({ path, content: "replacement" }, controller.signal),
-    ).rejects.toThrow("File replacement was cancelled.");
-    await expect(readFile(path, "utf8")).resolves.toBe("original");
-    await expect(readdir(sessionCwd)).resolves.toEqual(["cancelled.txt"]);
-  });
-
-  it("times out before commit without changing the target", async () => {
-    const path = join(sessionCwd, "timeout.txt");
-    await writeFile(path, "original");
-    tool = createWriteTool({
-      sessionCwd,
-      timeoutMs: 250,
-      replacementHooks: {
-        afterFlush: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 300));
-        },
-      },
-    });
-
-    await expect(tool.execute({ path, content: "replacement" })).rejects.toThrow(
-      "File replacement timed out.",
-    );
-    await expect(readFile(path, "utf8")).resolves.toBe("original");
-  });
-
-  it("reports success when cancellation arrives after the replace commit", async () => {
-    const path = join(sessionCwd, "committed.txt");
-    const controller = new AbortController();
-    tool = createWriteTool({
-      sessionCwd,
-      replacementHooks: {
-        afterReplace: async () => {
-          controller.abort();
-        },
-      },
-    });
-
-    const result = await tool.execute(
-      { path, content: "committed" },
-      controller.signal,
-    );
-
-    expect(result).toMatchObject({
-      details: { operation: "created", bytesWritten: 9 },
-    });
-    await expect(readFile(path, "utf8")).resolves.toBe("committed");
-  });
-
-  it("preserves the primary error and reports temporary residue", async () => {
-    const path = join(sessionCwd, "residue.txt");
-    await writeFile(path, "original");
-    let temporaryPath: string | undefined;
-    tool = createWriteTool({
-      sessionCwd,
-      replacementHooks: {
-        afterFlush: async () => {
-          await writeFile(path, "external");
-        },
-        unlinkTemporary: async (pathToRemove) => {
-          temporaryPath = pathToRemove;
-          throw Object.assign(new Error("busy"), { code: "EBUSY" });
-        },
-      },
-    });
-
-    await expect(tool.execute({ path, content: "replacement" })).rejects.toThrow(
-      "Target changed before commit.",
-    );
-    await expect(readFile(path, "utf8")).resolves.toBe("external");
-    await expect(readFile(temporaryPath!, "utf8")).resolves.toBe("replacement");
+      tool.execute({ path, content: "nope" }, controller.signal),
+    ).rejects.toThrow("Operation aborted");
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

@@ -72,8 +72,10 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   write: {
-    summary: (result, payload) =>
-      `${stringField(payload, "operation") ?? "completed"} · ${formatNumber(numericField(payload, "bytesWritten") ?? 0)} B`,
+    summary: (result) => {
+      const text = toolResultText(result.content);
+      return text === "" ? "completed" : text;
+    },
   },
   edit: {
     summary: (result, payload) => {

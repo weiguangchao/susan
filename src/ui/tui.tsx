@@ -722,10 +722,31 @@ export function ToolLedgerView({
   );
 }
 
-const THINK_LABEL = "Think...";
+const THINK_LABEL = "Thinking";
+const WORKING_LABEL = "Working";
+export const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"] as const;
+
+function workingSpinnerFrame(phase: number): string {
+  return WORKING_SPINNER_FRAMES[phase % WORKING_SPINNER_FRAMES.length]!;
+}
 
 function thinkDurationLabel(durationMs: number): string {
   return `Think · ${(durationMs / 1000).toFixed(1)} 秒`;
+}
+
+function WorkingActivityLabel({
+  label,
+  phase,
+}: {
+  readonly label: string;
+  readonly phase: number;
+}) {
+  return (
+    <Text bold wrap="truncate-end">
+      <Text color="cyan">{workingSpinnerFrame(phase)} </Text>
+      {label}
+    </Text>
+  );
 }
 
 function StreamView({
@@ -740,18 +761,13 @@ function StreamView({
   const text = stream?.text ?? "";
   const thinking = stream !== null && text === "" && state.status === "running" &&
     state.retry === null && state.failure === null && !state.awaitingModelAfterTools;
-  const phase = useActivityPhase(thinking || state.awaitingModelAfterTools);
-  const activityLabel = state.awaitingModelAfterTools ? "Next moving..." : THINK_LABEL;
+  const active = thinking || state.awaitingModelAfterTools;
+  const phase = useActivityPhase(active);
+  const activityLabel = state.awaitingModelAfterTools ? WORKING_LABEL : THINK_LABEL;
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {state.awaitingModelAfterTools || thinking ? (
-        <Text bold wrap="truncate-end">
-          {[...activityLabel].map((character, index) => (
-            <Text key={index} color={workingColorAt(index, phase)}>
-              {character}
-            </Text>
-          ))}
-        </Text>
+      {active ? (
+        <WorkingActivityLabel label={activityLabel} phase={phase} />
       ) : reasoning === "" ? null : (
         <Text dimColor wrap="truncate-end">
           {thinkDurationLabel(
@@ -1059,22 +1075,6 @@ export function InputLine({
       </Box>
     </Box>
   );
-}
-
-const WORKING_PALETTE = [
-  "#42646c",
-  "#568894",
-  "#73b9ca",
-  "#bdf5ff",
-  "#73b9ca",
-  "#568894",
-] as const;
-
-export function workingColorAt(index: number, phase: number): string {
-  const colorIndex =
-    ((index - phase) % WORKING_PALETTE.length + WORKING_PALETTE.length) %
-    WORKING_PALETTE.length;
-  return WORKING_PALETTE[colorIndex]!;
 }
 
 export function StatusBar({ state }: { readonly state: TuiState }) {

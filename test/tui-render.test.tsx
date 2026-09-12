@@ -17,7 +17,7 @@ import type {
   TuiToolCard,
 } from "../src/index";
 import { createHarness, createTuiState, TuiApp } from "../src/index";
-import { ActivityLine, SessionContentView, ToolLineView } from "../src/ui/tui";
+import { ActivityLine, SessionContentView, ToolLineView, WORKING_SPINNER_FRAMES } from "../src/ui/tui";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
@@ -694,7 +694,7 @@ describe("TUI Tool rendering", () => {
     await instance.waitUntilRenderFlush();
     const running = latestVisibleFrame(frames);
     expect(running).not.toContain("read · /tmp/example.txt");
-    expect(running).toContain("Next moving...");
+    expect(running).toContain("Working");
     expect(running).not.toContain("执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
 
@@ -772,7 +772,7 @@ describe("TUI Tool rendering", () => {
     emit({ type: "tool-started", toolCall });
     await flushEffects();
     await instance.waitUntilRenderFlush();
-    expect(latestVisibleFrame(frames)).toContain("Next moving...");
+    expect(latestVisibleFrame(frames)).toContain("Working");
 
     frames.length = 0;
     emit({
@@ -821,7 +821,9 @@ describe("TUI reasoning rendering", () => {
       emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
       await flushEffects();
       await instance.waitUntilRenderFlush();
-      expect(latestVisibleFrame(frames)).toContain("Think...");
+      expect(
+        WORKING_SPINNER_FRAMES.some((frame) => latestVisibleFrame(frames).includes(`${frame} Thinking`)),
+      ).toBe(true);
       await flushEffects();
       const animationCall = intervals.mock.calls.findIndex((call) => call[1] === 180);
       expect(animationCall).toBeGreaterThanOrEqual(0);
@@ -833,7 +835,9 @@ describe("TUI reasoning rendering", () => {
       const answerFrame = latestVisibleFrame(frames);
       expect(answerFrame).toContain("这是结论");
       expect(answerFrame).toContain("先检查项目结构");
-      expect(answerFrame).not.toContain("Think...");
+      expect(
+        WORKING_SPINNER_FRAMES.some((frame) => answerFrame.includes(`${frame} Thinking`)),
+      ).toBe(false);
       expect(answerFrame).toMatch(/Think · \d+\.\d 秒/);
       await flushEffects();
       expect(clearInterval).toHaveBeenCalledWith(animationTimer);

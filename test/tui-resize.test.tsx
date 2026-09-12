@@ -4,6 +4,7 @@ import { render } from "ink";
 import { describe, expect, it } from "vitest";
 import type { Harness, HarnessEvent, HarnessSnapshot } from "../src/index";
 import { TuiApp } from "../src/index";
+import { WORKING_SPINNER_FRAMES } from "../src/ui/tui";
 import { createTuiOutput } from "../src/ui/terminal-output";
 
 function terminalInput(): NodeJS.ReadStream {
@@ -115,6 +116,14 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
+function isWorkingActivityLine(line: string, label: string): boolean {
+  return WORKING_SPINNER_FRAMES.some((frame) => line.trim() === `${frame} ${label}`);
+}
+
+function workingActivityRow(lines: readonly string[], label: string): number {
+  return lines.findIndex((line) => isWorkingActivityLine(line, label));
+}
+
 async function flushEffects(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
@@ -154,20 +163,20 @@ describe("TUI terminal resize", () => {
         terminal.buffer.active.getLine(i)?.translateToString(true).trim() ?? "");
     }
     try {
-      expect((await screen()).join("\n")).not.toContain("Next moving...");
+      expect((await screen()).some((line) => isWorkingActivityLine(line, "Working"))).toBe(false);
       const toolCall = { id: "call", name: "read", arguments: { path: "README.md" } };
       emit({ type: "reasoning-delta", textDelta: "先检查" });
       emit({ type: "tool-call-delta", index: 0, id: "call", name: "read", argumentsDelta: '{"path":"README.md"}' });
       let generating = await screen();
-      expect(generating).toContain("Think...");
+      expect(generating.some((line) => isWorkingActivityLine(line, "Thinking"))).toBe(true);
       expect(generating.join("\n")).not.toContain("README.md");
       emit({ type: "tool-started", toolCall });
-      expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
+      expect((await screen()).filter((line) => isWorkingActivityLine(line, "Working"))).toHaveLength(1);
       emit({ type: "tool-completed", toolCall, result: { content: [{ type: "text", text: "retained result" }] }, isError: false });
-      expect((await screen()).filter(line => line === "Next moving...")).toHaveLength(1);
+      expect((await screen()).filter((line) => isWorkingActivityLine(line, "Working"))).toHaveLength(1);
       emit({ type: "tool-batch-completed", toolCalls: [toolCall] });
       let lines = await screen();
-      let waitingRow = lines.indexOf("Next moving...");
+      let waitingRow = workingActivityRow(lines, "Working");
       const reasoningRow = lines.indexOf("先检查");
       expect(reasoningRow).toBeGreaterThan(-1);
       expect(lines[reasoningRow + 1]).toBe("");
@@ -181,22 +190,22 @@ describe("TUI terminal resize", () => {
         stdout.rows = rows;
         stdout.emit("resize");
         lines = await screen();
-        expect(lines.filter(line => line === "Next moving...")).toHaveLength(1);
+        expect(lines.filter((line) => isWorkingActivityLine(line, "Working"))).toHaveLength(1);
         expect(lines.filter(line => line.includes("retained result"))).toHaveLength(1);
       }
-      waitingRow = lines.indexOf("Next moving...");
+      waitingRow = workingActivityRow(lines, "Working");
       if (process.env.FORCE_COLOR === "3") {
         const label = terminal.buffer.active.getLine(waitingRow)!;
         expect(label.getCell(1)?.isBold()).toBeTruthy();
-        expect(new Set(Array.from({ length: 14 }, (_, i) => label.getCell(i + 1)?.getFgColor())).size).toBeGreaterThan(1);
+        expect(new Set(Array.from({ length: "Working".length }, (_, i) => label.getCell(i + 3)?.getFgColor())).size).toBe(1);
       }
       emit(event);
       lines = await screen();
-      if (event.type === "reasoning-delta") expect(lines.indexOf("Think...")).toBe(waitingRow);
+      if (event.type === "reasoning-delta") expect(workingActivityRow(lines, "Thinking")).toBe(waitingRow);
       if (event.type === "text-delta") expect(lines).toContain("直接回答▍");
-      expect(lines.filter(line => line === "Next moving...")).toHaveLength(event.type === "tool-started" ? 1 : 0);
+      expect(lines.filter((line) => isWorkingActivityLine(line, "Working"))).toHaveLength(event.type === "tool-started" ? 1 : 0);
       if (event.type === "tool-call-delta") {
-        expect(lines).toContain("Think...");
+        expect(lines.some((line) => isWorkingActivityLine(line, "Thinking"))).toBe(true);
         expect(lines.join("\n")).not.toContain("ls ·");
       }
       if (event.type === "reasoning-delta" || event.type === "text-delta") {
@@ -205,11 +214,11 @@ describe("TUI terminal resize", () => {
           Object.assign(stdout, { columns, rows });
           stdout.emit("resize");
           lines = await screen();
-          expect(lines.join("\n")).not.toContain("Next moving...");
+          expect(lines.some((line) => isWorkingActivityLine(line, "Working"))).toBe(false);
           expect(lines.filter(line => line.includes("retained result"))).toHaveLength(1);
           const content = event.type === "reasoning-delta" ? "检查结果▍" : "直接回答▍";
           expect(lines.filter(line => line === content)).toHaveLength(1);
-          expect(lines.filter(line => line === "Think...")).toHaveLength(event.type === "reasoning-delta" ? 1 : 0);
+          expect(lines.filter((line) => isWorkingActivityLine(line, "Thinking"))).toHaveLength(event.type === "reasoning-delta" ? 1 : 0);
           expect(lines.filter(line => line.includes("gpt-5-codex · high"))).toHaveLength(1);
         }
       }
@@ -459,17 +468,17 @@ describe("TUI terminal resize", () => {
         if (round === 0) {
           const lines = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
             terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
-          expect(lines.some((line) => line.trim() === "Think..."),
-            "streaming reasoning shows the wave label").toBe(true);
+          expect(lines.some((line) => isWorkingActivityLine(line, "Thinking")),
+            "streaming reasoning shows the working label").toBe(true);
           expect(lines.some((line) => line.trim() === "检查项目结构 0▍"),
             "stream reasoning renders dim content without a prefix").toBe(true);
           // Run with FORCE_COLOR=3 to also verify ANSI styles in the terminal buffer.
           if (process.env.FORCE_COLOR === "3") {
-            const label = terminal.buffer.active.getLine(lines.findIndex((line) => line.trim() === "Think..."))!;
+            const label = terminal.buffer.active.getLine(workingActivityRow(lines, "Thinking"))!;
             const content = terminal.buffer.active.getLine(lines.findIndex((line) => line.trim() === "检查项目结构 0▍"))!;
             expect(label.getCell(1)?.isBold()).toBeTruthy();
             expect(content.getCell(1)?.isDim()).toBeTruthy();
-            expect(new Set(Array.from({ length: 8 }, (_, i) => label.getCell(i + 1)?.getFgColor())).size).toBeGreaterThan(1);
+            expect(new Set(Array.from({ length: "Thinking".length }, (_, i) => label.getCell(i + 3)?.getFgColor())).size).toBe(1);
           }
         }
         expected.push(`检查项目结构 ${round}`);
@@ -481,7 +490,7 @@ describe("TUI terminal resize", () => {
             terminal.buffer.active.getLine(i)?.translateToString(true) ?? "");
           expect(lines.some((line) => line.trim() === "读取项目文件 0▍"),
             "stream text renders without a speaker prefix").toBe(true);
-          expect(lines.some((line) => line.trim() === "Think..."),
+          expect(lines.some((line) => isWorkingActivityLine(line, "Thinking")),
             "Think animation stops when answer text starts").toBe(false);
           const reasoningRow = lines.findIndex((line) => line.trim() === "检查项目结构 0");
           expect(reasoningRow).toBeGreaterThan(-1);

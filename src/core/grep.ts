@@ -3,10 +3,10 @@ import { spawn } from "node:child_process";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { basename, relative as pathRelative } from "node:path";
 import { createInterface } from "node:readline";
-import { isRecord, type JsonObject } from "./json.js";
-import { resolveToCwd } from "./path-utils.js";
-import { type ToolResult } from "./tool-result.js";
-import { ensureTool } from "./tools-manager.js";
+import { isRecord, type JsonObject } from "./json";
+import { resolveToCwd } from "./path-utils";
+import { type ToolResult } from "./tool-result";
+import { ensureTool } from "./tools-manager";
 import {
   DEFAULT_MAX_BYTES,
   formatSize,
@@ -14,7 +14,7 @@ import {
   type TruncationResult,
   truncateHead,
   truncateLine,
-} from "./truncate.js";
+} from "./truncate";
 
 export const GREP_PROMPT_SNIPPET =
   "Search file contents for patterns (respects .gitignore)";

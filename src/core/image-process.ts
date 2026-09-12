@@ -1,6 +1,6 @@
 // Ported from Pi 400d690 (MIT); see docs/research/2026-09-10-read-images-port.md.
-import { convertImageBytesToPng } from "./image-convert.js";
-import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "./image-resize.js";
+import { convertImageBytesToPng } from "./image-convert";
+import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "./image-resize";
 
 export interface ProcessImageOptions {
 	/** Whether to resize images to inline provider limits. Default: true */

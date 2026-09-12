@@ -6,8 +6,8 @@ import type {
   HarnessCommand,
   HarnessSnapshot,
   ProviderClient,
-} from "../src/index.js";
-import { TuiApp } from "../src/index.js";
+} from "../src/index";
+import { TuiApp } from "../src/index";
 
 function terminalInput(): NodeJS.ReadStream {
   const input = new PassThrough() as PassThrough & {

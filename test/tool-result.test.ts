@@ -7,7 +7,7 @@ import {
   toolResultText,
   type TextContent,
   type ToolResult,
-} from "../src/index.js";
+} from "../src/index";
 
 describe("Tool Result (Pi form)", () => {
   it("builds an error result from a free-text message", () => {

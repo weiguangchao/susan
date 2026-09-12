@@ -1,11 +1,11 @@
 import type {
   CompletionMessage,
   ProviderToolDefinition,
-} from "./provider.js";
+} from "./provider";
 import type {
   CompactionEntry,
   SessionRecord,
-} from "./session.js";
+} from "./session";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 

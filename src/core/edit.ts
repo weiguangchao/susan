@@ -37,11 +37,11 @@ import {
   normalizeToLF,
   restoreLineEndings,
   stripBom,
-} from "./edit-diff.js";
-import { withFileMutationQueue } from "./file-mutation-queue.js";
-import { resolveToCwd } from "./path-utils.js";
-import { isRecord, type JsonObject } from "./json.js";
-import type { ToolResult } from "./tool-result.js";
+} from "./edit-diff";
+import { withFileMutationQueue } from "./file-mutation-queue";
+import { resolveToCwd } from "./path-utils";
+import { isRecord, type JsonObject } from "./json";
+import type { ToolResult } from "./tool-result";
 export const editToolSystemPromptContribution = {
   snippet:
     "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",

@@ -1,5 +1,5 @@
 // Ported from Pi 400d690 (MIT); see docs/research/2026-09-10-read-images-port.md.
-import type { PhotonImageType } from "./photon.js";
+import type { PhotonImageType } from "./photon";
 
 type Photon = typeof import("@silvia-odwyer/photon-node");
 

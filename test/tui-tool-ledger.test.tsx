@@ -1,9 +1,9 @@
 import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import type { ProviderToolCall, ToolResult } from "../src/index.js";
-import { createTuiState, reduceTuiState } from "../src/index.js";
-import { SessionContentView, ToolLineView } from "../src/ui/tui.js";
-import { canonicalToolFixtures } from "./fixtures/tui-tool-results.js";
+import type { ProviderToolCall, ToolResult } from "../src/index";
+import { createTuiState, reduceTuiState } from "../src/index";
+import { SessionContentView, ToolLineView } from "../src/ui/tui";
+import { canonicalToolFixtures } from "./fixtures/tui-tool-results";
 
 function initialState() {
   return createTuiState({
@@ -41,7 +41,7 @@ describe("TUI Tool execution ledger", () => {
     const first = canonicalToolFixtures[0]!;
     const second = canonicalToolFixtures[1]!;
     let state = initialState();
-    const emit = (event: import("../src/index.js").HarnessEvent) => {
+    const emit = (event: import("../src/index").HarnessEvent) => {
       state = reduceTuiState(state, { type: "harness-event", event });
     };
     const history = () => renderToString(<SessionContentView messages={[]}

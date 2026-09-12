@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { createReadTool } from "../src/core/read.js";
+import { createReadTool } from "../src/core/read";
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEElEQVR4AQEFAPr/AP8AAP8FAAH/+lyI0QAAAABJRU5ErkJggg==", "base64");
 it("reads magic-detected images as attachments even with text pagination arguments", async () => {
  const cwd = await mkdtemp(join(tmpdir(), "susan-images-"));
@@ -14,14 +14,14 @@ it("reads magic-detected images as attachments even with text pagination argumen
 });
 
 import { PhotonImage } from "@silvia-odwyer/photon-node";
-import { detectSupportedImageMimeType } from "../src/core/mime.js";
-import { processImage } from "../src/core/image-process.js";
-import { resizeImage } from "../src/core/image-resize.js";
-import { createOpenAICompletionAdapter } from "../src/adapters/openai-completion.js";
-import { createSessionStore } from "../src/core/session.js";
-import { createCompletedToolCard } from "../src/ui/tool-ledger.js";
-import { estimateMessageTokens } from "../src/core/context.js";
-import type { CompletionMessage, ProviderRequest } from "../src/core/provider.js";
+import { detectSupportedImageMimeType } from "../src/core/mime";
+import { processImage } from "../src/core/image-process";
+import { resizeImage } from "../src/core/image-resize";
+import { createOpenAICompletionAdapter } from "../src/adapters/openai-completion";
+import { createSessionStore } from "../src/core/session";
+import { createCompletedToolCard } from "../src/ui/tool-ledger";
+import { estimateMessageTokens } from "../src/core/context";
+import type { CompletionMessage, ProviderRequest } from "../src/core/provider";
 
 it("rejects JPEG-LS, APNG, and incomplete BMP headers like Pi", () => {
  expect(detectSupportedImageMimeType(new Uint8Array([255, 216, 255, 247]))).toBeNull();
@@ -97,8 +97,8 @@ it.each([true, false])("batches tool results before image attachments, vision=%s
  expect(request.messages).toHaveLength(3);
 });
 
-import { createHarness } from "../src/core/harness.js";
-import type { ProviderClient, ProviderStreamEvent } from "../src/core/provider.js";
+import { createHarness } from "../src/core/harness";
+import type { ProviderClient, ProviderStreamEvent } from "../src/core/provider";
 
 it("passes live model capability through Harness requests and read execution across model switches", async () => {
  const cwd = await mkdtemp(join(tmpdir(), "susan-images-loop-"));
@@ -134,7 +134,7 @@ it("passes live model capability through Harness requests and read execution acr
  } finally { await rm(cwd, {recursive: true, force: true}); }
 });
 
-import { resolveConfig } from "../src/core/config.js";
+import { resolveConfig } from "../src/core/config";
 it("resolves explicit model input capabilities without changing existing model defaults", () => {
  const adapter = createOpenAICompletionAdapter();
  const adapters = new Map([[adapter.type, adapter]]);

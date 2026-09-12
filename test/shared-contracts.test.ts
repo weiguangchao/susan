@@ -11,7 +11,7 @@ import type {
   ProviderType,
   ResolvedProviderConfig,
   SessionRecord,
-} from "../src/index.js";
+} from "../src/index";
 
 describe("shared type contracts", () => {
   it("models the config schema and structured config errors", () => {

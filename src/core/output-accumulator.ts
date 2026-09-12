@@ -8,7 +8,7 @@ import {
   DEFAULT_MAX_LINES,
   type TruncationResult,
   truncateTail,
-} from "./truncate.js";
+} from "./truncate";
 
 export type OutputAccumulatorOptions = {
   readonly maxLines?: number;

@@ -15,9 +15,9 @@ import type {
   SessionTranscript,
   TuiMessage,
   TuiToolCard,
-} from "../src/index.js";
-import { createHarness, createTuiState, TuiApp } from "../src/index.js";
-import { ActivityLine, SessionContentView, ToolLineView } from "../src/ui/tui.js";
+} from "../src/index";
+import { createHarness, createTuiState, TuiApp } from "../src/index";
+import { ActivityLine, SessionContentView, ToolLineView } from "../src/ui/tui";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",

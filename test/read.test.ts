@@ -10,8 +10,8 @@ import {
   createReadTool,
   type ReadTool,
   type ToolResult,
-} from "../src/index.js";
-import * as susan from "../src/index.js";
+} from "../src/index";
+import * as susan from "../src/index";
 
 const POSIX = process.platform !== "win32";
 

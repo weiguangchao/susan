@@ -3,8 +3,8 @@ import {
   MODEL_PICKER_VIEWPORT,
   modelPickerWindow,
   type ModelPickerState,
-} from "../core/model-picker.js";
-import { REASONING_EFFORTS } from "../core/provider.js";
+} from "../core/model-picker";
+import { REASONING_EFFORTS } from "../core/provider";
 
 const HINT =
   "↑/↓ 模型 · Tab Provider · ←/→ Reasoning Effort · Enter 应用 · Esc 取消";

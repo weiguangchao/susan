@@ -3,14 +3,14 @@ import { appendFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { evaluateReleaseGate } from "./release-gate.js";
+import { evaluateReleaseGate } from "./release-gate";
 import {
   issueCommentId,
   npmPublishedIntegrity,
   releaseOutputs,
   requireCommandOutput,
   type CommandResult,
-} from "./release-preflight-support.js";
+} from "./release-preflight-support";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];

@@ -17,13 +17,13 @@ import type {
   ProviderType,
   ResolvedProviderConfig,
   ReasoningEffort,
-} from "./provider.js";
+} from "./provider";
 import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   REASONING_EFFORTS,
   REASONING_EFFORT_VALUES,
-} from "./provider.js";
+} from "./provider";
 
 const providerTypeSchema = z.enum([
   "anthropic",

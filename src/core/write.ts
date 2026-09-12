@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { withFileMutationQueue } from "./file-mutation-queue.js";
-import { isRecord, type JsonObject } from "./json.js";
-import { resolveToCwd } from "./path-utils.js";
-import { type ToolResult } from "./tool-result.js";
+import { withFileMutationQueue } from "./file-mutation-queue";
+import { isRecord, type JsonObject } from "./json";
+import { resolveToCwd } from "./path-utils";
+import { type ToolResult } from "./tool-result";
 
 export const WRITE_PROMPT_SNIPPET = "Create or overwrite files";
 export const WRITE_PROMPT_GUIDELINES = [

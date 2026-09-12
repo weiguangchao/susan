@@ -1,5 +1,5 @@
 // Pi 400d690 retryAssistantCall; Susan typed Provider result and clock adapters.
-import type { ProviderFailure, ProviderResponse } from "../provider.js";
+import type { ProviderFailure, ProviderResponse } from "../provider";
 
 function buildProviderErrorPattern(patterns: readonly string[]): RegExp {
 	return new RegExp(patterns.join("|"), "i");

@@ -2,16 +2,16 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { isRecord, type JsonObject } from "./json.js";
-import { pathExists, resolveToCwd } from "./path-utils.js";
-import { type ToolResult } from "./tool-result.js";
-import { ensureTool } from "./tools-manager.js";
+import { isRecord, type JsonObject } from "./json";
+import { pathExists, resolveToCwd } from "./path-utils";
+import { type ToolResult } from "./tool-result";
+import { ensureTool } from "./tools-manager";
 import {
   DEFAULT_MAX_BYTES,
   formatSize,
   type TruncationResult,
   truncateHead,
-} from "./truncate.js";
+} from "./truncate";
 
 export const FIND_PROMPT_SNIPPET =
   "Find files by glob pattern (respects .gitignore)";

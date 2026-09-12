@@ -5,30 +5,30 @@ import {
   loadConfig,
   resolveSusanHome,
   updateConfigActiveModel,
-} from "./config.js";
-import type { ConfigError, ResolvedConfig } from "./core/config.js";
-import { formatCliError, parseCli, type ResumeMode } from "./core/cli.js";
-import { formatConfigError } from "./core/config-error.js";
-import { createBuiltInToolSet } from "./core/built-in-tools.js";
-import { createHarness, type Harness } from "./core/harness.js";
-import { resolveSessionLaunch } from "./core/launch.js";
+} from "./config";
+import type { ConfigError, ResolvedConfig } from "./core/config";
+import { formatCliError, parseCli, type ResumeMode } from "./core/cli";
+import { formatConfigError } from "./core/config-error";
+import { createBuiltInToolSet } from "./core/built-in-tools";
+import { createHarness, type Harness } from "./core/harness";
+import { resolveSessionLaunch } from "./core/launch";
 import type {
   ModelPickerCatalog,
-} from "./core/model-picker.js";
+} from "./core/model-picker";
 import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-} from "./core/provider.js";
+} from "./core/provider";
 import {
   createSessionStore,
   type SessionStore,
   type SessionSummary,
   type SessionTranscript,
-} from "./core/session.js";
-import { ConfigErrorApp } from "./ui/config-error.js";
-import { SessionPickerApp } from "./ui/session-picker.js";
-import { TuiApp } from "./ui/tui.js";
-import { createTuiOutput } from "./ui/terminal-output.js";
+} from "./core/session";
+import { ConfigErrorApp } from "./ui/config-error";
+import { SessionPickerApp } from "./ui/session-picker";
+import { TuiApp } from "./ui/tui";
+import { createTuiOutput } from "./ui/terminal-output";
 
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
 export const CLEAR_TERMINAL_SEQUENCE = "\u001B[2J\u001B[3J\u001B[H";

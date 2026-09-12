@@ -17,7 +17,7 @@ import {
   buildSystemPrompt,
   createBuiltInToolSet,
   type HarnessTool,
-} from "../src/index.js";
+} from "../src/index";
 
 const IDENTITY =
   "You are Susan, an expert coding agent operating inside a minimal personal Harness. You help users by reading files, executing commands, editing code, and writing new files.";

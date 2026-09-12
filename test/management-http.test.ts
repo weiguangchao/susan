@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchWithRetry } from "../src/core/management-http.js";
+import { fetchWithRetry } from "../src/core/management-http";
 
 afterEach(() => vi.restoreAllMocks());
 

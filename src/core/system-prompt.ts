@@ -1,5 +1,5 @@
 // Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
-import type { HarnessTool } from "./harness.js";
+import type { HarnessTool } from "./harness";
 
 const IDENTITY =
   "You are Susan, an expert coding agent operating inside a minimal personal Harness. You help users by reading files, executing commands, editing code, and writing new files.";

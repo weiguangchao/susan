@@ -1,8 +1,8 @@
 // Ported from Pi 400d690 (MIT); see docs/research/2026-09-10-read-images-port.md.
 import { Worker } from "node:worker_threads";
-import { type ImageResizeOptions, type ResizedImage, resizeImageInProcess } from "./image-resize-core.js";
+import { type ImageResizeOptions, type ResizedImage, resizeImageInProcess } from "./image-resize-core";
 
-export type { ImageResizeOptions, ResizedImage } from "./image-resize-core.js";
+export type { ImageResizeOptions, ResizedImage } from "./image-resize-core";
 
 interface ResizeImageWorkerResponse {
 	result?: ResizedImage | null;

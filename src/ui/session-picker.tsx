@@ -4,8 +4,8 @@ import {
   createSessionPickerState,
   reduceSessionPickerState,
   resolveSessionPickerIntent,
-} from "../core/picker.js";
-import type { SessionSummary } from "../core/session.js";
+} from "../core/picker";
+import type { SessionSummary } from "../core/session";
 
 export type SessionPickerAppProps = {
   readonly sessions: readonly SessionSummary[];

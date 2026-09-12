@@ -1,11 +1,11 @@
 import { join } from "node:path";
-import { createProviderClient, loadConfig } from "../src/config.js";
+import { createProviderClient, loadConfig } from "../src/config";
 import type {
   CompletionMessage,
   ProviderClient,
   ProviderUsage,
   ReasoningEffort,
-} from "../src/core/provider.js";
+} from "../src/core/provider";
 
 const PROVIDER_ALIAS = "cliproxyapi";
 const MODEL = "gemini-3.8-flash-high";

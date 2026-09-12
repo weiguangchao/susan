@@ -1,15 +1,15 @@
 // Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { readdir as fsReaddir, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord, type JsonObject } from "./json.js";
-import { pathExists, resolveToCwd } from "./path-utils.js";
-import { type ToolResult } from "./tool-result.js";
+import { isRecord, type JsonObject } from "./json";
+import { pathExists, resolveToCwd } from "./path-utils";
+import { type ToolResult } from "./tool-result";
 import {
   DEFAULT_MAX_BYTES,
   formatSize,
   type TruncationResult,
   truncateHead,
-} from "./truncate.js";
+} from "./truncate";
 
 export const LS_PROMPT_SNIPPET = "List directory contents";
 export const LS_PROMPT_GUIDELINES = [] as const;

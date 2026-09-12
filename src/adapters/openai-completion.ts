@@ -4,9 +4,9 @@ import OpenAI, {
   APIUserAbortError,
   APIError,
 } from "openai";
-import { isJsonValue, isRecord, type JsonValue } from "../core/json.js";
-import { toolResultText } from "../core/tool-result.js";
-import { SUSAN_USER_AGENT } from "../version.js";
+import { isJsonValue, isRecord, type JsonValue } from "../core/json";
+import { toolResultText } from "../core/tool-result";
+import { SUSAN_USER_AGENT } from "../version";
 import type {
   ProviderAdapter,
   ProviderClient,
@@ -17,7 +17,7 @@ import type {
   ProviderToolCall,
   ProviderUsage,
   ResolvedProviderConfig,
-} from "../core/provider.js";
+} from "../core/provider";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_BASE_URL = new URL("https://api.deepseek.com");

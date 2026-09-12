@@ -6,9 +6,9 @@ import type {
   HarnessEvent,
   HarnessSnapshot,
   ProviderClient,
-} from "../src/index.js";
-import { TuiApp } from "../src/index.js";
-import { createTuiOutput } from "../src/ui/terminal-output.js";
+} from "../src/index";
+import { TuiApp } from "../src/index";
+import { createTuiOutput } from "../src/ui/terminal-output";
 
 const SHOW_CURSOR = "\u001B[?25h";
 const REVERSE_VIDEO = "\u001B[7m";

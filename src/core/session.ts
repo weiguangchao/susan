@@ -10,14 +10,14 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
-import { isJsonValue, isRecord } from "./json.js";
-import { isReasoningEffort } from "./provider.js";
-import { isToolResultContent } from "./tool-result.js";
+import { isJsonValue, isRecord } from "./json";
+import { isReasoningEffort } from "./provider";
+import { isToolResultContent } from "./tool-result";
 import type {
   CompletionMessage,
   ProviderUsage,
   ReasoningEffort,
-} from "./provider.js";
+} from "./provider";
 
 export type SessionFormatVersion = 5;
 

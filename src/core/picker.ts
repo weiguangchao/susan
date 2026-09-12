@@ -1,4 +1,4 @@
-import type { SessionSummary } from "./session.js";
+import type { SessionSummary } from "./session";
 
 export type SessionPickerState = {
   readonly sessions: readonly SessionSummary[];

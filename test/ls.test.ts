@@ -9,7 +9,7 @@ import {
   type LsOperations,
   type LsTool,
   type ToolResult,
-} from "../src/index.js";
+} from "../src/index";
 
 const POSIX = process.platform !== "win32";
 

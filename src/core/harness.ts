@@ -1,20 +1,20 @@
-import { DEFAULT_COMPACTION_SETTINGS, shouldCompact, prepareCompaction, buildSummaryPrompt, buildTurnPrefixPrompt, getSummarizationFailure, type CompactionSettings } from "./compaction/compaction.js";
-import { SUMMARIZATION_SYSTEM_PROMPT } from "./compaction/prompts.js";
-import { computeFileLists, formatFileOperations } from "./compaction/utils.js";
-import { retryAssistantCall } from "./compaction/retry.js";
-import type { ModelInput, ToolExecutionContext } from "./provider.js";
+import { DEFAULT_COMPACTION_SETTINGS, shouldCompact, prepareCompaction, buildSummaryPrompt, buildTurnPrefixPrompt, getSummarizationFailure, type CompactionSettings } from "./compaction/compaction";
+import { SUMMARIZATION_SYSTEM_PROMPT } from "./compaction/prompts";
+import { computeFileLists, formatFileOperations } from "./compaction/utils";
+import { retryAssistantCall } from "./compaction/retry";
+import type { ModelInput, ToolExecutionContext } from "./provider";
 import {
   estimateMessagesTokens,
   estimateTextTokens,
   estimateToolsTokens,
   latestCompactionCheckpoint,
   modelContextMessages,
-} from "./context.js";
-import type { JsonValue } from "./json.js";
+} from "./context";
+import type { JsonValue } from "./json";
 import {
   createErrorToolResult,
   type ToolResult,
-} from "./tool-result.js";
+} from "./tool-result";
 import type {
   CompletionMessage,
   ProviderClient,
@@ -26,14 +26,14 @@ import type {
   ProviderToolDefinition,
   ProviderToolCall,
   ProviderUsage,
-} from "./provider.js";
+} from "./provider";
 import type {
   CompactionEntry,
   SessionRecord,
   SessionStore,
   SessionTranscript,
-} from "./session.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+} from "./session";
+import { buildSystemPrompt } from "./system-prompt";
 
 export { buildSystemPrompt };
 

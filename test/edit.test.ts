@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyPatch } from "diff";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
-import { createEditTool, type EditTool } from "../src/core/edit.js";
-import { createWriteTool } from "../src/core/write.js";
+import { createEditTool, type EditTool } from "../src/core/edit";
+import { createWriteTool } from "../src/core/write";
 
 let cwd: string;
 let tool: EditTool;

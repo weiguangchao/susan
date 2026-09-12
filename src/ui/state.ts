@@ -3,27 +3,27 @@ import type {
   HarnessSnapshot,
   HarnessStatus,
   PendingAgentLoop,
-} from "../core/harness.js";
-import { isJsonValue, isRecord } from "../core/json.js";
-import { type ToolResult } from "../core/tool-result.js";
-import type { ProviderFailure, ReasoningEffort } from "../core/provider.js";
-import { moveInputCursorVertically } from "./input-layout.js";
+} from "../core/harness";
+import { isJsonValue, isRecord } from "../core/json";
+import { type ToolResult } from "../core/tool-result";
+import type { ProviderFailure, ReasoningEffort } from "../core/provider";
+import { moveInputCursorVertically } from "./input-layout";
 import {
   resolveSlashCommandMenu,
   slashCommands,
-} from "./slash-command-menu.js";
+} from "./slash-command-menu";
 import {
   createCompletedToolCard,
   createToolCard,
   formatToolCallDetail,
   type TuiToolCard,
   type TuiToolStatus,
-} from "./tool-ledger.js";
+} from "./tool-ledger";
 
-export { formatToolCallDetail } from "./tool-ledger.js";
-export { resolveSlashCommandMenu, slashCommands } from "./slash-command-menu.js";
-export type { TuiToolCard, TuiToolStatus } from "./tool-ledger.js";
-export type { SlashCommand, SlashCommandMenu } from "./slash-command-menu.js";
+export { formatToolCallDetail } from "./tool-ledger";
+export { resolveSlashCommandMenu, slashCommands } from "./slash-command-menu";
+export type { TuiToolCard, TuiToolStatus } from "./tool-ledger";
+export type { SlashCommand, SlashCommandMenu } from "./slash-command-menu";
 
 export type TuiMessage =
   | { readonly kind: "user"; readonly text: string }

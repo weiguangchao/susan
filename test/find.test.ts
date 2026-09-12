@@ -12,7 +12,7 @@ import {
   type FindOperations,
   type FindTool,
   type ToolResult,
-} from "../src/index.js";
+} from "../src/index";
 
 const FIND_DESCRIPTION =
   "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).";

@@ -1,11 +1,11 @@
-import { createBashTool } from "./bash.js";
-import { createEditTool } from "./edit.js";
-import { createFindTool } from "./find.js";
-import { createGrepTool } from "./grep.js";
-import type { HarnessTool } from "./harness.js";
-import { createLsTool } from "./ls.js";
-import { createReadTool } from "./read.js";
-import { createWriteTool } from "./write.js";
+import { createBashTool } from "./bash";
+import { createEditTool } from "./edit";
+import { createFindTool } from "./find";
+import { createGrepTool } from "./grep";
+import type { HarnessTool } from "./harness";
+import { createLsTool } from "./ls";
+import { createReadTool } from "./read";
+import { createWriteTool } from "./write";
 
 export type BuiltInToolSetOptions = {
   readonly sessionCwd: string;

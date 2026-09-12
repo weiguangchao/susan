@@ -19,12 +19,12 @@ import {
   reduceSessionPickerState,
   resolveSessionLaunch,
   resolveSessionPickerIntent,
-} from "../src/index.js";
+} from "../src/index";
 import {
   CLEAR_TERMINAL_SEQUENCE,
   clearTerminal,
   runCli,
-} from "../src/run.js";
+} from "../src/run";
 
 describe("CLI terminal startup", () => {
   it("clears the screen and scrollback exactly once before Ink takes over", () => {

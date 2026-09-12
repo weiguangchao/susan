@@ -1,6 +1,6 @@
 // Ported from Pi 400d690 (MIT). Adaptation: Susan string content + toolCalls.
-import type { CompletionMessage } from "../provider.js";
-import { isRecord } from "../json.js";
+import type { CompletionMessage } from "../provider";
+import { isRecord } from "../json";
 
 /** File paths touched by a session branch or compaction range. */
 export interface FileOperations {

@@ -1,9 +1,9 @@
 // Ported from Pi 400d690 (MIT); linear Session and Provider adapters are Susan-specific.
-import { estimateMessageTokens, messageEntryId, compactionStartIndex, compactionEndIndex } from "../context.js";
-import type { CompletionMessage, ProviderFailure, ProviderResponse } from "../provider.js";
-import type { CompactionEntry } from "../session.js";
-import { createFileOps, extractFileOpsFromMessage, type FileOperations, serializeConversation } from "./utils.js";
-import { SUMMARIZATION_PROMPT, UPDATE_SUMMARIZATION_PROMPT, TURN_PREFIX_SUMMARIZATION_PROMPT } from "./prompts.js";
+import { estimateMessageTokens, messageEntryId, compactionStartIndex, compactionEndIndex } from "../context";
+import type { CompletionMessage, ProviderFailure, ProviderResponse } from "../provider";
+import type { CompactionEntry } from "../session";
+import { createFileOps, extractFileOpsFromMessage, type FileOperations, serializeConversation } from "./utils";
+import { SUMMARIZATION_PROMPT, UPDATE_SUMMARIZATION_PROMPT, TURN_PREFIX_SUMMARIZATION_PROMPT } from "./prompts";
 
 export interface CompactionSettings {
   enabled: boolean;

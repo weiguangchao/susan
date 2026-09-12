@@ -3,15 +3,15 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access as fsAccess, constants } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { isRecord, type JsonObject } from "./json.js";
-import { OutputAccumulator, type OutputSnapshot } from "./output-accumulator.js";
-import { type ToolResult } from "./tool-result.js";
+import { isRecord, type JsonObject } from "./json";
+import { OutputAccumulator, type OutputSnapshot } from "./output-accumulator";
+import { type ToolResult } from "./tool-result";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   type TruncationResult,
-} from "./truncate.js";
+} from "./truncate";
 
 export const BASH_PROMPT_SNIPPET = "Execute bash commands (ls, grep, find, etc.)";
 export const BASH_PROMPT_GUIDELINES = [] as const;

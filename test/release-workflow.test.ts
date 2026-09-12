@@ -7,7 +7,7 @@ import {
   npmPublishedIntegrity,
   releaseOutputs,
   requireCommandOutput,
-} from "../scripts/release-preflight-support.js";
+} from "../scripts/release-preflight-support";
 
 const workflow = await readFile(".github/workflows/release.yml", "utf8");
 

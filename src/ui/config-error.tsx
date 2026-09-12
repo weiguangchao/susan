@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import type { ConfigErrorView } from "../core/config-error.js";
+import type { ConfigErrorView } from "../core/config-error";
 
 export type ConfigErrorAppProps = {
   readonly view: ConfigErrorView;

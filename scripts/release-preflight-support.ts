@@ -1,4 +1,4 @@
-import type { ReleaseRecoveryPlan } from "./release-gate.js";
+import type { ReleaseRecoveryPlan } from "./release-gate";
 
 export interface CommandResult {
   status: number;

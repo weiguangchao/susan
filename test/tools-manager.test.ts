@@ -11,7 +11,7 @@ import {
   getToolAssetName,
   getToolPath,
   type ToolStatus,
-} from "../src/index.js";
+} from "../src/index";
 
 const originalOffline = process.env.SUSAN_OFFLINE;
 const originalBinDir = process.env.SUSAN_BIN_DIR;

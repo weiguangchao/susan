@@ -1,18 +1,18 @@
-import { processImage } from "./image-process.js";
-import { detectSupportedImageMimeTypeFromFile } from "./mime.js";
-import type { ToolExecutionContext } from "./provider.js";
+import { processImage } from "./image-process";
+import { detectSupportedImageMimeTypeFromFile } from "./mime";
+import type { ToolExecutionContext } from "./provider";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
-import { isRecord, type JsonObject } from "./json.js";
-import { resolveReadPathAsync } from "./path-utils.js";
-import { type ToolResult } from "./tool-result.js";
+import { isRecord, type JsonObject } from "./json";
+import { resolveReadPathAsync } from "./path-utils";
+import { type ToolResult } from "./tool-result";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   truncateHead,
   type TruncationResult,
-} from "./truncate.js";
+} from "./truncate";
 
 export const READ_PROMPT_SNIPPET = "Read file contents";
 export const READ_PROMPT_GUIDELINES = [

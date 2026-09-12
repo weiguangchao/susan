@@ -1,10 +1,10 @@
 import { posix, win32 } from "node:path";
-import { isRecord } from "../core/json.js";
-import type { ProviderToolCall } from "../core/provider.js";
+import { isRecord } from "../core/json";
+import type { ProviderToolCall } from "../core/provider";
 import {
   toolResultText,
   type ToolResult,
-} from "../core/tool-result.js";
+} from "../core/tool-result";
 
 export type TuiToolStatus =
   | "requested"

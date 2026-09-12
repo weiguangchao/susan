@@ -1,4 +1,4 @@
-import type { ConfigError, ConfigErrorCode } from "./config.js";
+import type { ConfigError, ConfigErrorCode } from "./config";
 
 export type ConfigErrorIssueView = {
   readonly path: string;

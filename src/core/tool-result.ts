@@ -1,4 +1,4 @@
-import { isRecord } from "./json.js";
+import { isRecord } from "./json";
 
 /**
  * Tool Result 基础设施的 Pi 形态（400d690）：

@@ -15,7 +15,7 @@ import {
   WRITE_PROMPT_GUIDELINES,
   WRITE_PROMPT_SNIPPET,
   createBuiltInToolSet,
-} from "../src/index.js";
+} from "../src/index";
 
 const CONTRIBUTIONS = {
   read: {

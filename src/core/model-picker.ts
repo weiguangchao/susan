@@ -1,7 +1,7 @@
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
-} from "./provider.js";
+} from "./provider";
 
 export type ModelPickerProvider = {
   readonly alias: string;

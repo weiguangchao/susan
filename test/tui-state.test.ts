@@ -12,13 +12,13 @@ import {
   resolveModelPickerIntent,
   resolveSlashCommandMenu,
   resolveSubmission,
-} from "../src/index.js";
+} from "../src/index";
 import type {
   ProviderToolCall,
   TuiInputIntent,
   TuiState,
   TuiToolStatus,
-} from "../src/index.js";
+} from "../src/index";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",

@@ -1,10 +1,10 @@
-import type { ResumeMode } from "./cli.js";
+import type { ResumeMode } from "./cli";
 import type {
   SessionStore,
   SessionStoreError,
   SessionSummary,
   SessionTranscript,
-} from "./session.js";
+} from "./session";
 
 export type SessionLaunch =
   | { readonly kind: "new" }

@@ -9,12 +9,12 @@ import {
 import {
   createOpenAICompletionAdapter,
   openAICompletionProvider,
-} from "../src/adapters/openai-completion.js";
+} from "../src/adapters/openai-completion";
 import type {
   ProviderRequest,
   ProviderStreamEvent,
   ResolvedProviderConfig,
-} from "../src/core/provider.js";
+} from "../src/core/provider";
 
 const resolvedConfig = {
   type: "openai-completion",

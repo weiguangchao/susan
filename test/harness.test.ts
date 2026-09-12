@@ -10,7 +10,7 @@ import {
   createReadTool,
   createSessionStore,
   createWriteTool,
-} from "../src/index.js";
+} from "../src/index";
 import type {
   CompletionMessage,
   HarnessCommand,
@@ -26,7 +26,7 @@ import type {
   SessionStore,
   SessionUsageRecord,
   SessionTranscript,
-} from "../src/index.js";
+} from "../src/index";
 
 const SESSION_FIXTURES_DIR = join(
   dirname(fileURLToPath(import.meta.url)),

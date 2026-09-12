@@ -19,7 +19,7 @@ import {
   createWriteTool,
   type ToolResult,
   type WriteTool,
-} from "../src/index.js";
+} from "../src/index";
 
 const POSIX = process.platform !== "win32";
 

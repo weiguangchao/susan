@@ -1,6 +1,6 @@
 export {
   openAICompletionProvider,
-} from "./adapters/openai-completion.js";
+} from "./adapters/openai-completion";
 export {
   DEFAULT_CONFIG_PATH,
   DEFAULT_SUSAN_HOME,
@@ -9,15 +9,15 @@ export {
   resolveConfig,
   resolveSusanHome,
   updateConfigActiveModel,
-} from "./config.js";
-export { parseCli, formatCliError, CLI_USAGE } from "./core/cli.js";
-export { resolveSessionLaunch } from "./core/launch.js";
-export { formatConfigError } from "./core/config-error.js";
+} from "./config";
+export { parseCli, formatCliError, CLI_USAGE } from "./core/cli";
+export { resolveSessionLaunch } from "./core/launch";
+export { formatConfigError } from "./core/config-error";
 export {
   createSessionPickerState,
   reduceSessionPickerState,
   resolveSessionPickerIntent,
-} from "./core/picker.js";
+} from "./core/picker";
 export {
   MODEL_PICKER_VIEWPORT,
   createModelPickerState,
@@ -25,23 +25,23 @@ export {
   modelPickerWindow,
   reduceModelPickerState,
   resolveModelPickerIntent,
-} from "./core/model-picker.js";
+} from "./core/model-picker";
 export type {
   CliError,
   CliFlags,
   CliParseResult,
   ResumeMode,
-} from "./core/cli.js";
-export type { SessionLaunch } from "./core/launch.js";
+} from "./core/cli";
+export type { SessionLaunch } from "./core/launch";
 export type {
   ConfigErrorIssueView,
   ConfigErrorView,
-} from "./core/config-error.js";
+} from "./core/config-error";
 export type {
   SessionPickerIntent,
   SessionPickerKey,
   SessionPickerState,
-} from "./core/picker.js";
+} from "./core/picker";
 
 export type {
   Config,
@@ -60,7 +60,7 @@ export type {
   ResolvedModelEntry,
   ResolvedProviderEntry,
   ResolvedConfig,
-} from "./core/config.js";
+} from "./core/config";
 export type {
   ModelPickerCatalog,
   ModelPickerIntent,
@@ -68,25 +68,25 @@ export type {
   ModelPickerProvider,
   ModelPickerSelection,
   ModelPickerState,
-} from "./core/model-picker.js";
+} from "./core/model-picker";
 export type {
   JsonObject,
   JsonPrimitive,
   JsonValue,
-} from "./core/json.js";
+} from "./core/json";
 export {
   createErrorToolResult,
   isToolResult,
   isToolResultContent,
   textToolResult,
   toolResultText,
-} from "./core/tool-result.js";
+} from "./core/tool-result";
 export type {
   ImageContent,
   TextContent,
   ToolResult,
   ToolResultContent,
-} from "./core/tool-result.js";
+} from "./core/tool-result";
 export type {
   AssistantMessage,
   CompletionMessage,
@@ -104,12 +104,12 @@ export type {
   ProviderUsage,
   ResolvedProviderConfig,
   ReasoningEffort,
-} from "./core/provider.js";
+} from "./core/provider";
 export {
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   REASONING_EFFORTS,
-} from "./core/provider.js";
+} from "./core/provider";
 export type {
   CompactionEntry,
   SessionFormatVersion,
@@ -125,113 +125,113 @@ export type {
   SessionStoreResult,
   SessionSummary,
   SessionTranscript,
-} from "./core/session.js";
+} from "./core/session";
 export {
   DEFAULT_SESSIONS_DIRECTORY,
   createSessionStore,
-} from "./core/session.js";
+} from "./core/session";
 export {
   READ_PROMPT_GUIDELINES,
   READ_PROMPT_SNIPPET,
   createReadTool,
   executeRead,
-} from "./core/read.js";
+} from "./core/read";
 export type {
   ReadTool,
   ReadToolDetails,
   ReadToolOptions,
-} from "./core/read.js";
+} from "./core/read";
 export {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
-} from "./core/truncate.js";
-export type { TruncationResult } from "./core/truncate.js";
+} from "./core/truncate";
+export type { TruncationResult } from "./core/truncate";
 export {
   WRITE_PROMPT_GUIDELINES,
   WRITE_PROMPT_SNIPPET,
   createWriteTool,
   executeWrite,
-} from "./core/write.js";
+} from "./core/write";
 export type {
   WriteTool,
   WriteToolOptions,
-} from "./core/write.js";
+} from "./core/write";
 export {
   EDIT_PROMPT_SNIPPET,
   EDIT_PROMPT_GUIDELINES,
   createEditTool,
   executeEdit,
-} from "./core/edit.js";
+} from "./core/edit";
 export type {
   EditOperations,
   EditTool,
   EditToolDetails,
   EditToolOptions,
-} from "./core/edit.js";
-export type { LineEnding } from "./core/text-file.js";
+} from "./core/edit";
+export type { LineEnding } from "./core/text-file";
 export {
   BASH_PROMPT_GUIDELINES,
   BASH_PROMPT_SNIPPET,
   createBashTool,
   executeBash,
-} from "./core/bash.js";
+} from "./core/bash";
 export type {
   BashOperations,
   BashTool,
   BashToolDetails,
   BashToolOptions,
-} from "./core/bash.js";
+} from "./core/bash";
 export {
   LS_PROMPT_GUIDELINES,
   LS_PROMPT_SNIPPET,
   createLsTool,
   executeLs,
-} from "./core/ls.js";
+} from "./core/ls";
 export type {
   LsOperations,
   LsTool,
   LsToolDetails,
   LsToolOptions,
-} from "./core/ls.js";
+} from "./core/ls";
 export {
   GREP_PROMPT_GUIDELINES,
   GREP_PROMPT_SNIPPET,
   createGrepTool,
   executeGrep,
-} from "./core/grep.js";
+} from "./core/grep";
 export type {
   GrepOperations,
   GrepTool,
   GrepToolDetails,
   GrepToolOptions,
-} from "./core/grep.js";
+} from "./core/grep";
 export {
   FIND_PROMPT_GUIDELINES,
   FIND_PROMPT_SNIPPET,
   createFindTool,
   executeFind,
   relativizeFindResultPath,
-} from "./core/find.js";
+} from "./core/find";
 export type {
   FindOperations,
   FindTool,
   FindToolDetails,
   FindToolOptions,
-} from "./core/find.js";
+} from "./core/find";
 export {
   ensureTool,
   getBinDir,
   getLatestVersion,
   getToolAssetName,
   getToolPath,
-} from "./core/tools-manager.js";
-export type { ToolStatus } from "./core/tools-manager.js";
-export { buildSystemPrompt } from "./core/system-prompt.js";
-export { createHarness } from "./core/harness.js";
-export { createBuiltInToolSet } from "./core/built-in-tools.js";
-export type { BuiltInToolSetOptions } from "./core/built-in-tools.js";
-export { TuiApp } from "./ui/tui.js";
-export type { TuiAppProps } from "./ui/tui.js";
+} from "./core/tools-manager";
+export type { ToolStatus } from "./core/tools-manager";
+export { buildSystemPrompt } from "./core/system-prompt";
+export { createHarness } from "./core/harness";
+export { createBuiltInToolSet } from "./core/built-in-tools";
+export type { BuiltInToolSetOptions } from "./core/built-in-tools";
+export { TuiApp } from "./ui/tui";
+export type { TuiAppProps } from "./ui/tui";
 export {
   createTuiState,
   isEmptySession,
@@ -243,7 +243,7 @@ export {
   resolveSlashCommandMenu,
   resolveSubmission,
   slashCommands,
-} from "./ui/state.js";
+} from "./ui/state";
 export type {
   Harness,
   HarnessCommand,
@@ -257,7 +257,7 @@ export type {
   HarnessTool,
   InterruptedResponse,
   PendingAgentLoop,
-} from "./core/harness.js";
+} from "./core/harness";
 export type {
   TuiAction,
   TuiCompletedOutput,
@@ -271,4 +271,4 @@ export type {
   TuiSubmissionIntent,
   TuiToolCard,
   TuiToolStatus,
-} from "./ui/state.js";
+} from "./ui/state";

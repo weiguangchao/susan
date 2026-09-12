@@ -2,9 +2,9 @@ import { PassThrough } from "node:stream";
 import { Terminal } from "@xterm/headless";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
-import type { Harness, HarnessEvent, HarnessSnapshot } from "../src/index.js";
-import { TuiApp } from "../src/index.js";
-import { createTuiOutput } from "../src/ui/terminal-output.js";
+import type { Harness, HarnessEvent, HarnessSnapshot } from "../src/index";
+import { TuiApp } from "../src/index";
+import { createTuiOutput } from "../src/ui/terminal-output";
 
 function terminalInput(): NodeJS.ReadStream {
   const input = new PassThrough() as PassThrough & {

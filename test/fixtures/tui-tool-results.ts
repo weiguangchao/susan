@@ -1,4 +1,4 @@
-import type { ProviderToolCall, ToolResult } from "../../src/index.js";
+import type { ProviderToolCall, ToolResult } from "../../src/index";
 
 export type CanonicalToolFixture = {
   readonly call: ProviderToolCall;

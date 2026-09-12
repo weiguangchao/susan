@@ -13,7 +13,7 @@ import type {
   Harness,
   HarnessCommand,
   HarnessError,
-} from "../core/harness.js";
+} from "../core/harness";
 import {
   createModelPickerState,
   modelPickerRowCount,
@@ -22,16 +22,16 @@ import {
   type ModelPickerCatalog,
   type ModelPickerSelection,
   type ModelPickerState,
-} from "../core/model-picker.js";
+} from "../core/model-picker";
 import {
   inputBoxWidth,
   inputContentWidth,
   inputImeCursorPosition,
   layoutInput,
-} from "./input-layout.js";
-import { pinLiveFrameRows } from "./terminal-output.js";
-import { ModelPickerView } from "./model-picker.js";
-import { toolResultRows } from "./tool-ledger.js";
+} from "./input-layout";
+import { pinLiveFrameRows } from "./terminal-output";
+import { ModelPickerView } from "./model-picker";
+import { toolResultRows } from "./tool-ledger";
 import {
   createTuiState,
   formatProviderFailure,
@@ -46,7 +46,7 @@ import {
   type TuiMessage,
   type TuiState,
   type TuiToolCard,
-} from "./state.js";
+} from "./state";
 
 export type TuiAppProps = {
   readonly harness: Harness;

@@ -11,7 +11,7 @@ import {
   type GrepOperations,
   type GrepTool,
   type ToolResult,
-} from "../src/index.js";
+} from "../src/index";
 
 const GREP_DESCRIPTION =
   "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.";

@@ -6,7 +6,7 @@ import {
   RELEASE_SMOKE_PLATFORMS,
   REQUIRED_RELEASE_GATE_JOBS,
   type ReleaseGateFacts,
-} from "../scripts/release-gate.js";
+} from "../scripts/release-gate";
 
 const COMMIT = "a".repeat(40);
 

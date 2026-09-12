@@ -1,5 +1,5 @@
-import type { JsonObject, JsonValue } from "./json.js";
-import type { ToolResultContent } from "./tool-result.js";
+import type { JsonObject, JsonValue } from "./json";
+import type { ToolResultContent } from "./tool-result";
 
 export type ProviderType =
   | "anthropic"

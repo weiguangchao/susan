@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT). Adaptation: Susan string content + toolCalls.
 import type { CompletionMessage } from "../provider";
 import { isRecord } from "../json";
 

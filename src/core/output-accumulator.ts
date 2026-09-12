@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { randomBytes } from "node:crypto";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { tmpdir } from "node:os";

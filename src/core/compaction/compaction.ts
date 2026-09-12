@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); linear Session and Provider adapters are Susan-specific.
 import { estimateMessageTokens, messageEntryId, compactionStartIndex, compactionEndIndex } from "../context";
 import type { CompletionMessage, ProviderFailure, ProviderResponse } from "../provider";
 import type { CompactionEntry } from "../session";

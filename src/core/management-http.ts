@@ -1,5 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
-
 type FetchInput = Parameters<typeof fetch>[0];
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);

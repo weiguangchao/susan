@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { readdir as fsReaddir, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord, type JsonObject } from "./json";

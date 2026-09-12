@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { spawn } from "node:child_process";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { basename, relative as pathRelative } from "node:path";

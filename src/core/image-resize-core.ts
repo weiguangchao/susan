@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see docs/research/2026-09-10-read-images-port.md.
 import { applyExifOrientation } from "./exif-orientation";
 import { loadPhoton } from "./photon";
 

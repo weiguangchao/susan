@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access as fsAccess, constants } from "node:fs/promises";

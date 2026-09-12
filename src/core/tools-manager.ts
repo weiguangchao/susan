@@ -1,4 +1,3 @@
-// Ported from Pi 400d690 (MIT); see THIRD_PARTY_NOTICES.
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import {
   chmodSync,

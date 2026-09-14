@@ -62,7 +62,7 @@ export type TuiState = {
   readonly messages: readonly TuiMessage[];
   readonly tools: readonly TuiToolCard[];
   readonly completedOutput: readonly TuiCompletedOutput[];
-  // Covers Tool execution and the following Provider wait without resetting the animation.
+  // Covers the initial Provider wait, Tool execution, and the following Provider wait without resetting the animation.
   readonly awaitingModelAfterTools: boolean;
   readonly stream: {
     readonly text: string;
@@ -676,7 +676,7 @@ function applyInputIntent(
         ...state,
         ...clearedDraftState(state),
         status: "running",
-        awaitingModelAfterTools: false,
+        awaitingModelAfterTools: true,
         messages: [...state.messages, message],
         completedOutput: appendCompletedMessages(
           state.completedOutput,
@@ -715,7 +715,7 @@ function applyInputIntent(
       return {
         ...state,
         status: "running",
-        awaitingModelAfterTools: false,
+        awaitingModelAfterTools: true,
         pending: null,
         failure: null,
         notice: null,

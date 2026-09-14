@@ -116,6 +116,9 @@ function createEventHarness(initial: HarnessSnapshot = idleSnapshot()) {
     async compact() { return { ok: true as const }; },
     async dispatch(command) {
       commands.push(command);
+      if (command.type === "submit" || command.type === "retry") {
+        snapshot = { ...snapshot, status: "running", pending: null };
+      }
       return { ok: true };
     },
     getSnapshot: () => snapshot,
@@ -795,6 +798,53 @@ describe("TUI Tool rendering", () => {
 });
 
 describe("TUI reasoning rendering", () => {
+  it("shows Working animation after submit before the Provider streams", async () => {
+    const { harness, emit } = createEventHarness();
+    const frames: string[] = [];
+    const stdin = terminalInput();
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      {
+        stdin,
+        stdout: terminalOutput((chunk) => frames.push(stripAnsi(chunk))),
+        interactive: true,
+        patchConsole: false,
+      },
+    );
+    try {
+      await instance.waitUntilRenderFlush();
+      stdin.push("检查项目");
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      stdin.push("\r");
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      expect(
+        WORKING_SPINNER_FRAMES.some((frame) => latestVisibleFrame(frames).includes(`${frame} Working`)),
+      ).toBe(true);
+
+      emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      const thinkingFrame = latestVisibleFrame(frames);
+      expect(
+        WORKING_SPINNER_FRAMES.some((frame) => thinkingFrame.includes(`${frame} Working`)),
+      ).toBe(false);
+      expect(
+        WORKING_SPINNER_FRAMES.some((frame) => thinkingFrame.includes(`${frame} Thinking`)),
+      ).toBe(true);
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+    }
+  });
+
   it("stops Think animation when reasoning transitions to answer text", async () => {
     const intervals = vi.spyOn(globalThis, "setInterval");
     const clearInterval = vi.spyOn(globalThis, "clearInterval");

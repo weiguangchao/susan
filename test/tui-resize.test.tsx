@@ -180,7 +180,7 @@ describe("TUI terminal resize", () => {
       const reasoningRow = lines.indexOf("先检查");
       expect(reasoningRow).toBeGreaterThan(-1);
       expect(lines[reasoningRow + 1]).toBe("");
-      expect(lines[reasoningRow + 2]).toContain("read · README.md");
+      expect(lines[reasoningRow + 2]).toContain("read README.md");
       expect(waitingRow).toBe(lines.findIndex(line => line.includes("retained result")) + 2);
       expect(waitingRow).toBeGreaterThan(lines.findIndex(line => line.includes("retained result")));
       expect(waitingRow).toBeGreaterThan(-1);
@@ -414,7 +414,7 @@ describe("TUI terminal resize", () => {
       const history = Array.from({ length: terminal.buffer.active.length }, (_, i) =>
         terminal.buffer.active.getLine(i)?.translateToString(true) ?? "").join("\n");
       for (let index = 0; index < 12; index++) {
-        expect(history.split(`read · space-${index}.md`)).toHaveLength(2);
+        expect(history.split(`read space-${index}.md`)).toHaveLength(2);
       }
     } finally {
       instance.unmount();
@@ -518,7 +518,7 @@ describe("TUI terminal resize", () => {
         emit({ type: "tool-completed", toolCall,
           result: { content: [{ type: "text", text: `文件内容 ${round}` }] }, isError: false });
         await flush();
-        expected.push(`read · file-${round}.md`);
+        expected.push(`read file-${round}.md`);
         assertOrder("completed");
         if (round === 0) expect(terminal.buffer.active.baseY).toBe(0);
         emit({ type: "tool-batch-completed", toolCalls: [toolCall] });

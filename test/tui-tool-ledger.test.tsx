@@ -32,6 +32,14 @@ describe("TUI Tool execution ledger", () => {
       type: "harness-event",
       event: { type: "tool-completed", toolCall: call, result, isError },
     });
+    const output = renderToString(<SessionContentView messages={[]} tools={state.tools} />, { columns: 80 });
+    expect(output).toContain(call.name);
+    expect(output).toContain(state.tools[0]!.invocationLabel);
+    if (call.name === "read" || call.name === "grep") {
+      expect(output).toContain(state.tools[0]!.summary);
+      expect(output).not.toContain(`${call.name} ·`);
+      return;
+    }
     const line = ToolLineView({ tool: state.tools[0]! });
     expect(line?.props.color).toBe(isError ? "red" : "green");
     expect(renderToString(line!)).toBe(`${call.name} · ${state.tools[0]!.invocationLabel} · ${state.tools[0]!.summary}`);
@@ -53,12 +61,13 @@ describe("TUI Tool execution ledger", () => {
       result: first.result,
       isError: first.isError,
     });
-    expect(history()).toContain("read · src/link.ts · 已读 1 行");
+    expect(history()).toContain("read src/link.ts");
+    expect(history()).toContain("L1 · 1 行 · 19 B");
     emit({ type: "tool-started", toolCall: second.call });
-    expect(history()).toContain("read · src/link.ts · 已读 1 行");
+    expect(history()).toContain("read src/link.ts");
     expect(history()).not.toContain("write ·");
     emit({ type: "agent-loop-interrupted" });
-    expect(history().split("read ·")).toHaveLength(2);
+    expect(history().split("read src/link.ts")).toHaveLength(2);
     expect(history()).toContain("write · /outside/report.txt · 已中断");
     expect(state.awaitingModelAfterTools).toBe(false);
   });
@@ -132,8 +141,40 @@ describe("TUI Tool execution ledger", () => {
       },
     });
 
-    expect(state.tools[0]?.summary).toBe("已读 3/12 行 · 13 B");
+    expect(state.tools[0]?.summary).toBe("L4–6 / 12");
+    expect(state.tools[0]?.startLine).toBe(4);
+    expect(state.tools[0]?.totalLines).toBe(12);
     expect(state.tools[0]?.supplementalLines).toEqual(["four", "five", "six"]);
+  });
+
+  it("derives the Read file total from offset plus a Pi more-lines notice", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: {
+          id: "read-more",
+          name: "read",
+          arguments: { path: "large.txt", offset: 4, limit: 3 },
+        },
+        result: {
+          content: [{
+            type: "text",
+            text: "four\nfive\nsix\n\n[6 more lines in file. Use offset=7 to continue.]",
+          }],
+        },
+        isError: false,
+      },
+    });
+    expect(state.tools[0]?.summary).toBe("L4–6 / 12");
+    expect(state.tools[0]?.totalLines).toBe(12);
+    const output = renderToString(
+      <SessionContentView messages={[]} tools={state.tools} />,
+      { columns: 80 },
+    );
+    expect(output).toContain("L4–6 / 12");
+    expect(output).toContain(" ⋮  其余 9 行");
+    expect(output).not.toContain("[6 more lines");
   });
 
   it.each<{
@@ -142,19 +183,9 @@ describe("TUI Tool execution ledger", () => {
     readonly rows: readonly string[];
   }>([
     {
-      name: "read",
-      result: { content: [{ type: "text", text: "" }] },
-      rows: ["└ 空文件"],
-    },
-    {
       name: "ls",
       result: { content: [{ type: "text", text: "(empty directory)" }] },
       rows: ["└ 空目录"],
-    },
-    {
-      name: "read",
-      result: { content: [{ type: "text", text: "first\n\nthird\nfourth\nfifth\n" }] },
-      rows: ["├ first", "├ third", "├ fourth", "└ fifth"],
     },
     {
       name: "ls",
@@ -346,7 +377,7 @@ describe("TUI Tool execution ledger", () => {
       status,
       summary,
     }))).toEqual([
-      { name: "read", invocationLabel: "src/link.ts", status: "completed", summary: "已读 1 行 · 19 B" },
+      { name: "read", invocationLabel: "src/link.ts", status: "completed", summary: "L1 · 1 行 · 19 B" },
       { name: "write", invocationLabel: "/outside/report.txt", status: "completed", summary: "Successfully wrote to /outside/report.txt" },
       { name: "edit", invocationLabel: "src/link.ts", status: "completed", summary: "Successfully replaced 1 block(s) in src/link.ts." },
       { name: "bash", invocationLabel: "pnpm test", status: "failed", summary: "Command exited with code 7" },
@@ -405,7 +436,8 @@ describe("TUI Tool execution ledger", () => {
       { columns: 80 },
     );
     const lines = output.split("\n");
-    expect(output).toContain("read · src/link.ts · 已读 1 行 · 19 B");
+    expect(output).toContain("read src/link.ts");
+    expect(output).toContain("L1 · 1 行 · 19 B");
     expect(output).toContain("export const x = 1;");
     expect(output).toContain("write · /outside/report.txt");
     expect(output).toContain("edit · src/link.ts · Successfully replaced");
@@ -415,14 +447,172 @@ describe("TUI Tool execution ledger", () => {
     expect(output).toContain("tests started");
     expect(output).toContain("one failure");
     expect(output).toContain("Command exited with code 7");
-    expect(output).toContain("grep · src · /needle/ · 2 matches");
-    expect(output).toContain("a.ts:1: needle");
+    expect(output).toContain("grep src · /needle/");
+    expect(output).toContain("2 matches");
+    expect(output).toContain("a.ts: needle");
     expect(output).not.toContain("next arguments");
     expect(output).toContain("find · . · **/*.ts · 0 entries");
     expect(output).toContain("ls · src · 2 entries");
     expect(output).toContain("index.ts");
     expect(output).toContain("ui/");
-    expect(output).toContain("read · README.md · 已读 1 行 · 19 B");
+    expect(output).toContain("read README.md");
     expect(output).toContain("…其余");
+  });
+
+  it("renders a short read card with a loud verb, dim path, and line gutter", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: canonicalToolFixtures[0]!.call,
+        result: canonicalToolFixtures[0]!.result,
+        isError: false,
+      },
+    });
+    const output = renderToString(
+      <SessionContentView messages={[]} tools={state.tools} />,
+      { columns: 80 },
+    );
+    expect(output).toBe([
+      "read src/link.ts                                                L1 · 1 行 · 19 B",
+      "   1  export const x = 1;",
+    ].join("\n"));
+  });
+
+  it("renders a windowed read card with file remainder in the omit row", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: {
+          id: "read-window",
+          name: "read",
+          arguments: { path: "src/ui/tui.tsx", offset: 689, limit: 4 },
+        },
+        result: {
+          content: [{
+            type: "text",
+            text: [
+              "export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {",
+              '  if (tool.status === "requested" || tool.status === "running") return null;',
+              "  return (",
+              '    <Text color={tool.status === "completed" ? "green" : "red"} wrap="truncate-end">',
+              "",
+              "[Showing lines 689-692 of 1113. Use offset=693 to continue.]",
+            ].join("\n"),
+          }],
+        },
+        isError: false,
+      },
+    });
+    const output = renderToString(
+      <SessionContentView messages={[]} tools={state.tools} />,
+      { columns: 80 },
+    );
+    expect(output).toContain("read src/ui/tui.tsx");
+    expect(output).toContain("L689–692 / 1113");
+    expect(output).toContain(" 689  export function ToolLineView");
+    expect(output).toContain(" ⋮  其余 1109 行");
+    expect(output).not.toContain("[Showing lines");
+    expect(output).not.toContain("├");
+    expect(output).not.toContain("└");
+  });
+
+  it("renders empty, failed, and image read cards without a line gutter", () => {
+    const cards = [
+      {
+        call: { id: "empty", name: "read", arguments: { path: "notes.md" } },
+        result: { content: [{ type: "text" as const, text: "" }] },
+        isError: false,
+        header: "空文件",
+        body: "(empty)",
+      },
+      {
+        call: { id: "missing", name: "read", arguments: { path: "missing.ts" } },
+        result: {
+          content: [{
+            type: "text" as const,
+            text: "ENOENT: no such file or directory, open 'missing.ts'",
+          }],
+        },
+        isError: true,
+        header: "failed",
+        body: "ENOENT: no such file or directory, open 'missing.ts'",
+      },
+      {
+        call: { id: "image", name: "read", arguments: { path: "assets/hero.png" } },
+        result: {
+          content: [
+            { type: "text" as const, text: "Read image file [image/png]" },
+            { type: "image" as const, data: "abc", mimeType: "image/png" },
+          ],
+        },
+        isError: false,
+        header: "image/png",
+        body: "已读 1 张图片",
+      },
+    ];
+    for (const card of cards) {
+      const state = reduceTuiState(initialState(), {
+        type: "harness-event",
+        event: {
+          type: "tool-completed",
+          toolCall: card.call,
+          result: card.result,
+          isError: card.isError,
+        },
+      });
+      const output = renderToString(
+        <SessionContentView messages={[]} tools={state.tools} />,
+        { columns: 80 },
+      );
+      expect(output).toContain(`read ${card.call.arguments.path}`);
+      expect(output).toContain(card.header);
+      expect(output).toContain(`      ${card.body}`);
+      expect(output).not.toContain("├");
+      expect(output).not.toContain("└");
+    }
+  });
+
+  it("renders grep hits with a line gutter and file: rest remainder", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: canonicalToolFixtures[4]!.call,
+        result: canonicalToolFixtures[4]!.result,
+        isError: false,
+      },
+    });
+    const output = renderToString(
+      <SessionContentView messages={[]} tools={state.tools} />,
+      { columns: 80 },
+    );
+    expect(output).toBe([
+      "grep src · /needle/                                                    2 matches",
+      "   1  a.ts: needle",
+      "   2  b.ts: needle",
+    ].join("\n"));
+  });
+
+  it("renders a zero-match grep card with the unmatched label at the code column", () => {
+    const state = reduceTuiState(initialState(), {
+      type: "harness-event",
+      event: {
+        type: "tool-completed",
+        toolCall: { id: "grep-empty", name: "grep", arguments: { pattern: "none", path: "src" } },
+        result: { content: [{ type: "text", text: "No matches found" }] },
+        isError: false,
+      },
+    });
+    const output = renderToString(
+      <SessionContentView messages={[]} tools={state.tools} />,
+      { columns: 80 },
+    );
+    expect(output).toContain("grep src · /none/");
+    expect(output).toContain("0 matches");
+    expect(output).toContain("      无匹配");
+    expect(output).not.toContain("├");
+    expect(output).not.toContain("└");
   });
 });

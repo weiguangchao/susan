@@ -22,16 +22,26 @@ export type TuiToolCard = {
   readonly status: TuiToolStatus;
   readonly summary: string;
   readonly supplementalLines: readonly string[];
+  readonly startLine?: number;
+  readonly totalLines?: number;
 };
 
 export type TuiToolResultRow = {
   readonly text: string;
   readonly gap: boolean;
+  readonly lineNumber?: number;
 };
 
 export const TOOL_RESULT_ROW_BUDGET = 4;
 
+export function isSourceToolCard(tool: Pick<TuiToolCard, "name">): boolean {
+  return tool.name === "read" || tool.name === "grep";
+}
+
 export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
+  if (isSourceToolCard(tool)) {
+    return sourceToolResultRows(tool);
+  }
   const lines = tool.supplementalLines
     .flatMap((line) => line.split("\n"))
     .filter(line => line.trim() !== "");
@@ -44,10 +54,65 @@ export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
   ];
 }
 
+function sourceToolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
+  const lines = tool.supplementalLines
+    .flatMap((line) => line.split("\n"))
+    .filter((line) => !line.startsWith("error details ·") && !line.startsWith("truncation ·"));
+  const rows = lines
+    .slice(0, TOOL_RESULT_ROW_BUDGET)
+    .map((text, index) => sourceResultRow(tool, text, index));
+  const shown = rows.length;
+  const omitted = Math.max(0, (tool.totalLines ?? lines.length) - shown);
+  if (omitted === 0) {
+    return rows;
+  }
+  return [...rows, { text: `其余 ${omitted} 行`, gap: true }];
+}
+
+function sourceResultRow(
+  tool: TuiToolCard,
+  text: string,
+  index: number,
+): TuiToolResultRow {
+  if (tool.name === "grep") {
+    const parsed = parseGrepMatchLine(text);
+    if (parsed === undefined) {
+      return { text, gap: false };
+    }
+    return { text: parsed.text, gap: false, lineNumber: parsed.lineNumber };
+  }
+  if (
+    tool.status !== "completed" ||
+    text === "(empty)" ||
+    /^已读 \d+ 张图片$/.test(text)
+  ) {
+    return { text, gap: false };
+  }
+  return {
+    text,
+    gap: false,
+    lineNumber: (tool.startLine ?? 1) + index,
+  };
+}
+
+function parseGrepMatchLine(
+  line: string,
+): { readonly lineNumber: number; readonly text: string } | undefined {
+  const match = /:(\d+): /.exec(line);
+  if (match === null || match.index === undefined) {
+    return undefined;
+  }
+  return {
+    lineNumber: Number(match[1]),
+    text: `${line.slice(0, match.index)}: ${line.slice(match.index + match[0].length)}`,
+  };
+}
+
 type ToolPresenter = {
   readonly summary: (
     result: ToolResult,
     payload: Record<string, unknown> | undefined,
+    arguments_?: Record<string, unknown>,
   ) => string;
   readonly errorSummary?: (
     result: ToolResult,
@@ -71,8 +136,12 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
   read: {
     summary: readSummary,
     supplementalLines: (result) => {
-      const content = toolResultText(result.content);
-      return content === "" ? ["空文件"] : content.split("\n");
+      const images = result.content.filter((block) => block.type === "image");
+      if (images.length > 0) {
+        return [`已读 ${images.length} 张图片`];
+      }
+      const content = stripToolNotices(toolResultText(result.content));
+      return content === "" ? ["(empty)"] : readPreviewLines(content);
     },
   },
   write: {
@@ -115,7 +184,7 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       if (content === "" || content === "No matches found") {
         return ["无匹配"];
       }
-      return content.split("\n").filter((line) => line.trim() !== "");
+      return stripToolNotices(content).split("\n").filter((line) => line.trim() !== "");
     },
   },
   find: {
@@ -179,6 +248,16 @@ export function createCompletedToolCard(
     payload,
     isError,
   );
+  const startLine = toolCall.name === "read" ? readStartLine(toolCall) : undefined;
+  const arguments_ = asRecord(toolCall.arguments);
+  const totalLines = toolCall.name === "read" && !isError
+    ? readTotalLines(
+        toolResultText(result.content),
+        payload,
+        readStartLine(toolCall),
+        readPreviewLines(stripToolNotices(toolResultText(result.content))).length,
+      )
+    : undefined;
   if (isError) {
     const presenter = toolPresenters[toolCall.name];
     const failurePrefix = presenter?.failurePrefix?.(payload) ?? "";
@@ -188,8 +267,9 @@ export function createCompletedToolCard(
     return {
       ...createToolCard(toolCall, "failed"),
       invocationLabel,
-      summary: `${failurePrefix}${errorText}`,
+      summary: isSourceToolCard(toolCall) ? "failed" : `${failurePrefix}${errorText}`,
       supplementalLines,
+      ...(startLine === undefined ? {} : { startLine }),
     };
   }
 
@@ -197,8 +277,10 @@ export function createCompletedToolCard(
   return {
     ...createToolCard(toolCall, "completed"),
     invocationLabel,
-    summary: presenter?.summary(result, payload) ?? "completed",
+    summary: presenter?.summary(result, payload, arguments_) ?? "completed",
     supplementalLines,
+    ...(startLine === undefined ? {} : { startLine }),
+    ...(totalLines === undefined ? {} : { totalLines }),
   };
 }
 
@@ -218,18 +300,75 @@ export function formatToolCallDetail(
 function readSummary(
   result: ToolResult,
   payload: Record<string, unknown> | undefined,
+  arguments_?: Record<string, unknown>,
 ): string {
-  const content = toolResultText(result.content);
   const images = result.content.filter((block) => block.type === "image");
-  if (images.length) return `已读 ${images.length} 张图片 · ${images.map((block) => block.mimeType).join(", ")}`;
-  const returnedLines = content === "" ? 0 : content.split("\n").length;
-  const totalLines = numericField(payload, "totalLines");
-  const lineSummary =
-    totalLines === undefined || totalLines === returnedLines
-      ? `${returnedLines}`
-      : `${returnedLines}/${totalLines}`;
+  if (images.length > 0) {
+    return images.map((block) => block.mimeType).join(", ");
+  }
+  const raw = toolResultText(result.content);
+  const content = stripToolNotices(raw);
+  if (content === "") {
+    return "空文件";
+  }
+  const displayedLines = readPreviewLines(content);
+  const startLine = readOffset(arguments_);
+  const endLine = startLine + displayedLines.length - 1;
+  const totalLines = readTotalLines(raw, payload, startLine, displayedLines.length);
+  if (totalLines !== undefined && totalLines !== displayedLines.length) {
+    return `L${startLine}–${endLine} / ${totalLines}`;
+  }
   const bytes = new TextEncoder().encode(content).length;
-  return `已读 ${lineSummary} 行 · ${formatNumber(bytes)} B`;
+  return `L${startLine} · ${displayedLines.length} 行 · ${formatNumber(bytes)} B`;
+}
+
+function readStartLine(toolCall: ProviderToolCall): number {
+  return readOffset(asRecord(toolCall.arguments));
+}
+
+function readOffset(arguments_: Record<string, unknown> | undefined): number {
+  const offset = numericField(arguments_, "offset");
+  return offset === undefined || offset < 1 ? 1 : Math.trunc(offset);
+}
+
+function readPreviewLines(content: string): string[] {
+  const lines = content.split("\n");
+  if (lines.length > 0 && lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function readTotalLines(
+  content: string,
+  payload: Record<string, unknown> | undefined,
+  startLine: number,
+  displayedLines: number,
+): number | undefined {
+  const totalLines = numericField(payload, "totalLines");
+  if (totalLines !== undefined) {
+    return totalLines;
+  }
+  const notice = noticeSuffix(content);
+  const showing = /\[Showing lines \d+-\d+ of (\d+)/.exec(notice);
+  if (showing !== null) {
+    return Number(showing[1]);
+  }
+  const remaining = /\[(\d+) more lines in file\./.exec(notice);
+  if (remaining !== null) {
+    return startLine + displayedLines - 1 + Number(remaining[1]);
+  }
+  return undefined;
+}
+
+function noticeSuffix(content: string): string {
+  const noticeAt = content.indexOf("\n\n[");
+  return noticeAt === -1 ? "" : content.slice(noticeAt + 2);
+}
+
+function stripToolNotices(content: string): string {
+  const noticeAt = content.indexOf("\n\n[");
+  return noticeAt === -1 ? content : content.slice(0, noticeAt);
 }
 
 function buildSupplementalLines(
@@ -255,7 +394,7 @@ function buildSupplementalLines(
   }
 
   const truncation = asRecord(payload?.truncation);
-  if (truncation !== undefined) {
+  if (truncation !== undefined && !isSourceToolCard(toolCall)) {
     lines.push(`truncation · ${JSON.stringify(truncation)}`);
   }
   return lines;

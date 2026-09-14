@@ -39,7 +39,7 @@ it("preserves image blocks for non-vision models and renders an attachment summa
   expect(result.content[0]).toEqual({type: "text", text: "Read image file [image/png]\n[Current model does not support images. The image will be omitted from this request.]"});
   expect(result.content[1]?.type).toBe("image");
   const card = createCompletedToolCard({id: "a", name: "read", arguments: { path: "a.png" }}, result, false, cwd);
-  expect(card.summary).toBe("已读 1 张图片 · image/png");
+  expect(card.summary).toBe("image/png");
   expect(JSON.stringify(card)).not.toContain(png.toString("base64"));
   const store = createSessionStore({ sessionsDirectory: join(cwd, "sessions") });
   const created = await store.createSession({ cwd });

@@ -18,7 +18,7 @@ export const canonicalToolFixtures = [
       content: [{ type: "text", text: "export const x = 1;" }],
     },
     isError: false,
-    summary: "已读 1 行 · 19 B",
+    summary: "L1 · 1 行 · 19 B",
   },
   {
     call: {

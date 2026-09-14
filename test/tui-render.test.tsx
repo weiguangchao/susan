@@ -625,7 +625,7 @@ describe("TUI Tool rendering", () => {
       summary: "已读 2 行 · 17 B",
       supplementalLines: [],
     });
-    expect(completed).toContain("read · /tmp/example.txt offset=1 limit=2000");
+    expect(completed).toContain("read /tmp/example.txt offset=1 limit=2000");
     expect(completed).toContain("已读 2 行 · 17 B");
     expect(approvalPromptFragments(completed)).toEqual([]);
 
@@ -637,7 +637,7 @@ describe("TUI Tool rendering", () => {
       summary: "文件不存在",
       supplementalLines: [],
     });
-    expect(failed).toContain("read · /tmp/example.txt offset=1 limit=2000");
+    expect(failed).toContain("read /tmp/example.txt offset=1 limit=2000");
     expect(failed).toContain("文件不存在");
     expect(approvalPromptFragments(failed)).toEqual([]);
   });
@@ -696,7 +696,7 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const running = latestVisibleFrame(frames);
-    expect(running).not.toContain("read · /tmp/example.txt");
+    expect(running).not.toContain("read /tmp/example.txt");
     expect(running).toContain("Working");
     expect(running).not.toContain("执行中");
     expect(approvalPromptFragments(running)).toEqual([]);
@@ -720,7 +720,7 @@ describe("TUI Tool rendering", () => {
     await flushEffects();
     await instance.waitUntilRenderFlush();
     const completed = frames.join("");
-    expect(completed).toContain("已读 2 行 · 17 B");
+    expect(completed).toContain("L1 · 2 行 · 17 B");
     expect(approvalPromptFragments(completed)).toEqual([]);
     expect(commands).toEqual([]);
 

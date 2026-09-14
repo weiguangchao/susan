@@ -836,7 +836,7 @@ describe("TUI state", () => {
 
     expect(state.tools[0]).toMatchObject({
       status: "failed",
-      summary: "文件不存在",
+      summary: "failed",
     });
     expect(formatToolCallDetail(toolCall)).toBe("/tmp/example.txt");
   });
@@ -926,7 +926,7 @@ describe("TUI state", () => {
     });
     expect(state.tools[0]).toMatchObject({
       status: "completed",
-      summary: "已读 2 行 · 17 B",
+      summary: "L1 · 2 行 · 17 B",
     });
   });
 
@@ -960,7 +960,7 @@ describe("TUI state", () => {
 
     expect(state.tools[0]).toMatchObject({
       status: "failed",
-      summary: "文件不存在",
+      summary: "failed",
     });
     expect(state.tools[0]?.status).not.toBe("denied");
   });
@@ -1323,15 +1323,17 @@ describe("TUI state", () => {
         invocationLabel: "missing.txt",
         supplementalLines: ["File not found"],
         status: "failed",
-        summary: "File not found",
+        summary: "failed",
+        startLine: 1,
       },
       {
         id: "call-2",
         name: "read",
         invocationLabel: "AGENTS.md",
-        supplementalLines: ["# Agents", ""],
+        supplementalLines: ["# Agents"],
         status: "completed",
-        summary: "已读 2 行 · 9 B",
+        summary: "L1 · 1 行 · 9 B",
+        startLine: 1,
       },
     ]);
   });

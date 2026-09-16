@@ -15,6 +15,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts --config .",
+    "prototype:tool-cards": "python3 -m http.server 4177 --bind 127.0.0.1 --directory src/ui",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

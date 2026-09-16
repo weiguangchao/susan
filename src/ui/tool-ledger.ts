@@ -30,37 +30,18 @@ export type TuiToolResultRow = {
   readonly text: string;
   readonly gap: boolean;
   readonly lineNumber?: number;
+  readonly sign?: "+" | "-" | " ";
 };
 
 export const TOOL_RESULT_ROW_BUDGET = 4;
 
-export function isSourceToolCard(tool: Pick<TuiToolCard, "name">): boolean {
-  return tool.name === "read" || tool.name === "grep";
-}
-
 export function toolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
-  if (isSourceToolCard(tool)) {
-    return sourceToolResultRows(tool);
-  }
-  const lines = tool.supplementalLines
-    .flatMap((line) => line.split("\n"))
-    .filter(line => line.trim() !== "");
-  if (lines.length <= TOOL_RESULT_ROW_BUDGET) {
-    return lines.map((text) => ({ text, gap: false }));
-  }
-  return [
-    ...lines.slice(0, TOOL_RESULT_ROW_BUDGET).map((text) => ({ text, gap: false })),
-    { text: `…其余 ${lines.length - TOOL_RESULT_ROW_BUDGET} 行省略`, gap: true },
-  ];
-}
-
-function sourceToolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
   const lines = tool.supplementalLines
     .flatMap((line) => line.split("\n"))
     .filter((line) => !line.startsWith("error details ·") && !line.startsWith("truncation ·"));
   const rows = lines
     .slice(0, TOOL_RESULT_ROW_BUDGET)
-    .map((text, index) => sourceResultRow(tool, text, index));
+    .map((text, index) => resultRow(tool, text, index));
   const shown = rows.length;
   const omitted = Math.max(0, (tool.totalLines ?? lines.length) - shown);
   if (omitted === 0) {
@@ -69,7 +50,7 @@ function sourceToolResultRows(tool: TuiToolCard): readonly TuiToolResultRow[] {
   return [...rows, { text: `其余 ${omitted} 行`, gap: true }];
 }
 
-function sourceResultRow(
+function resultRow(
   tool: TuiToolCard,
   text: string,
   index: number,
@@ -81,7 +62,23 @@ function sourceResultRow(
     }
     return { text: parsed.text, gap: false, lineNumber: parsed.lineNumber };
   }
+  if (tool.name === "edit") {
+    if (/^[+\- ] +\.\.\.\s*$/.test(text)) {
+      return { text: "...", gap: false };
+    }
+    const parsed = parseEditDiffLine(text);
+    if (parsed === undefined) {
+      return { text, gap: false };
+    }
+    return {
+      text: parsed.text,
+      gap: false,
+      lineNumber: parsed.lineNumber,
+      sign: parsed.sign,
+    };
+  }
   if (
+    (tool.name !== "read" && tool.name !== "write") ||
     tool.status !== "completed" ||
     text === "(empty)" ||
     /^已读 \d+ 张图片$/.test(text)
@@ -108,6 +105,20 @@ function parseGrepMatchLine(
   };
 }
 
+function parseEditDiffLine(
+  line: string,
+): { readonly sign: "+" | "-" | " "; readonly lineNumber: number; readonly text: string } | undefined {
+  const match = /^([+\- ]) *(\d+)(?: (.*))?$/.exec(line);
+  if (match === null) {
+    return undefined;
+  }
+  return {
+    sign: match[1] as "+" | "-" | " ",
+    lineNumber: Number(match[2]),
+    text: match[3] ?? "",
+  };
+}
+
 type ToolPresenter = {
   readonly summary: (
     result: ToolResult,
@@ -125,10 +136,8 @@ type ToolPresenter = {
   readonly supplementalLines?: (
     result: ToolResult,
     payload: Record<string, unknown> | undefined,
+    arguments_?: Record<string, unknown>,
   ) => readonly string[];
-  readonly failurePrefix?: (
-    payload: Record<string, unknown> | undefined,
-  ) => string;
   readonly hiddenFailureFields?: readonly string[];
 };
 
@@ -145,27 +154,31 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
     },
   },
   write: {
-    summary: (result) => {
-      const text = toolResultText(result.content);
-      return text === "" ? "completed" : text;
+    summary: (_result, _payload, arguments_) => writeSummary(arguments_),
+    supplementalLines: (_result, _payload, arguments_) => {
+      const content = stringField(arguments_, "content") ?? "";
+      return content === "" ? ["(empty)"] : readPreviewLines(content);
     },
   },
   edit: {
-    summary: (result) => toolResultText(result.content) || "completed",
-    supplementalLines: (result, payload) => {
+    summary: (_result, payload) => editSummary(payload),
+    supplementalLines: (_result, payload) => {
       const diff = stringField(payload, "diff");
       return diff === undefined || diff === "" ? [] : diff.split("\n");
     },
   },
   bash: {
     summary: () => "completed",
-    errorSummary: (result) => lastNonEmptyLine(toolResultText(result.content)) || "failed",
+    errorSummary: (result) => bashErrorSummary(result),
     supplementalLines: (result) => {
       const content = toolResultText(result.content);
       if (content === "" || content === "(no output)") {
         return [];
       }
-      return content.split("\n").filter((line) => line.trim() !== "");
+      return content.split("\n").filter((line) => {
+        const trimmed = line.trim();
+        return trimmed !== "" && !/^Command exited with code \d+$/.test(trimmed);
+      });
     },
     invocationLabel: (arguments_) =>
       stringField(arguments_, "command") ?? "bash",
@@ -197,7 +210,7 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       if (content === "" || content === "No files found matching pattern") {
         return ["无匹配"];
       }
-      return content.split("\n").filter((line) => line.trim() !== "");
+      return findListingLines(content);
     },
   },
   ls: {
@@ -207,7 +220,7 @@ const toolPresenters: Readonly<Record<string, ToolPresenter>> = {
       if (content === "" || content === "(empty directory)") {
         return ["空目录"];
       }
-      return content.split("\n").filter((line) => line.trim() !== "");
+      return lsListingLines(content);
     },
   },
 };
@@ -242,14 +255,15 @@ export function createCompletedToolCard(
 ): TuiToolCard {
   const payload = asRecord(result.details);
   const invocationLabel = formatToolCallDetail(toolCall, sessionCwd);
+  const arguments_ = asRecord(toolCall.arguments);
   const supplementalLines = buildSupplementalLines(
     toolCall,
     result,
     payload,
     isError,
+    arguments_,
   );
   const startLine = toolCall.name === "read" ? readStartLine(toolCall) : undefined;
-  const arguments_ = asRecord(toolCall.arguments);
   const totalLines = toolCall.name === "read" && !isError
     ? readTotalLines(
         toolResultText(result.content),
@@ -260,14 +274,10 @@ export function createCompletedToolCard(
     : undefined;
   if (isError) {
     const presenter = toolPresenters[toolCall.name];
-    const failurePrefix = presenter?.failurePrefix?.(payload) ?? "";
-    const errorText =
-      presenter?.errorSummary?.(result, payload) ??
-      toolResultText(result.content);
     return {
       ...createToolCard(toolCall, "failed"),
       invocationLabel,
-      summary: isSourceToolCard(toolCall) ? "failed" : `${failurePrefix}${errorText}`,
+      summary: presenter?.errorSummary?.(result, payload) ?? "failed",
       supplementalLines,
       ...(startLine === undefined ? {} : { startLine }),
     };
@@ -295,6 +305,38 @@ export function formatToolCallDetail(
   const path = lexicalPathPresentation(toolCall, sessionCwd)?.label ??
     stringField(arguments_, "path") ?? ".";
   return toolPresenters[toolCall.name]?.invocationLabel?.(arguments_, path) ?? path;
+}
+
+function writeSummary(arguments_: Record<string, unknown> | undefined): string {
+  const content = stringField(arguments_, "content") ?? "";
+  if (content === "") {
+    return "空文件";
+  }
+  const lines = readPreviewLines(content);
+  const bytes = new TextEncoder().encode(content).length;
+  return `${lines.length} 行 · ${formatNumber(bytes)} B`;
+}
+
+function editSummary(payload: Record<string, unknown> | undefined): string {
+  const diff = stringField(payload, "diff") ?? "";
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    const parsed = parseEditDiffLine(line);
+    if (parsed?.sign === "+") {
+      added += 1;
+    } else if (parsed?.sign === "-") {
+      removed += 1;
+    }
+  }
+  const counts = `+${added} −${removed}`;
+  const firstChangedLine = numericField(payload, "firstChangedLine");
+  return firstChangedLine === undefined ? counts : `L${firstChangedLine} · ${counts}`;
+}
+
+function bashErrorSummary(result: ToolResult): string {
+  const match = /Command exited with code (\d+)/.exec(toolResultText(result.content));
+  return match === null ? "failed" : `exit ${match[1]}`;
 }
 
 function readSummary(
@@ -376,14 +418,19 @@ function buildSupplementalLines(
   result: ToolResult,
   payload: Record<string, unknown> | undefined,
   isError: boolean,
+  arguments_?: Record<string, unknown>,
 ): readonly string[] {
   const lines: string[] = [];
   const presenter = toolPresenters[toolCall.name];
-  if (presenter?.supplementalLines !== undefined) {
-    lines.push(...presenter.supplementalLines(result, payload));
-  }
-
   if (isError) {
+    if (toolCall.name === "bash" && presenter?.supplementalLines !== undefined) {
+      lines.push(...presenter.supplementalLines(result, payload, arguments_));
+    } else {
+      const errorText = toolResultText(result.content);
+      if (errorText !== "" && errorText !== "(no output)") {
+        lines.push(...errorText.split("\n").filter((line) => line.trim() !== ""));
+      }
+    }
     const supplemental = failureSupplement(
       payload,
       presenter?.hiddenFailureFields ?? [],
@@ -391,11 +438,10 @@ function buildSupplementalLines(
     if (supplemental !== undefined) {
       lines.push(`error details · ${JSON.stringify(supplemental)}`);
     }
+    return lines;
   }
-
-  const truncation = asRecord(payload?.truncation);
-  if (truncation !== undefined && !isSourceToolCard(toolCall)) {
-    lines.push(`truncation · ${JSON.stringify(truncation)}`);
+  if (presenter?.supplementalLines !== undefined) {
+    lines.push(...presenter.supplementalLines(result, payload, arguments_));
   }
   return lines;
 }
@@ -440,11 +486,6 @@ function failureSupplement(
   const omitted = new Set(hiddenFields);
   const entries = Object.entries(payload).filter(([key]) => !omitted.has(key));
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
-}
-
-function lastNonEmptyLine(text: string): string | undefined {
-  const lines = text.split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
-  return lines.at(-1);
 }
 
 function lsListingLines(content: string): string[] {

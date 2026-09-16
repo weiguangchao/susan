@@ -30,7 +30,7 @@ export const canonicalToolFixtures = [
       content: [{ type: "text", text: "Successfully wrote to /outside/report.txt" }],
     },
     isError: false,
-    summary: "Successfully wrote to /outside/report.txt",
+    summary: "1 行 · 12 B",
   },
   {
     call: {
@@ -50,7 +50,7 @@ export const canonicalToolFixtures = [
       },
     },
     isError: false,
-    summary: "Successfully replaced 1 block(s) in src/link.ts.",
+    summary: "L1 · +1 −1",
   },
   {
     call: {
@@ -65,7 +65,7 @@ export const canonicalToolFixtures = [
       }],
     },
     isError: true,
-    summary: "Command exited with code 7",
+    summary: "exit 7",
   },
   {
     call: {

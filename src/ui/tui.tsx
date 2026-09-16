@@ -32,7 +32,6 @@ import {
 import { pinLiveFrameRows } from "./terminal-output";
 import { ModelPickerView } from "./model-picker";
 import {
-  isSourceToolCard,
   toolResultRows,
   type TuiToolResultRow,
 } from "./tool-ledger";
@@ -693,29 +692,22 @@ function completedItemGapAbove(
 export function ToolLineView({ tool }: { readonly tool: TuiToolCard }) {
   if (tool.status === "requested" || tool.status === "running") return null;
   const color = tool.status === "completed" ? "green" : "red";
-  if (isSourceToolCard(tool)) {
-    return (
-      <Box justifyContent="space-between" width="100%" flexShrink={0}>
-        <Box flexShrink={1} marginRight={1}>
-          <Text wrap="truncate-end">
-            <Text bold color={color}>{tool.name}</Text>
-            <Text dimColor> {tool.invocationLabel}</Text>
+  return (
+    <Box justifyContent="space-between" width="100%" flexShrink={0}>
+      <Box flexShrink={1} marginRight={1}>
+        <Text wrap="truncate-end">
+          <Text bold color={color}>{tool.name}</Text>
+          <Text dimColor> {tool.invocationLabel}</Text>
+        </Text>
+      </Box>
+      {tool.summary === "" ? null : (
+        <Box flexShrink={0}>
+          <Text dimColor wrap="truncate-end">
+            {tool.summary}
           </Text>
         </Box>
-        {tool.summary === "" ? null : (
-          <Box flexShrink={0}>
-            <Text dimColor wrap="truncate-end">
-              {tool.summary}
-            </Text>
-          </Box>
-        )}
-      </Box>
-    );
-  }
-  return (
-    <Text color={color} wrap="truncate-end">
-      {tool.name} · {tool.invocationLabel}{tool.summary === "" ? "" : ` · ${tool.summary}`}
-    </Text>
+      )}
+    </Box>
   );
 }
 
@@ -730,42 +722,31 @@ export function ToolLedgerView({
       {results.map((tool) => (
         <Box key={tool.id} flexDirection="column" flexShrink={0} width="100%">
           <ToolLineView tool={tool} />
-          {isSourceToolCard(tool)
-            ? <SourceResultRows tool={tool} />
-            : toolResultRows(tool).map((row, index, rows) => (
-              <Text
-                key={`${tool.id}-result-${index}`}
-                wrap="truncate-end"
-                dimColor
-                italic={row.gap}
-              >
-                {"    "}{index === rows.length - 1 ? "└ " : "├ "}{row.text}
-              </Text>
-            ))}
+          <ToolResultRows tool={tool} />
         </Box>
       ))}
     </Box>
   );
 }
 
-function SourceResultRows({ tool }: { readonly tool: TuiToolCard }) {
+function ToolResultRows({ tool }: { readonly tool: TuiToolCard }) {
   const rows = toolResultRows(tool);
-  const gutterWidth = sourceGutterWidth(rows);
+  const gutterWidth = toolGutterWidth(rows);
   return (
     <>
       {rows.map((row, index) => (
-        <SourceResultRowView
+        <ToolResultRowView
           key={`${tool.id}-result-${index}`}
           row={row}
           gutterWidth={gutterWidth}
-          failed={tool.status === "failed"}
+          failed={tool.status === "failed" && tool.name !== "bash"}
         />
       ))}
     </>
   );
 }
 
-function SourceResultRowView({
+function ToolResultRowView({
   row,
   gutterWidth,
   failed,
@@ -782,26 +763,46 @@ function SourceResultRowView({
     );
   }
   if (row.lineNumber === undefined) {
+    const empty = row.text === "(empty)" || row.text === "无匹配" || row.text === "空目录";
     return (
       <Text
         color={failed ? "red" : undefined}
-        dimColor={row.text === "(empty)"}
-        italic={row.text === "(empty)"}
+        dimColor={empty}
+        italic={empty}
         wrap="truncate-end"
       >
         {" ".repeat(gutterWidth + 2)}{row.text}
       </Text>
     );
   }
+  const signColor = row.sign === "+" ? "green" : row.sign === "-" ? "red" : undefined;
+  const dimBody = row.sign === " ";
   return (
     <Text wrap="truncate-end">
-      <Text dimColor>{String(row.lineNumber).padStart(gutterWidth, " ")}  </Text>
-      {row.text}
+      <Text
+        color={signColor}
+        dimColor={signColor === undefined}
+      >
+        {formatGutter(row, gutterWidth)}  </Text>
+      <Text
+        color={signColor}
+        dimColor={dimBody}
+      >
+        {row.text}
+      </Text>
     </Text>
   );
 }
 
-function sourceGutterWidth(rows: readonly TuiToolResultRow[]): number {
+function formatGutter(row: TuiToolResultRow, gutterWidth: number): string {
+  const digits = String(row.lineNumber ?? "").padStart(gutterWidth, " ");
+  if ((row.sign !== "+" && row.sign !== "-") || !digits.startsWith(" ")) {
+    return digits;
+  }
+  return `${row.sign}${digits.slice(1)}`;
+}
+
+function toolGutterWidth(rows: readonly TuiToolResultRow[]): number {
   const numbers = rows.flatMap((row) =>
     row.lineNumber === undefined ? [] : [row.lineNumber],
   );

@@ -827,14 +827,17 @@ function thinkDurationLabel(durationMs: number): string {
 function WorkingActivityLabel({
   label,
   phase,
+  durationText,
 }: {
   readonly label: string;
   readonly phase: number;
+  readonly durationText?: string;
 }) {
   return (
     <Text bold wrap="truncate-end">
       <Text color="cyan">{workingSpinnerFrame(phase)} </Text>
       {label}
+      {durationText ? <Text dimColor bold={false}> · {durationText}</Text> : null}
     </Text>
   );
 }
@@ -854,10 +857,20 @@ function StreamView({
   const active = thinking || state.awaitingModelAfterTools;
   const phase = useActivityPhase(active);
   const activityLabel = state.awaitingModelAfterTools ? WORKING_LABEL : THINK_LABEL;
+  const thinkingStartedAt = thinking && stream !== null ? stream.reasoningStartedAt : null;
+  const now = useNow(thinkingStartedAt !== null);
+  const durationText =
+    thinkingStartedAt === null
+      ? undefined
+      : `${(Math.max(0, now - thinkingStartedAt) / 1000).toFixed(1)}s`;
   return (
     <Box flexDirection="column" flexShrink={0}>
       {active ? (
-        <WorkingActivityLabel label={activityLabel} phase={phase} />
+        <WorkingActivityLabel
+          label={activityLabel}
+          phase={phase}
+          durationText={durationText}
+        />
       ) : reasoning === "" ? null : (
         <Text dimColor wrap="truncate-end">
           {thinkDurationLabel(

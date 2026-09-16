@@ -29,6 +29,10 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function approvalPromptFragments(output: string): string[] {
   return [
     "审批",
@@ -825,9 +829,11 @@ describe("TUI reasoning rendering", () => {
       stdin.push("\r");
       await flushEffects();
       await instance.waitUntilRenderFlush();
+      const workingFrame = latestVisibleFrame(frames);
       expect(
-        WORKING_SPINNER_FRAMES.some((frame) => latestVisibleFrame(frames).includes(`${frame} Working`)),
+        WORKING_SPINNER_FRAMES.some((frame) => workingFrame.includes(`${frame} Working`)),
       ).toBe(true);
+      expect(workingFrame).not.toMatch(/Working · /);
 
       emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
       await flushEffects();
@@ -836,9 +842,12 @@ describe("TUI reasoning rendering", () => {
       expect(
         WORKING_SPINNER_FRAMES.some((frame) => thinkingFrame.includes(`${frame} Working`)),
       ).toBe(false);
-      expect(
-        WORKING_SPINNER_FRAMES.some((frame) => thinkingFrame.includes(`${frame} Thinking`)),
-      ).toBe(true);
+      expect(thinkingFrame).toMatch(
+        new RegExp(
+          `(${WORKING_SPINNER_FRAMES.map(escapeRegExp).join("|")}) Thinking · \\d+\\.\\ds`,
+        ),
+      );
+      expect(thinkingFrame).toContain("先检查项目结构▍");
     } finally {
       instance.unmount();
       await instance.waitUntilExit();
@@ -871,13 +880,18 @@ describe("TUI reasoning rendering", () => {
       emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
       await flushEffects();
       await instance.waitUntilRenderFlush();
-      expect(
-        WORKING_SPINNER_FRAMES.some((frame) => latestVisibleFrame(frames).includes(`${frame} Thinking`)),
-      ).toBe(true);
+      expect(latestVisibleFrame(frames)).toMatch(
+        new RegExp(
+          `(${WORKING_SPINNER_FRAMES.map(escapeRegExp).join("|")}) Thinking · \\d+\\.\\ds`,
+        ),
+      );
       await flushEffects();
       const animationCall = intervals.mock.calls.findIndex((call) => call[1] === 180);
       expect(animationCall).toBeGreaterThanOrEqual(0);
       const animationTimer = intervals.mock.results[animationCall]!.value;
+      const clockCall = intervals.mock.calls.findIndex((call) => call[1] === 100);
+      expect(clockCall).toBeGreaterThanOrEqual(0);
+      const clockTimer = intervals.mock.results[clockCall]!.value;
 
       emit({ type: "text-delta", textDelta: "这是结论" });
       await flushEffects();
@@ -891,11 +905,66 @@ describe("TUI reasoning rendering", () => {
       expect(answerFrame).toMatch(/Think · \d+\.\d 秒/);
       await flushEffects();
       expect(clearInterval).toHaveBeenCalledWith(animationTimer);
+      expect(clearInterval).toHaveBeenCalledWith(clockTimer);
     } finally {
       instance.unmount();
       await instance.waitUntilExit();
       intervals.mockRestore();
       clearInterval.mockRestore();
+    }
+  });
+
+  it("ticks the Thinking duration suffix while reasoning streams", async () => {
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000_000);
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    const { harness, emit } = createEventHarness(idleSnapshot({ status: "running" }));
+    const frames: string[] = [];
+    const instance = render(
+      <TuiApp
+        harness={harness}
+        inputHistory={[]}
+        startNewSession={() => harness}
+        modelCatalog={modelCatalog}
+        applyModelSelection={async () => ({ ok: false, message: "not used" })}
+      />,
+      {
+        stdin: terminalInput(),
+        stdout: terminalOutput((chunk) => frames.push(stripAnsi(chunk))),
+        interactive: true,
+        patchConsole: false,
+      },
+    );
+    try {
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      emit({ type: "reasoning-delta", textDelta: "先检查项目结构" });
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      expect(latestVisibleFrame(frames)).toMatch(
+        new RegExp(
+          `(${WORKING_SPINNER_FRAMES.map(escapeRegExp).join("|")}) Thinking · 0\\.0s`,
+        ),
+      );
+      await flushEffects();
+
+      now.mockReturnValue(1_003_400);
+      const clockCall = intervals.mock.calls.findIndex((call) => call[1] === 100);
+      expect(clockCall).toBeGreaterThanOrEqual(0);
+      const tick = intervals.mock.calls[clockCall]![0] as () => void;
+      tick();
+      await flushEffects();
+      await instance.waitUntilRenderFlush();
+      expect(latestVisibleFrame(frames)).toMatch(
+        new RegExp(
+          `(${WORKING_SPINNER_FRAMES.map(escapeRegExp).join("|")}) Thinking · 3\\.4s`,
+        ),
+      );
+    } finally {
+      instance.unmount();
+      await instance.waitUntilExit();
+      intervals.mockRestore();
+      now.mockRestore();
     }
   });
 

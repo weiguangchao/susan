@@ -117,7 +117,11 @@ function stripAnsi(value: string): string {
 }
 
 function isWorkingActivityLine(line: string, label: string): boolean {
-  return WORKING_SPINNER_FRAMES.some((frame) => line.trim() === `${frame} ${label}`);
+  return WORKING_SPINNER_FRAMES.some((frame) => {
+    const trimmed = line.trim();
+    const prefix = `${frame} ${label}`;
+    return trimmed === prefix || trimmed.startsWith(`${prefix} · `);
+  });
 }
 
 function workingActivityRow(lines: readonly string[], label: string): number {

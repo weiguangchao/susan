@@ -1,6 +1,6 @@
 # Susan
 
-个人使用的最小化 harness agent，以 TUI 形态运行，TypeScript 实现，以 npm 包 `@weiguangchao/susan` 分发，命令为 `susan`。
+个人使用的最小化 coding-agent 产品：TUI 作为客户端消费 Harness，命令为 `susan`。
 
 ## Language
 
@@ -9,8 +9,16 @@
 _Avoid_: harness agent, model runtime
 
 **Harness**:
-围绕 LLM 的运行外壳：把用户消息、Tool 调用、Tool 结果、Approval Policy、上下文管理串成一个循环。TUI 只是它的一个前端。
-_Avoid_: framework, runtime, engine
+围绕 LLM 的运行外壳：把用户消息、Tool 调用、Tool 结果、Approval Policy、上下文管理串成一个循环。TUI 是它当前的客户端，不是它本身。
+_Avoid_: framework, runtime, engine, harness 服务
+
+**TUI**:
+以终端形态呈现 Session 并接收用户输入的客户端；它消费 Harness，不承担 Agent Loop。
+_Avoid_: frontend, UI layer, 前端
+
+**Harness Assembly**:
+无 UI 的装配过程：解析 Susan Home 与 Config、打开 Session Store、构造 Built-in Tool Set 与 Provider Client，并调用 `createHarness`。它属于 Harness，返回可分支的结果，不渲染 TUI。
+_Avoid_: bootstrap, launcher, 一键启动
 
 **Provider Type**:
 Config entry 中的 wire protocol 标识。0.0.1 只注册 `openai-completion`，其他合法但未注册的值 fail-fast。
@@ -217,8 +225,8 @@ Config 读取 / 解析 / strict schema / 权限 / provider 选择失败时产生
 _Avoid_: validation exception, config warning
 
 **Package Version**:
-npm 包 `@weiguangchao/susan` 的发布版本；它与 Session Format Version 分属不同版本空间。
-_Avoid_: Session version, schema version
+某个已发布 npm 包的版本。用户面对的是 TUI 包 `@weiguangchao/susan` 的 Package Version；Harness 包 `@weiguangchao/susan-harness` 有独立的 Package Version。两者都与 Session Format Version 分属不同版本空间。
+_Avoid_: Session version, schema version, 产品版本
 
 **Release Gate**:
 发布某个 Package Version 前必须全部通过的一组自动化检查与人工验收；任一必需项失败都会阻止发布。

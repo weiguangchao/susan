@@ -176,5 +176,9 @@ for (const name of ["@weiguangchao/susan", "@weiguangchao/susan/dist/cli.js"]) {
   console.log(`TUI package smoke passed: version=${manifest.version} sha256=${originalDigest} @weiguangchao/susan-harness=${installedInternalVersions["@weiguangchao/susan-harness"]} @weiguangchao/susan-core=${installedInternalVersions["@weiguangchao/susan-core"]} node=${process.version} platform=${process.platform}`);
 } finally {
   if (registry) await new Promise((resolve) => registry.close(resolve));
-  await rm(temporaryRoot, { recursive: true, force: true });
+  if (process.env.SUSAN_SMOKE_KEEP_TEMP === "1") {
+    console.log(`Smoke artifacts retained: ${temporaryRoot}`);
+  } else {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }

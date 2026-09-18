@@ -93,5 +93,9 @@ import type { JsonValue as Internal } from "@weiguangchao/susan-core/dist/index.
   run(process.execPath, [tsc, "-p", "tsconfig.json"], consumer);
   console.log(`core package smoke passed: version=${manifest.version} sha256=${tarballSha256} internalDependencies=none node=${process.version} platform=${process.platform}`);
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  if (process.env.SUSAN_SMOKE_KEEP_TEMP === "1") {
+    console.log(`Smoke artifacts retained: ${temporaryRoot}`);
+  } else {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }

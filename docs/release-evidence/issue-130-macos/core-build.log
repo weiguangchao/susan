@@ -1,0 +1,15 @@
+
+> @weiguangchao/susan-core@0.0.1 build /Users/weiguangchao/workspace/susan/packages/core
+> tsdown
+
+ℹ tsdown v0.22.14 powered by rolldown v1.2.6
+ℹ config file: /Users/weiguangchao/workspace/susan/packages/core/tsdown.config.ts 
+ℹ entry: src/index.ts
+ℹ target: node22.0.0
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ Cleaning 2 files
+ℹ dist/index.js    0.49 kB │ gzip: 0.25 kB
+ℹ dist/index.d.ts  0.48 kB │ gzip: 0.24 kB
+ℹ 2 files, total: 0.97 kB
+✔ Build complete in 380ms

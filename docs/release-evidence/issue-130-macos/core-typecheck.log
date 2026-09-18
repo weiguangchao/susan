@@ -1,0 +1,4 @@
+
+> @weiguangchao/susan-core@0.0.1 typecheck /Users/weiguangchao/workspace/susan/packages/core
+> tsc --noEmit
+

@@ -1,0 +1,40 @@
+
+> @weiguangchao/susan-harness@0.0.1 package:smoke /Users/weiguangchao/workspace/susan/packages/harness
+> pnpm run build && node scripts/package-smoke.mjs
+
+
+> @weiguangchao/susan-harness@0.0.1 build /Users/weiguangchao/workspace/susan/packages/harness
+> pnpm run build:core && tsdown
+
+
+> @weiguangchao/susan-harness@0.0.1 build:core /Users/weiguangchao/workspace/susan/packages/harness
+> pnpm --filter @weiguangchao/susan-core build
+
+
+> @weiguangchao/susan-core@0.0.1 build /Users/weiguangchao/workspace/susan/packages/core
+> tsdown
+
+ℹ tsdown v0.22.14 powered by rolldown v1.2.6
+ℹ config file: /Users/weiguangchao/workspace/susan/packages/core/tsdown.config.ts 
+ℹ entry: src/index.ts
+ℹ target: node22.0.0
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ Cleaning 2 files
+ℹ dist/index.js    0.49 kB │ gzip: 0.25 kB
+ℹ dist/index.d.ts  0.48 kB │ gzip: 0.24 kB
+ℹ 2 files, total: 0.97 kB
+✔ Build complete in 384ms
+ℹ tsdown v0.22.14 powered by rolldown v1.2.6
+ℹ config file: /Users/weiguangchao/workspace/susan/packages/harness/tsdown.config.ts 
+ℹ entry: src/index.ts
+ℹ target: node22.0.0
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ Cleaning 2 files
+ℹ dist/index.js    190.47 kB │ gzip: 45.69 kB
+ℹ dist/index.d.ts   27.26 kB │ gzip:  6.13 kB
+ℹ 2 files, total: 217.73 kB
+✔ Build complete in 844ms
+Harness package smoke passed: version=0.0.1 sha256=dadd54dcb6137e1f251188f4b578653e55509278262c99dce971fab98113fab9 @weiguangchao/susan-core=0.0.1 node=v22.23.2 platform=darwin
+Smoke artifacts retained: /var/folders/vl/__shcdp52djdnd4hc76s0cr00000gn/T/susan harness smoke-jhS8Dv

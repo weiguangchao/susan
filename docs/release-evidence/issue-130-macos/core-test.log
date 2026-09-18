@@ -1,0 +1,13 @@
+
+> @weiguangchao/susan-core@0.0.1 test /Users/weiguangchao/workspace/susan/packages/core
+> vitest run
+
+
+ RUN  v4.1.11 /Users/weiguangchao/workspace/susan/packages/core
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  21:50:07
+   Duration  120ms (transform 15ms, setup 0ms, import 23ms, tests 2ms, environment 0ms)
+

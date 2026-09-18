@@ -1,0 +1,263 @@
+{
+  "sourceCommit": "f50dcfb441ca3ce518dd9a24f6f2ed5aa2310762",
+  "sourceChanges": "Only smoke cleanup opt-in and acceptance documentation; no packaged source changes.",
+  "platform": "macOS 27.0 (26A428), darwin arm64",
+  "node": "v22.23.2",
+  "pnpm": "10.34.5",
+  "executor": "Codex automated execution",
+  "dateUTC": "2026-09-18",
+  "dateLocal": "2026-09-17 America/Los_Angeles",
+  "artifactDirectory": "/Users/weiguangchao/workspace/susan-acceptance/issue-130-macos",
+  "checks": [
+    {
+      "package": "core",
+      "step": "typecheck",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-core",
+        "typecheck"
+      ],
+      "startedAt": "2026-09-18T04:49:59.153020+00:00",
+      "exitCode": 0,
+      "log": "core-typecheck.log",
+      "logSha256": "b3e8605cf30d7e9747362c9a6340864f4eea619cadbacb5a288a017be687c979"
+    },
+    {
+      "package": "harness",
+      "step": "typecheck",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-harness",
+        "typecheck"
+      ],
+      "startedAt": "2026-09-18T04:50:00.090210+00:00",
+      "exitCode": 0,
+      "log": "harness-typecheck.log",
+      "logSha256": "87d662db1ddc3f3a014d686062e7dd6667cfc786821ddfb6789cf3392baff860"
+    },
+    {
+      "package": "tui",
+      "step": "typecheck",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan",
+        "typecheck"
+      ],
+      "startedAt": "2026-09-18T04:50:02.868006+00:00",
+      "exitCode": 0,
+      "log": "tui-typecheck.log",
+      "logSha256": "b510eaef95560dd8f1e858ddce738268da599270e2a5a0e7a3f9ddbe783666e1"
+    },
+    {
+      "package": "core",
+      "step": "test",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-core",
+        "test"
+      ],
+      "startedAt": "2026-09-18T04:50:06.684181+00:00",
+      "exitCode": 0,
+      "log": "core-test.log",
+      "logSha256": "5b283c12927813e83047445de91d76a397cc1b75a22809f1abe905a1cfa425a4"
+    },
+    {
+      "package": "harness",
+      "step": "test",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-harness",
+        "test"
+      ],
+      "startedAt": "2026-09-18T04:50:07.277666+00:00",
+      "exitCode": 0,
+      "log": "harness-test.log",
+      "logSha256": "587e180d37a29cf4a20c738fb89442a4f9df8603fbf4732c8327445fc5df4558"
+    },
+    {
+      "package": "tui",
+      "step": "test",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan",
+        "test"
+      ],
+      "startedAt": "2026-09-18T04:50:10.237423+00:00",
+      "exitCode": 0,
+      "log": "tui-test.log",
+      "logSha256": "c87bd3d0e8d7d9703faf198bf57847b024eb04c3e603c58cbf855cde04d7b85c"
+    },
+    {
+      "package": "core",
+      "step": "build",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-core",
+        "build"
+      ],
+      "startedAt": "2026-09-18T04:50:16.944225+00:00",
+      "exitCode": 0,
+      "log": "core-build.log",
+      "logSha256": "3f8e7b4c170289c736ac45a5442ef71df4511b2cdb8a1c9fe2a47ab64d3a803c"
+    },
+    {
+      "package": "harness",
+      "step": "build",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-harness",
+        "build"
+      ],
+      "startedAt": "2026-09-18T04:50:17.659038+00:00",
+      "exitCode": 0,
+      "log": "harness-build.log",
+      "logSha256": "8678dcd44010a3e21823367a70f9c3e12ce9827e93202d64247cacc493278fe5"
+    },
+    {
+      "package": "tui",
+      "step": "build",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan",
+        "build"
+      ],
+      "startedAt": "2026-09-18T04:50:19.731208+00:00",
+      "exitCode": 0,
+      "log": "tui-build.log",
+      "logSha256": "33c000fe9759d8abb7f03aa4f0adc7d8420f8c15fac9eae47a1a81a3b8c19fa8"
+    },
+    {
+      "package": "core",
+      "step": "package:smoke",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-core",
+        "package:smoke"
+      ],
+      "startedAt": "2026-09-18T04:50:22.492156+00:00",
+      "exitCode": 0,
+      "log": "core-package-smoke.log",
+      "logSha256": "a8f659ec131e59a01869a6d932d0f618e9a97edbc695424d113ff61af7559e6b"
+    },
+    {
+      "package": "harness",
+      "step": "package:smoke",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan-harness",
+        "package:smoke"
+      ],
+      "startedAt": "2026-09-18T04:50:24.681215+00:00",
+      "exitCode": 0,
+      "log": "harness-package-smoke.log",
+      "logSha256": "4042fc5a2a7af4fb5cd4d1d4c90a1dd105cceecb3f3ff1c36d076dc2bfc534b8"
+    },
+    {
+      "package": "tui",
+      "step": "package:smoke",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@weiguangchao/susan",
+        "package:smoke"
+      ],
+      "startedAt": "2026-09-18T04:50:34.133143+00:00",
+      "exitCode": 0,
+      "log": "tui-package-smoke.log",
+      "logSha256": "1ba45116ee6f21574b887e1034a5480c600143b648fbac9a2f6fe7f1ceab83d6"
+    }
+  ],
+  "artifacts": {
+    "core": {
+      "tarballs": {
+        "weiguangchao-susan-core-0.0.1.tgz": "3c4f7c52f5a19b9c188e0c8ab594930d2d494fbf79e3dff6d945490411503c71"
+      },
+      "installedPackages": {
+        "node_modules/@weiguangchao/susan-core": "0.0.1"
+      },
+      "packageLockSha256": "1b7653078427c10dce7dfcd2ad8e53a880281ce23029e81658d6e5cbcfc802ce"
+    },
+    "harness": {
+      "tarballs": {
+        "weiguangchao-susan-core-0.0.1.tgz": "cd0d98e90023c776f8ee8ccf9ed145853da2bd1c81f434f8c34135c970d966b6",
+        "weiguangchao-susan-harness-0.0.1.tgz": "dadd54dcb6137e1f251188f4b578653e55509278262c99dce971fab98113fab9"
+      },
+      "installedPackages": {
+        "node_modules/@types/node": "24.13.5",
+        "node_modules/@weiguangchao/susan-core": "0.0.1",
+        "node_modules/@weiguangchao/susan-harness": "0.0.1",
+        "node_modules/diff": "8.0.4",
+        "node_modules/openai": "7.18.0",
+        "node_modules/undici-types": "7.18.2",
+        "node_modules/zod": "4.6.5"
+      },
+      "packageLockSha256": "ef0dc1a1c554bd5c994527dd31c4f4127c9bae7c22816d0c33b6684e04bd848f"
+    },
+    "tui": {
+      "tarballs": {
+        "weiguangchao-susan-0.0.1.tgz": "5a99ac536a7c81252915f5d8ecd8b95ab034d300b704cc6de99bd619bfb9e073",
+        "weiguangchao-susan-core-0.0.1.tgz": "cd0d98e90023c776f8ee8ccf9ed145853da2bd1c81f434f8c34135c970d966b6",
+        "weiguangchao-susan-harness-0.0.1.tgz": "dadd54dcb6137e1f251188f4b578653e55509278262c99dce971fab98113fab9"
+      },
+      "installedPackages": {
+        "node_modules/@alcalzone/ansi-tokenize": "0.3.1",
+        "node_modules/@weiguangchao/susan": "0.0.1",
+        "node_modules/@weiguangchao/susan-core": "0.0.1",
+        "node_modules/@weiguangchao/susan-harness": "0.0.1",
+        "node_modules/ansi-escapes": "7.3.0",
+        "node_modules/ansi-regex": "6.3.0",
+        "node_modules/ansi-styles": "6.2.3",
+        "node_modules/auto-bind": "5.0.1",
+        "node_modules/chalk": "5.6.2",
+        "node_modules/cli-boxes": "4.0.1",
+        "node_modules/cli-cursor": "4.0.0",
+        "node_modules/cli-truncate": "6.1.1",
+        "node_modules/code-excerpt": "4.0.0",
+        "node_modules/convert-to-spaces": "2.0.1",
+        "node_modules/diff": "8.0.4",
+        "node_modules/environment": "1.1.0",
+        "node_modules/es-toolkit": "1.52.0",
+        "node_modules/escape-string-regexp": "2.0.0",
+        "node_modules/get-east-asian-width": "1.7.0",
+        "node_modules/indent-string": "5.0.0",
+        "node_modules/ink": "7.1.1",
+        "node_modules/is-fullwidth-code-point": "5.1.0",
+        "node_modules/is-in-ci": "2.0.0",
+        "node_modules/mimic-fn": "2.1.0",
+        "node_modules/onetime": "5.1.2",
+        "node_modules/openai": "7.18.0",
+        "node_modules/patch-console": "2.0.0",
+        "node_modules/react": "19.3.0",
+        "node_modules/react-reconciler": "0.33.0",
+        "node_modules/restore-cursor": "4.0.0",
+        "node_modules/scheduler": "0.27.0",
+        "node_modules/signal-exit": "3.0.7",
+        "node_modules/slice-ansi": "9.0.0",
+        "node_modules/stack-utils": "2.0.6",
+        "node_modules/string-width": "8.2.2",
+        "node_modules/strip-ansi": "7.2.0",
+        "node_modules/tagged-tag": "1.0.0",
+        "node_modules/terminal-size": "4.0.1",
+        "node_modules/type-fest": "5.10.0",
+        "node_modules/widest-line": "6.0.0",
+        "node_modules/wrap-ansi": "10.0.1",
+        "node_modules/ws": "8.21.3",
+        "node_modules/yoga-layout": "3.2.1",
+        "node_modules/zod": "4.6.5"
+      },
+      "packageLockSha256": "212f8a3a2dd864a0ef487cfd6d7fefccd999fe3d90d619b1202e1faf2227400c"
+    }
+  },
+  "manualResult": "尚未执行"
+}

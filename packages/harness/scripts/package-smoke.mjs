@@ -120,5 +120,9 @@ import { createOpenAICompletionAdapter } from "@weiguangchao/susan-harness";
   console.log(`Harness package smoke passed: version=${manifest.version} sha256=${tarballSha256} @weiguangchao/susan-core=${installedCore.version} node=${process.version} platform=${process.platform}`);
 } finally {
   if (registry) await new Promise((resolve) => registry.close(resolve));
-  await rm(temporaryRoot, { recursive: true, force: true });
+  if (process.env.SUSAN_SMOKE_KEEP_TEMP === "1") {
+    console.log(`Smoke artifacts retained: ${temporaryRoot}`);
+  } else {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 }

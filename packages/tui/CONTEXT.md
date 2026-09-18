@@ -28,6 +28,10 @@ _Avoid_: highlighted row, focused command, active index
 TUI 上选择 Active Model Configuration 的表面。由 Slash Command `/model` 打开，或提交/重试时缺任一项时打开；只在 Agent Loop 空闲或 Pending Agent Loop 时切换；浏览从 Config JSON 第一个 provider 起，省略 Model Catalog 的 provider 显示空目录。
 _Avoid_: model selector, model menu, 模型选择器
 
+**Tool 账本**:
+TUI 上已结束 Tool Call 的记录表面（completed / failed / interrupted）：每条含名称、调用标签、摘要与有限结果行。requested 与 running 的调用不在此表面绘制。
+_Avoid_: tool list, tool panel, execution log, tool log, 工具列表
+
 **Package Version**:
 用户面对的已发布 npm 包 `@weiguangchao/susan` 的版本。它与 Session Format Version 分属不同版本空间。
 _Avoid_: Session version, schema version, 产品版本

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import ts from "typescript";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -49,6 +50,8 @@ try {
   const core = JSON.parse(await readFile(resolve(packageRoot, "../core/package.json"), "utf8"));
   const harness = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   const coreArchive = await readFile(join(pack, `weiguangchao-susan-core-${core.version}.tgz`));
+  const harnessArchivePath = join(pack, `weiguangchao-susan-harness-${harness.version}.tgz`);
+  const tarballSha256 = createHash("sha256").update(await readFile(harnessArchivePath)).digest("hex");
   // Only this temporary consumer uses the local registry. Archives remain untouched.
   registry = createServer((request, response) => {
     if (request.url === "/core.tgz") return response.end(coreArchive);
@@ -64,16 +67,20 @@ try {
   await new Promise((resolve) => registry.listen(0, "127.0.0.1", resolve));
   await writeFile(join(consumer, ".npmrc"), `@weiguangchao:registry=http://127.0.0.1:${registry.address().port}/\n`);
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  await run(process.execPath, [await findNpmEntry(), "install", "--ignore-scripts", "--no-audit", "--no-fund", join(pack, `weiguangchao-susan-harness-${harness.version}.tgz`), "@types/node@^24"], consumer);
+  await run(process.execPath, [await findNpmEntry(), "install", "--ignore-scripts", "--no-audit", "--no-fund", harnessArchivePath, "@types/node@^24"], consumer);
   const installed = join(consumer, "node_modules/@weiguangchao/susan-harness");
   const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8"));
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.version, "0.0.1");
+  assert.deepEqual(manifest.files, ["dist", "CHANGELOG.md"]);
   assert.equal(manifest.dependencies[core.name], `~${core.version}`);
   assert.deepEqual(Object.keys(manifest.dependencies).sort(), [core.name, "diff", "openai", "zod"].sort());
   assert.deepEqual(manifest.exports, { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } });
   assert.deepEqual((await readdir(join(installed, "dist"))).sort(), ["index.d.ts", "index.js"]);
+  assert.match(await readFile(join(installed, "CHANGELOG.md"), "utf8"), /^# Changelog\n\n## 0\.0\.1 - /);
+  const installedCore = JSON.parse(await readFile(join(consumer, "node_modules/@weiguangchao/susan-core/package.json"), "utf8"));
+  assert.equal(installedCore.version, core.version);
   for (const file of ["dist/index.js", "dist/index.d.ts"]) {
     const content = await readFile(join(installed, file), "utf8");
     assert.doesNotMatch(content, /workspace:|\.\.\/.*src\/|sourceMappingURL|photon|image-resize|image-process|exif-orientation|from ["'](?:react|ink)["']/);
@@ -110,7 +117,7 @@ import { createOpenAICompletionAdapter } from "@weiguangchao/susan-harness";
     noEmit: true, skipLibCheck: false, types: ["node"],
   }, include: ["consumer.ts"] }));
   await run(process.execPath, [resolve(packageRoot, "../../node_modules/typescript/bin/tsc"), "-p", "tsconfig.json"], consumer);
-  console.log("Harness package smoke passed: original tarballs, public API, Node Agent Loop, Assembly, images, declarations");
+  console.log(`Harness package smoke passed: version=${manifest.version} sha256=${tarballSha256} @weiguangchao/susan-core=${installedCore.version} node=${process.version} platform=${process.platform}`);
 } finally {
   if (registry) await new Promise((resolve) => registry.close(resolve));
   await rm(temporaryRoot, { recursive: true, force: true });

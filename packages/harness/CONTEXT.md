@@ -1,6 +1,6 @@
-# Susan
+# Harness
 
-个人使用的最小化 coding-agent 产品：TUI 作为客户端消费 Harness，命令为 `susan`。
+围绕 LLM 的运行外壳：把用户消息、Tool 调用、Tool Result、Approval Policy、上下文管理串成一个循环。TUI 是它当前的客户端，不是它本身。
 
 ## Language
 
@@ -8,16 +8,8 @@
 在 Harness 内与用户交互、使用 Tool 完成 coding 任务的模型角色；Susan 的 System Prompt 定义其身份与跨 Tool 行为边界。
 _Avoid_: harness agent, model runtime
 
-**Harness**:
-围绕 LLM 的运行外壳：把用户消息、Tool 调用、Tool 结果、Approval Policy、上下文管理串成一个循环。TUI 是它当前的客户端，不是它本身。
-_Avoid_: framework, runtime, engine, harness 服务
-
-**TUI**:
-以终端形态呈现 Session 并接收用户输入的客户端；它消费 Harness，不承担 Agent Loop。
-_Avoid_: frontend, UI layer, 前端
-
 **Harness Assembly**:
-无 UI 的装配过程：解析 Susan Home 与 Config、打开 Session Store、构造 Built-in Tool Set 与 Provider Client，并调用 `createHarness`。它属于 Harness，返回可分支的结果，不渲染 TUI。
+Harness 内无 UI 的装配对象，持有本次运行的 Susan Home、已加载的 Config 与当前 Harness，负责启动和切换 Session。它返回可分支的结果；外部 Config 修改经显式重新加载才生效，Session 切换沿用当前配置。
 _Avoid_: bootstrap, launcher, 一键启动
 
 **Provider Type**:
@@ -25,7 +17,7 @@ Config entry 中的 wire protocol 标识。0.0.1 只注册 `openai-completion`�
 _Avoid_: provider alias, backend name
 
 **Model Catalog**:
-单个 provider entry 中可选静态声明的模型集合；省略时 `/model` 对该 provider 显示空目录，该 provider 不可被应用，根节点 `defaultModel` 也不能激活它。模型默认参数在代码中定义，需要定制时由具体模型条目覆盖 context window 与最大输出 tokens，Reasoning Effort 由代码中的 Provider Type 常量提供。
+单个 provider entry 中可选静态声明的模型集合；省略时该 provider 不可被应用，根节点 `defaultModel` 也不能激活它。模型默认参数在代码中定义，需要定制时由具体模型条目覆盖 context window 与最大输出 tokens，Reasoning Effort 由代码中的 Provider Type 常量提供。
 _Avoid_: model registry, model discovery result
 
 **Agent Loop**:
@@ -65,7 +57,7 @@ Built-in Tool Set 中对一个文件执行一批定向文本替换的 Tool；优
 _Avoid_: patch tool, fuzzy editor, replace tool
 
 **Bash Tool**:
-Built-in Tool Set 中以真实 Bash 执行 one-shot、非交互、非 login command 的 Tool；模型侧名称为 `bash`，不会按平台替换成其他 shell。
+Built-in Tool Set 中执行 one-shot、非交互、非 login command 的 Tool；模型侧名称为 `bash`。Unix 优先使用 Bash，找不到时回退 `sh`；Windows 需要可用的 Bash。
 _Avoid_: shell tool, terminal tool, command tool
 
 **Grep Tool**:
@@ -81,7 +73,7 @@ Built-in Tool Set 中列出一个目录直接子项的非递归 Tool；模型侧
 _Avoid_: list tool, directory reader, recursive ls
 
 **Tool Result**:
-一次 Tool Call 完成后回填给模型、Session Transcript 与 TUI 的结果；由模型可见的 content 与可选的 details 组成，失败时以 isError 标记。
+一次 Tool Call 完成后回填给模型与 Session Transcript 的结果；由模型可见的 content 与可选的 details 组成，失败时以 isError 标记。
 _Avoid_: Canonical Tool Result, tool response, tool output, nextArguments
 
 **LLM Provider**:
@@ -93,7 +85,7 @@ _Avoid_: search provider, backend
 _Avoid_: SDK, API client, provider plugin
 
 **Reasoning Effort**:
-Provider-neutral 的离散模型推理投入档位；集合与顺序由 Provider Type 的代码常量定义，Config 可省略默认档位，但缺失时没有隐式 fallback，需要用户重新选择 model 并显式设置；TUI 启动时提示配置未完成，不强制打开选择器。
+Provider-neutral 的离散模型推理投入档位；集合与顺序由 Provider Type 的代码常量定义，Config 可省略默认档位，但缺失时没有隐式 fallback，需要用户重新选择 model 并显式设置。
 _Avoid_: thinking level, reasoning budget, extended thinking
 
 **Provider Stream Event**:
@@ -105,7 +97,7 @@ LLM Provider 未能返回完整有效响应的 Harness 级故障；不可重试�
 _Avoid_: tool error, model error, provider exception
 
 **Interrupted Response**:
-已产生语义输出但未成功结束的 streaming 响应。它可以在 TUI 中保留为中断状态，但不作为完整 assistant message 写入 Session Transcript。
+已产生语义输出但未成功结束的 streaming 响应。它不作为完整 assistant message 写入 Session Transcript。
 _Avoid_: partial response, failed message
 
 **Pending Agent Loop**:
@@ -145,7 +137,7 @@ Session JSONL 中 append-only 的事件行；0.0.1 包含 message、usage 与 co
 _Avoid_: row, entry
 
 **Session Token Usage**:
-一个 Session 内所有已完成 Provider 请求的 input + output token 累计值；每条 usage record 保存一次请求的上游 usage，用于恢复状态栏统计。
+一个 Session 内所有已完成 Provider 请求的 input + output token 累计值；每条 usage record 保存一次请求的上游 usage。
 _Avoid_: model context, context estimation
 
 **Cached Input Tokens**:
@@ -153,7 +145,7 @@ _Avoid_: model context, context estimation
 _Avoid_: cache tokens, prompt cache hit tokens, 缓存 tokens
 
 **Cache Hit Rate**:
-Session 内所有已完成 Provider 请求累计的 Cached Input Tokens 占累计 input tokens 的比例；累计 Cached Input Tokens 为零时不显示。
+Session 内所有已完成 Provider 请求累计的 Cached Input Tokens 占累计 input tokens 的比例。
 _Avoid_: cache ratio, hit ratio, 缓存命中比
 
 **Session Transcript**:
@@ -189,45 +181,17 @@ Susan Home `bin` 目录中缓存的 `rg` / `fd` 平台二进制，供 Grep Tool 
 _Avoid_: system binary, tool download, package install
 
 **Config**:
-Susan Home 内的用户配置文件 `config.json`；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。
+Susan Home 内的用户配置文件 `config.json`；v0.0.1 仅允许 CLI flag 覆盖，不支持环境变量覆盖。拆包目标中，外部修改需要通过 `/reload` 更新运行中的配置；`/model` 的显式选择仍立即生效并影响后续新建 Session。
 _Avoid_: settings, preferences
 
 **Resolved Config**:
-用户 Config 加上内存默认值与 CLI flag 覆盖后形成的运行时配置。`defaultProvider`、`defaultModel` 与 `defaultReasoningEffort` 均可省略；三者省略时均没有隐式 fallback，需要用户手动选择后由 `/model` 回写。`defaultProvider` 省略时，`defaultModel` 与 `defaultReasoningEffort` 可以成对出现或同时省略；成对出现时它们只是 `/model` 的偏好值，不是 Active Model Configuration，`/model` 仅以 Config JSON 中的第一个 provider 作为浏览起点。
+用户 Config 加上内存默认值与 CLI flag 覆盖后形成的运行时配置。`defaultProvider`、`defaultModel` 与 `defaultReasoningEffort` 均可省略；三者省略时均没有隐式 fallback；`defaultProvider` 省略时后两项可以成对出现或同时省略，成对出现时它们不是 Active Model Configuration。
 _Avoid_: effective config, merged config
 
 **Active Model Configuration**:
-当前 Harness 请求使用的 provider、model 与 Reasoning Effort；三者完整时才可发起请求，提交或重试时若任一项缺失则打开 `/model` 选择器。`/model` 只在 Agent Loop 空闲或 Pending 时切换。
+当前 Harness 请求使用的 provider、model 与 Reasoning Effort；三者完整时才可发起请求。
 _Avoid_: session model, transient model, per-message model
-
-**Slash Command**:
-TUI 本地命令，以 `/` 前缀的规范名标识；由 TUI 拦截执行，不作为用户消息进入 Agent Loop。0.0.1 目录为 `/compact`、`/exit`、`/new`、`/model`，没有隐藏别名。
-_Avoid_: command, slash, 斜杠指令, `/clear`
-
-**Slash Command Label**:
-规范名旁的短展示名；不是身份，也不用于过滤候选。
-_Avoid_: description, shortLabel, 命令说明
-
-**Slash Query**:
-整段输入为单行、以 ASCII `/` 开头、且不含空白时的输入形状；与光标位置无关。它是 Slash Command Menu 可见的必要条件，不是充分条件。
-_Avoid_: slash prefix, filter text, command query
-
-**Slash Command Menu**:
-由 Slash Query 派生的 Slash Command 候选列表，不是带开关的独立模式。可见当且仅当输入为 Slash Query，且 Agent Loop 未在进行，且 `/model` 选择器未打开；可见时输入框里的 Slash Query 就是过滤条件，不显示时 Slash Query 仍留在输入框。它是列出 Slash Command 目录的唯一 TUI 表面：可见时独占输入框上方的活动槽；该槽空闲且菜单未显示时只显示「空闲」，不列出命令。
-_Avoid_: command palette, hint bar, 操作台, 命令选择界面, CommandHintLine
-
-**Selected Slash Command**:
-Slash Command Menu 可见且过滤后候选非空时，当前被选中的那一项 Slash Command；菜单未显示或候选为空时不存在。
-_Avoid_: highlighted row, focused command, active index
 
 **Config Error**:
 Config 读取 / 解析 / strict schema / 权限 / provider 选择失败时产生的结构化错误，带 code 与字段 path。
 _Avoid_: validation exception, config warning
-
-**Package Version**:
-某个已发布 npm 包的版本。用户面对的是 TUI 包 `@weiguangchao/susan` 的 Package Version；Harness 包 `@weiguangchao/susan-harness` 有独立的 Package Version。两者都与 Session Format Version 分属不同版本空间。
-_Avoid_: Session version, schema version, 产品版本
-
-**Release Gate**:
-发布某个 Package Version 前必须全部通过的一组自动化检查与人工验收；任一必需项失败都会阻止发布。
-_Avoid_: release checklist, best-effort validation

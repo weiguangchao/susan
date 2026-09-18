@@ -65,11 +65,11 @@ try {
   const [report] = JSON.parse(await run(process.execPath,
     [npmEntry, "pack", archivePath, "--dry-run", "--json", "--ignore-scripts"], consumer));
   const packedFiles = report.files.map(({ path }) => path).sort();
-  for (const required of ["package.json", "dist/cli.js", "THIRD_PARTY_NOTICES"]) {
+  for (const required of ["package.json", "dist/cli.js", "THIRD_PARTY_NOTICES", "CHANGELOG.md"]) {
     assert.ok(packedFiles.includes(required), `tarball missing ${required}`);
   }
   assert.ok(packedFiles.every((path) =>
-    path === "package.json" || path === "THIRD_PARTY_NOTICES" || /^dist\/(?:cli|(?:devtools|rolldown-runtime)-[A-Za-z0-9_-]+)\.js$/.test(path)),
+    path === "package.json" || path === "THIRD_PARTY_NOTICES" || path === "CHANGELOG.md" || /^dist\/(?:cli|(?:devtools|rolldown-runtime)-[A-Za-z0-9_-]+)\.js$/.test(path)),
   `tarball leaked files: ${packedFiles.join(", ")}`);
 
   // Only the consumer points at this registry. pnpm's original tarballs are never rewritten.
@@ -100,6 +100,7 @@ try {
   const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8"));
   assert.equal(manifest.name, "@weiguangchao/susan");
   assert.equal(manifest.version, "0.0.1");
+  assert.deepEqual(manifest.files, ["dist", "THIRD_PARTY_NOTICES", "CHANGELOG.md"]);
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.type, "module");
   assert.deepEqual(manifest.bin, { susan: "./dist/cli.js" });
@@ -110,6 +111,12 @@ try {
     ["@weiguangchao/susan-core", "@weiguangchao/susan-harness", "ink", "react", "string-width"].sort());
   for (const name of ["@weiguangchao/susan-core", "@weiguangchao/susan-harness"]) {
     assert.equal(manifest.dependencies[name], `~${manifests.get(name).version}`);
+  }
+  const installedInternalVersions = {};
+  for (const name of ["@weiguangchao/susan-core", "@weiguangchao/susan-harness"]) {
+    const dependency = JSON.parse(await readFile(join(consumer, "node_modules", name, "package.json"), "utf8"));
+    assert.equal(dependency.version, manifests.get(name).version);
+    installedInternalVersions[name] = dependency.version;
   }
   const contents = await Promise.all(packedFiles.filter((path) => path.endsWith(".js"))
     .map((path) => readFile(join(installed, path), "utf8")));
@@ -166,7 +173,7 @@ for (const name of ["@weiguangchao/susan", "@weiguangchao/susan/dist/cli.js"]) {
   assert.match(await cli(["--config", parent, "--resume", "--last"]), /TUI requires an interactive terminal/);
   assert.match(await cli(["--config", parent, "--resume", "11111111-1111-1111-1111-111111111111"]), /susan:.*(?:Session|session)/);
   assert.equal((await readdir(join(parent, ".susan/sessions"))).length, 1, "startup creates one reusable Session");
-  console.log("TUI package smoke passed: original tarballs, external libraries, patched Ink, Node bin, version, CLI, Config, non-TTY startup");
+  console.log(`TUI package smoke passed: version=${manifest.version} sha256=${originalDigest} @weiguangchao/susan-harness=${installedInternalVersions["@weiguangchao/susan-harness"]} @weiguangchao/susan-core=${installedInternalVersions["@weiguangchao/susan-core"]} node=${process.version} platform=${process.platform}`);
 } finally {
   if (registry) await new Promise((resolve) => registry.close(resolve));
   await rm(temporaryRoot, { recursive: true, force: true });

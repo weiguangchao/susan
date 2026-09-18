@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,12 +26,14 @@ try {
   await mkdir(pack);
   await mkdir(consumer);
   const [report] = JSON.parse(run(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", pack], packageRoot));
+  const archivePath = join(pack, report.filename);
+  const tarballSha256 = createHash("sha256").update(await readFile(archivePath)).digest("hex");
   assert.deepEqual(report.files.map(({ path }) => path).sort(), [
-    "README.md", "dist/index.d.ts", "dist/index.js", "package.json",
+    "CHANGELOG.md", "README.md", "dist/index.d.ts", "dist/index.js", "package.json",
   ]);
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   // Install the original archive. No manifest rewriting or workspace source links.
-  run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", join(pack, report.filename)], consumer);
+  run(npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", archivePath], consumer);
   const installed = join(consumer, "node_modules/@weiguangchao/susan-core");
   const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8"));
   const sourceManifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
@@ -42,7 +45,7 @@ try {
   for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
     assert.deepEqual(Object.keys(manifest[field] ?? {}), []);
   }
-  assert.deepEqual(manifest.files, ["dist"]);
+  assert.deepEqual(manifest.files, ["dist", "CHANGELOG.md"]);
   assert.deepEqual(manifest.exports, { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } });
   assert.equal(manifest.types, "./dist/index.d.ts");
   for (const file of ["dist/index.js", "dist/index.d.ts"]) {
@@ -88,7 +91,7 @@ import type { JsonValue as Internal } from "@weiguangchao/susan-core/dist/index.
   }));
   const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc");
   run(process.execPath, [tsc, "-p", "tsconfig.json"], consumer);
-  console.log("core package smoke passed: original tarball, Node exports, TypeScript declarations, deep-import rejection");
+  console.log(`core package smoke passed: version=${manifest.version} sha256=${tarballSha256} internalDependencies=none node=${process.version} platform=${process.platform}`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

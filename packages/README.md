@@ -1,19 +1,10 @@
-# Workspace migration
+# Workspace packages
 
-This integration branch follows #122. #125 delivers core and the three-package
-engineering skeleton. Harness source moves in #126, TUI in #127, and #128 removes
-the remaining single-package files and updates release tooling. Do not publish
-this intermediate checkout as a completed split.
+The workspace contains three independently versioned packages:
 
-- `core` and `harness` are buildable and independently consumable now.
-- `tui` remains a private migration skeleton until #127. Its entry files and
-  tests have not moved yet; no placeholder CLI is shipped.
-- #126 moves Harness source, tests and fixtures into its package. Remaining
-  root TUI files now import the Harness public root; their move belongs to #127.
-- The remaining root `src`, `test`, `prototype`, release scripts and workflows
-  await those tickets. Root product scripts and compiler/build configs have been
-  removed. JSON has one implementation in core; remaining source imports its
-  public package entry.
+- `core` publishes shared JSON types and guards.
+- `harness` publishes the Agent Loop, Harness Assembly and built-in batteries.
+- `tui` publishes the `susan` command and no library API.
 
 Use pnpm 10.34.5 and the root lockfile. Run package commands with
 `pnpm --filter <package-name> <script>`. Harness commands build core first; TUI
@@ -25,6 +16,19 @@ consuming packages. TUI owns React types, terminal test dependencies and the Ink
 patch; workspace patch registration stays in the root. Internal dependencies
 use `workspace:~` per #122, yielding tilde ranges when packed.
 
+## Versioning
+
+The user chooses which packages to release and their versions. During 0.x,
+compatible fixes and features increment the patch version. Incompatible public
+API or user-visible behavior increments the minor version. An internal-only
+refactor needs a release only when a new package artifact is required.
+
+For every selected package, update its `package.json`, `CHANGELOG.md` and the
+root lockfile, then run `pnpm install`. A package that needs a new dependency
+declaration must receive a new version even when its source is unchanged. Do
+not add Changesets. Tags use `core-v<version>`, `harness-v<version>` and
+`tui-v<version>`.
+
 Core acceptance:
 
 ```sh
@@ -34,4 +38,6 @@ pnpm --filter @weiguangchao/susan-core test
 pnpm --filter @weiguangchao/susan-core package:smoke
 ```
 
-This is not the complete workspace Release Gate or platform/manual acceptance.
+Run the full workspace checks and package smoke commands in the order documented
+in `../docs/release-smoke.md`. Local success does not replace the required platform
+and manual evidence.

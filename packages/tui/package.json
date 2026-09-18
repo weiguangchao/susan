@@ -4,7 +4,8 @@
   "type": "module",
   "files": [
     "dist",
-    "THIRD_PARTY_NOTICES"
+    "THIRD_PARTY_NOTICES",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22 <26"

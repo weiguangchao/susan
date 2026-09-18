@@ -12,7 +12,7 @@ The five canonical triage roles use their default label strings. See `docs/agent
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+先读根 `CONTEXT-MAP.md`，再读相关包的 `CONTEXT.md` 与 `docs/adr/`；系统级 ADR 仍查根 `docs/adr/`。见 `docs/agents/domain.md`。
 
 ## Git commit
 

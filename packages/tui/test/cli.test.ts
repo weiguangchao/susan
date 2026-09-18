@@ -17,6 +17,16 @@ import {
 } from "../src/run";
 
 describe("CLI terminal startup", () => {
+  it("prints the TUI version without loading Config or requiring a TTY", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    try {
+      expect(await runCli(["--version"])).toBe(0);
+      expect(stdout).toHaveBeenCalledWith("0.0.1\n");
+    } finally {
+      stdout.mockRestore();
+    }
+  });
+
   it("clears the screen and scrollback exactly once before Ink takes over", () => {
     const writes: string[] = [];
 
@@ -372,7 +382,7 @@ describe("package metadata", () => {
     expect(pkg.files).toContain("dist");
     expect(pkg.type).toBe("module");
     expect(pkg.scripts).toMatchObject({
-      dev: "tsx src/cli.ts --config .",
+      dev: "pnpm run build:harness && tsx src/cli.ts",
     });
   });
 });

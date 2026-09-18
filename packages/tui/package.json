@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES"
   ],
   "engines": {
     "node": ">=22 <26"
@@ -14,9 +15,9 @@
     "typecheck": "pnpm run build:harness && tsc --noEmit",
     "test": "pnpm run build:harness && vitest run",
     "lint": "pnpm run typecheck",
-    "dev": "pnpm run build:harness && tsx src/cli.ts"
+    "dev": "pnpm run build:harness && tsx src/cli.ts",
+    "package:smoke": "pnpm run build && node scripts/package-smoke.mjs"
   },
-  "private": true,
   "bin": {
     "susan": "./dist/cli.js"
   },
@@ -30,5 +31,6 @@
     "react": "^19.2.8",
     "string-width": "^8.2.2",
     "@weiguangchao/susan-harness": "workspace:~"
-  }
+  },
+  "exports": {}
 }

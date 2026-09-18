@@ -19,7 +19,8 @@ export type CliParseResult =
   | { readonly ok: false; readonly error: CliError };
 
 export const CLI_USAGE = `Usage:
-  susan [--config <dir>] [--resume | --resume <id> | --resume --last]`;
+  susan [--config <dir>] [--resume | --resume <id> | --resume --last]
+  susan --version`;
 
 function usageError(message: string): CliParseResult {
   return {

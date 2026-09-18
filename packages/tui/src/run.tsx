@@ -1,3 +1,4 @@
+import { TUI_VERSION } from "./version";
 import { resolve } from "node:path";
 import { render } from "ink";
 import { createHarnessAssembly, type AssembleOptions } from "@weiguangchao/susan-harness";
@@ -19,6 +20,10 @@ export function clearTerminal(
 }
 
 export async function runCli(argv: readonly string[]): Promise<number> {
+  if (argv.length === 1 && argv[0] === "--version") {
+    process.stdout.write(`${TUI_VERSION}\n`);
+    return 0;
+  }
   const parsed = parseCli(argv);
   if (!parsed.ok) {
     process.stderr.write(formatCliError(parsed.error));

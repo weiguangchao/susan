@@ -557,49 +557,44 @@ describe("config loading", () => {
     });
   });
 
-  it("fails closed on overly permissive root, sessions, and config modes", async () => {
-    const rootConfigPath = await writeConfig(
+  it("loads Config with permissive directory and file modes without changing them", async () => {
+    const configPath = await writeConfig(
       { providers: {} },
-      { root: 0o755 },
+      { root: 0o755, sessions: 0o755, config: 0o644 },
     );
-    const rootResult = await loadConfig({ configPath: rootConfigPath });
-    expect(rootResult).toMatchObject({
-      ok: false,
-      error: {
-        code: "SUSAN_CONFIG_PERMISSION",
-        issues: [{ path: configRoot }],
-      },
-    });
+    const paths = [configRoot, join(configRoot, "sessions"), configPath];
+    const modes = await Promise.all(paths.map(async (path) => (await stat(path)).mode));
 
-    const sessionsConfigPath = await writeConfig(
-      { providers: {} },
-      { sessions: 0o750 },
+    expect(await loadConfig({ configPath })).toMatchObject({ ok: true });
+
+    expect(await Promise.all(paths.map(async (path) => (await stat(path)).mode)))
+      .toEqual(modes);
+  });
+
+  it("updates the active model with permissive directory and file modes", async () => {
+    const configPath = await writeConfig(
+      {
+        providers: {
+          local: {
+            type: "openai-completion",
+            apiKey: "sk-test",
+            models: [{ id: "test-model" }],
+          },
+        },
+      },
+      { root: 0o755, sessions: 0o755, config: 0o644 },
     );
-    const sessionsResult = await loadConfig({
-      configPath: sessionsConfigPath,
-    });
-    expect(sessionsResult).toMatchObject({
-      ok: false,
-      error: {
-        code: "SUSAN_CONFIG_PERMISSION",
-        issues: [{ path: join(configRoot, "sessions") }],
-      },
-    });
 
-    const configConfigPath = await writeConfig(
-      { providers: {} },
-      { config: 0o640 },
-    );
-    const configResult = await loadConfig({ configPath: configConfigPath });
-    expect(configResult).toMatchObject({
-      ok: false,
-      error: {
-        code: "SUSAN_CONFIG_PERMISSION",
-        issues: [{ path: configConfigPath }],
-      },
+    expect(await updateConfigActiveModel(configPath, {
+      providerAlias: "local",
+      model: "test-model",
+      reasoningEffort: "high",
+    })).toMatchObject({ ok: true });
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
+      defaultProvider: "local",
+      defaultModel: "test-model",
+      defaultReasoningEffort: "high",
     });
-
-    expect((await stat(configConfigPath)).mode & 0o777).toBe(0o640);
   });
 });
 

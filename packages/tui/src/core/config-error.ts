@@ -32,7 +32,7 @@ const HEADINGS: Record<ConfigErrorCode, string> = {
   SUSAN_CONFIG_MISSING: "Config 文件不存在",
   SUSAN_CONFIG_PARSE: "Config 无法解析",
   SUSAN_CONFIG_SCHEMA: "Config schema 无效",
-  SUSAN_CONFIG_PERMISSION: "Config 权限不安全",
+  SUSAN_CONFIG_PERMISSION: "Config 无法读取",
   SUSAN_CONFIG_PROVIDER_UNKNOWN: "默认 Provider 未配置",
   SUSAN_CONFIG_API_KEY_MISSING: "默认 Provider 缺少 API key",
   SUSAN_CONFIG_PROVIDER_TYPE_UNSUPPORTED: "Provider type 未注册",

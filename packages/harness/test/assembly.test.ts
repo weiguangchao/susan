@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -42,6 +42,21 @@ it("assembles without a model or process cwd changes and reuses the current empt
     harness: first.harness,
     session: first.session,
   });
+});
+
+it("starts and reloads with 0755 Susan Home and sessions and 0644 Config", async () => {
+  const { root, configPath, assembly } = await fixture();
+  const home = join(root, ".susan");
+  await mkdir(join(home, "sessions"));
+  await chmod(home, 0o755);
+  await chmod(join(home, "sessions"), 0o755);
+  await chmod(configPath, 0o644);
+
+  expect((await assembly.assemble({
+    session: { kind: "new" },
+    newSessionCwd: root,
+  })).kind).toBe("ready");
+  expect((await assembly.reload()).kind).toBe("updated");
 });
 
 function modelConfig(model = "first", host = "https://example.test/v1") {

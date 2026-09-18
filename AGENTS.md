@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Monorepo 模块
+
+- `packages/tui`：终端客户端，负责 `susan` CLI、用户输入、命令与界面展示。
+- `packages/harness`：Agent 运行层，负责模型调用、工具执行、Session、配置与上下文管理，并提供无 UI 的装配 API。
+- `packages/core`：共享基础包，目前提供 JSON 类型与检查函数；Agent Loop 位于 Harness 内。
+
+TUI 通过公开 API 调用 Harness，两者共用 Core；Harness 不依赖 TUI。
+
 ## Agent skills
 
 ### Issue tracker

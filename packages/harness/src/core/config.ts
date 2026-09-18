@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { platform } from "node:process";
 import { z } from "zod";
 import type {
@@ -237,10 +237,6 @@ function schemaIssues(error: z.ZodError): ConfigIssue[] {
   return issues;
 }
 
-function formatMode(mode: number): string {
-  return (mode & 0o777).toString(8).padStart(4, "0");
-}
-
 function nodeErrorCode(error: unknown): string | undefined {
   return error instanceof Error && "code" in error
     ? typeof error.code === "string"
@@ -350,48 +346,6 @@ export async function resolveSusanHome(
       sessionsDirectory: join(path, "sessions"),
     },
   };
-}
-
-async function checkConfigPermissions(configPath: string): Promise<ConfigIssue[]> {
-  if (platform === "win32") {
-    return [];
-  }
-
-  const rootPath = dirname(configPath);
-  const permissionTargets = [
-    { path: rootPath, expectedMode: 0o700 },
-    { path: join(rootPath, "sessions"), expectedMode: 0o700 },
-    { path: configPath, expectedMode: 0o600 },
-  ];
-  const issues: ConfigIssue[] = [];
-
-  for (const target of permissionTargets) {
-    let targetMode: number;
-    try {
-      targetMode = (await stat(target.path)).mode;
-    } catch (error) {
-      if (nodeErrorCode(error) === "ENOENT") {
-        continue;
-      }
-
-      issues.push({
-        path: target.path,
-        code: "permission_check_failed",
-        message: `Unable to check permissions: ${target.path}`,
-      });
-      continue;
-    }
-
-    if ((targetMode & 0o077) !== 0) {
-      issues.push({
-        path: target.path,
-        code: "permission_mode",
-        message: `Expected ${formatMode(target.expectedMode)} or stricter, got ${formatMode(targetMode)}`,
-      });
-    }
-  }
-
-  return issues;
 }
 
 async function readConfigFile(configPath: string): Promise<ConfigFileResult> {
@@ -655,16 +609,6 @@ export async function loadConfig(
   options: ConfigLoadOptions = {},
 ): Promise<ConfigResult> {
   const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
-  const permissionIssues = await checkConfigPermissions(configPath);
-
-  if (permissionIssues.length > 0) {
-    return configError(
-      configPath,
-      "SUSAN_CONFIG_PERMISSION",
-      permissionIssues,
-    );
-  }
-
   const fileResult = await readConfigFile(configPath);
   if (!fileResult.ok) {
     return fileResult;
@@ -682,15 +626,6 @@ export async function updateConfigActiveModel(
   configPath: string,
   selection: ActiveModelSelection,
 ): Promise<ConfigResult> {
-  const permissionIssues = await checkConfigPermissions(configPath);
-  if (permissionIssues.length > 0) {
-    return configError(
-      configPath,
-      "SUSAN_CONFIG_PERMISSION",
-      permissionIssues,
-    );
-  }
-
   const fileResult = await readConfigFile(configPath);
   if (!fileResult.ok) {
     return fileResult;

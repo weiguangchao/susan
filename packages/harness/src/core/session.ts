@@ -338,13 +338,6 @@ async function ensureSessionsDirectory(
     if (!info.isDirectory()) {
       return failure("SUSAN_SESSION_DIRECTORY", "Session path is not a directory", sessionsDirectory);
     }
-    if (platform !== "win32" && (info.mode & 0o777) !== 0o700) {
-      return failure(
-        "SUSAN_SESSION_PERMISSION",
-        "Sessions directory must use mode 0700",
-        sessionsDirectory,
-      );
-    }
     return success(undefined);
   } catch (error) {
     return failure(

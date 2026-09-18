@@ -83,7 +83,7 @@ try {
   const packedFiles = report.files
     .map((entry) => entry.path)
     .sort((left, right) => left.localeCompare(right, "en"));
-  const requiredFiles = ["dist/cli.js", "dist/image-resize-worker.js", "package.json", "THIRD_PARTY_NOTICES"];
+  const requiredFiles = ["dist/cli.js", "package.json", "THIRD_PARTY_NOTICES"];
   // Bundled Ink includes lazy DevTools/runtime chunks alongside the CLI.
   if (
     requiredFiles.some((file) => !packedFiles.includes(file)) ||
@@ -117,27 +117,6 @@ try {
     "@weiguangchao",
     "susan",
   );
-  // Exercise the installed worker and its dependency's WASM, without source or loaders.
-  const imageCheckPath = join(installDirectory, "check-image.mjs");
-  await writeFile(imageCheckPath, `
-import { Worker } from "node:worker_threads";
-const worker = new Worker(${JSON.stringify(join(packageDirectory, "dist", "image-resize-worker.js"))});
-const timer = setTimeout(() => { worker.terminate(); process.exitCode = 1; }, 10000);
-worker.once("error", (error) => { clearTimeout(timer); throw error; });
-worker.once("message", async (message) => {
-  clearTimeout(timer);
-  await worker.terminate();
-  if (!message.result || message.result.width !== 1 || message.result.mimeType !== "image/png") {
-    throw new Error("installed image worker failed: " + JSON.stringify(message));
-  }
-});
-worker.postMessage({
-  inputBytes: new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEElEQVR4AQEFAPr/AP8AAP8FAAH/+lyI0QAAAABJRU5ErkJggg==", "base64")),
-  mimeType: "image/png"
-});
-`);
-  requireSuccess(run(process.execPath, [imageCheckPath], { cwd: installDirectory }), "installed image worker/WASM");
-
   const installedManifest = JSON.parse(
     await readFile(join(packageDirectory, "package.json"), "utf8"),
   );

@@ -1,3 +1,4 @@
+import { APIError } from "openai";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,10 +14,7 @@ it("reads magic-detected images as attachments even with text pagination argumen
  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
-import { PhotonImage } from "@silvia-odwyer/photon-node";
 import { detectSupportedImageMimeType } from "../src/core/mime";
-import { processImage } from "../src/core/image-process";
-import { resizeImage } from "../src/core/image-resize";
 import { createOpenAICompletionAdapter } from "../src/adapters/openai-completion";
 import { createSessionStore } from "../src/core/session";
 import { createCompletedToolCard } from "../src/ui/tool-ledger";
@@ -53,26 +51,79 @@ it("preserves image blocks for non-vision models and renders an attachment summa
  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
-it("resizes images to 2000 pixels and enforces base64 budget", async () => {
- const image = new PhotonImage(new Uint8Array(2400 * 10 * 4).fill(255), 2400, 10);
- try {
-  const result = await resizeImage(image.get_bytes(), "image/png");
-  expect(result).toMatchObject({ width: 2000, originalWidth: 2400, wasResized: true });
-  expect(result!.data.length).toBeLessThan(4.5 * 1024 * 1024);
-  expect(await resizeImage(png, "image/png", { maxBytes: 1 })).toBeNull();
- } finally { image.free(); }
-});
+function createBmp(width: number, height: number): Buffer {
+  const rowBytes = Math.ceil(width * 3 / 4) * 4;
+  const bytes = Buffer.alloc(54 + rowBytes * height, 127);
+  bytes.fill(0, 0, 54);
+  bytes.write("BM");
+  bytes.writeUInt32LE(bytes.length, 2);
+  bytes.writeUInt32LE(54, 10);
+  bytes.writeUInt32LE(40, 14);
+  bytes.writeInt32LE(width, 18);
+  bytes.writeInt32LE(height, 22);
+  bytes.writeUInt16LE(1, 26);
+  bytes.writeUInt16LE(24, 28);
+  bytes.writeUInt32LE(rowBytes * height, 34);
+  return bytes;
+}
 
-it("converts BMP to PNG and returns Pi omission text for invalid images", async () => {
- const bmp = Buffer.alloc(58);
- bmp.write("BM"); bmp.writeUInt32LE(58, 2); bmp.writeUInt32LE(54, 10);
- bmp.writeUInt32LE(40, 14); bmp.writeInt32LE(1, 18); bmp.writeInt32LE(1, 22);
- bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(24, 28); bmp.writeUInt32LE(4, 34); bmp[56] = 255;
- expect(detectSupportedImageMimeType(bmp)).toBe("image/bmp");
- const result = await processImage(bmp, "image/bmp");
- expect(result).toMatchObject({ok: true, mimeType: "image/png", hints: ["[Image converted from image/bmp to image/png.]"]});
- expect(await processImage(Buffer.from("bad"), "image/bmp")).toEqual({ok: false, message: "[Image omitted: could not be converted to a supported inline image format.]"});
- expect(await processImage(Buffer.from("bad"), "image/png")).toEqual({ok: false, message: "[Image omitted: could not be resized below the inline image size limit.]"});
+it("forwards original BMP bytes above the old dimension and base64 limits through Session and Provider", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "susan-images-"));
+  try {
+    const bmp = createBmp(2400, 600);
+    expect(bmp.toString("base64").length).toBeGreaterThan(4.5 * 1024 * 1024);
+    await writeFile(join(cwd, "large.bmp"), bmp);
+    await writeFile(join(cwd, "small.png"), png);
+    const read = createReadTool({ sessionCwd: cwd });
+    const messages: CompletionMessage[] = [{
+      role: "assistant", toolCalls: [
+        { id: "bmp", name: "read", arguments: { path: "large.bmp" } },
+        { id: "png", name: "read", arguments: { path: "small.png" } },
+      ],
+    }];
+    for (const [id, path] of [["bmp", "large.bmp"], ["png", "small.png"]]) {
+      const result = await read.execute({ path });
+      messages.push({ role: "tool", toolCallId: id!, content: result.content });
+    }
+    const store = createSessionStore({ sessionsDirectory: join(cwd, "sessions") });
+    const created = await store.createSession({ cwd });
+    if (!created.ok) throw new Error("create failed");
+    for (const message of messages) {
+      expect((await store.appendMessage(created.value.header.id, message)).ok).toBe(true);
+    }
+    const loaded = await store.loadSession(created.value.header.id);
+    if (!loaded.ok) throw new Error("load failed");
+    expect(loaded.value.messages).toEqual(messages);
+    const wires: any[] = [];
+    const provider = createOpenAICompletionAdapter(() => ({ chat: { completions: {
+      async create(body) {
+        wires.push(body);
+        return { choices: [{ message: { content: "ok" }, finish_reason: "stop" }] };
+      },
+    } } })).createClient({ type: "openai-completion", apiKey: "test", baseURL: new URL("https://example.com") });
+    for (const modelInput of [["text", "image"], ["text"], ["text", "image"]] as const) {
+      await provider.complete({ model: "test", modelInput, messages: loaded.value.messages }, new AbortController().signal);
+    }
+    for (const wire of [wires[0], wires[2]]) {
+      expect(wire.messages.map((message: any) => message.role)).toEqual(["assistant", "tool", "tool", "user"]);
+      expect(wire.messages.slice(1, 3)).toEqual([
+        { role: "tool", tool_call_id: "bmp", content: "Read image file [image/bmp]" },
+        { role: "tool", tool_call_id: "png", content: "Read image file [image/png]" },
+      ]);
+      const attachments = wire.messages[3].content;
+      expect(attachments).toHaveLength(3);
+      for (const [index, mime, bytes] of [[1, "image/bmp", bmp], [2, "image/png", png]] as const) {
+        const url = attachments[index].image_url.url as string;
+        expect(url.startsWith(`data:${mime};base64,`)).toBe(true);
+        expect(Buffer.from(url.split(",")[1]!, "base64").equals(bytes)).toBe(true);
+      }
+    }
+    expect(wires[1].messages.map((message: any) => message.role)).toEqual(["assistant", "tool", "tool"]);
+    expect(loaded.value.messages).toEqual(messages);
+    expect(await store.loadSession(created.value.header.id)).toEqual(loaded);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 it.each([true, false])("batches tool results before image attachments, vision=%s", async (vision) => {
@@ -143,4 +194,56 @@ it("resolves explicit model input capabilities without changing existing model d
   providers: { test: {type: "openai-completion", apiKey: "test", models: [{id: "vision", input: ["text", "image"]}]} },
  });
  expect(result).toMatchObject({ok: true, config: {activeModel: {modelInput: ["text", "image"]}}});
+});
+
+
+it("keeps the original image Tool Result when the upstream rejects its format", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "susan-images-rejection-"));
+  try {
+    const bmp = createBmp(1, 1);
+    await writeFile(join(cwd, "a.bmp"), bmp);
+    const store = createSessionStore({ sessionsDirectory: join(cwd, "sessions") });
+    const created = await store.createSession({ cwd });
+    if (!created.ok) throw new Error("create failed");
+    const wires: any[] = [];
+    const provider = createOpenAICompletionAdapter(() => ({ chat: { completions: {
+      async create(body) {
+        wires.push(body);
+        if (wires.length > 1) {
+          throw new APIError(400, { message: "unsupported image format" }, "unsupported image format", new Headers());
+        }
+        return (async function* () {
+          yield { choices: [{ index: 0, delta: { tool_calls: [{
+            index: 0, id: "bmp", type: "function",
+            function: { name: "read", arguments: JSON.stringify({ path: "a.bmp" }) },
+          }] }, finish_reason: null }] };
+          yield { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] };
+        })();
+      },
+    } } })).createClient({ type: "openai-completion", apiKey: "test", baseURL: new URL("https://example.com") });
+    const harness = createHarness({
+      provider, sessionStore: store, session: created.value,
+      model: "vision", modelInput: ["text", "image"], reasoningEffort: "low",
+      contextWindow: 128000, maxOutputTokens: 1000,
+      tools: [createReadTool({ sessionCwd: cwd })],
+    });
+    const events: import("../src/core/harness").HarnessEvent[] = [];
+    harness.subscribe((event) => events.push(event));
+    expect(await harness.dispatch({ type: "submit", content: "Read a.bmp" })).toMatchObject({
+      ok: false, error: { providerFailure: { code: "PROVIDER_HTTP", httpStatus: 400 } },
+    });
+    expect(events.at(-1)).toMatchObject({ type: "provider-failed", failure: { code: "PROVIDER_HTTP", httpStatus: 400 } });
+    expect(wires).toHaveLength(2);
+    expect(wires[1].messages.at(-1).content[1].image_url.url).toBe(`data:image/bmp;base64,${bmp.toString("base64")}`);
+    const loaded = await store.loadSession(created.value.header.id);
+    if (!loaded.ok) throw new Error("load failed");
+    expect(loaded.value.messages.filter((message) => message.role === "tool")).toEqual([{
+      role: "tool", toolCallId: "bmp", content: [
+        { type: "text", text: "Read image file [image/bmp]" },
+        { type: "image", data: bmp.toString("base64"), mimeType: "image/bmp" },
+      ],
+    }]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

@@ -3,7 +3,6 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: {
     cli: "src/cli.ts",
-    "image-resize-worker": "src/core/image-resize-worker.ts",
   },
   dts: false,
   format: "esm",

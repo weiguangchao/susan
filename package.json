@@ -26,7 +26,6 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@silvia-odwyer/photon-node": "0.3.4",
     "diff": "8.0.4",
     "ink": "7.1.1",
     "openai": "^7.9.0",

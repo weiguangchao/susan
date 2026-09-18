@@ -1,4 +1,3 @@
-import { processImage } from "./image-process";
 import { detectSupportedImageMimeTypeFromFile } from "./mime";
 import type { ToolExecutionContext } from "./provider";
 import { constants } from "node:fs";
@@ -24,7 +23,6 @@ const READ_DESCRIPTION =
 
 export type ReadToolOptions = {
   readonly sessionCwd: string;
-  readonly autoResizeImages?: boolean;
 };
 
 export type ReadToolDetails = {
@@ -108,18 +106,15 @@ export async function executeRead(
     throwIfAborted(signal);
 
     if (mimeType) {
-      const processed = await processImage(buffer, mimeType, { autoResizeImages: options.autoResizeImages });
-      throwIfAborted(signal);
-      let text = `Read image file [${processed.ok ? processed.mimeType : mimeType}]`;
-      if (processed.ok && processed.hints.length) text += `\n${processed.hints.join("\n")}`;
-      if (!processed.ok) text += `\n${processed.message}`;
+      let text = `Read image file [${mimeType}]`;
       if (options.context?.modelInput && !options.context.modelInput.includes("image")) {
         text += "\n[Current model does not support images. The image will be omitted from this request.]";
       }
       return {
-        content: processed.ok
-          ? [{ type: "text", text }, { type: "image", data: processed.data, mimeType: processed.mimeType }]
-          : [{ type: "text", text }],
+        content: [
+          { type: "text", text },
+          { type: "image", data: buffer.toString("base64"), mimeType },
+        ],
         details: undefined,
       };
     }

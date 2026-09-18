@@ -45,8 +45,8 @@ pnpm --filter @weiguangchao/susan package:smoke
 
 每份记录对应一个平台上的实际产物，至少包含：
 
-| Commit | 包 | 版本 | tarball SHA-256 | 实际内部依赖 | 平台 | Node | 执行人 | 日期 | 结果 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |  |  |  | 尚未执行 |
+| Commit | 包 | 版本 | tarball SHA-256 | 实际内部依赖 | 平台 | Node | 执行人 | 日期 | Typecheck | 测试 | 构建 | package:smoke |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  |  |  |  |  | 尚未执行 | 尚未执行 | 尚未执行 | 尚未执行 |
 
-结果只能写“尚未执行”“失败”或“通过”。缺少任一必需平台记录或存在失败项时，Release Gate 不通过。TUI 还必须完成 [人工验收清单](../packages/tui/docs/release-smoke.md)。
+每项结果只能写“尚未执行”“失败”或“通过”。缺少任一必需平台记录、结果尚未执行或存在失败项时，Release Gate 不通过。TUI 还必须完成 [人工验收清单](../packages/tui/docs/release-smoke.md)。

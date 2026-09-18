@@ -12,18 +12,20 @@
 
 ## Checklist
 
-- [ ] 启动：`susan --config <dir>` 打开 TUI，终端保持可用，布局在 80×24 下无意外自动换行。
-- [ ] 输入：单行、多行、粘贴与全宽字符可编辑并提交；输入 viewport 不吞掉左右边框。
-- [ ] 取消：分别在 Provider streaming 与长时间 Bash Tool 运行中取消；界面回到稳定状态，进程按平台保证结束。
-- [ ] 恢复：`susan --resume`、`susan --resume --last` 与指定 Session id 可恢复；Pending Agent Loop 不自动请求 Provider。
-- [ ] `/new`：空 Session 且 cwd 相同时复用当前 Session；非空 Session 切换成功后才替换当前会话，失败时保留当前会话。
-- [ ] `/model`：空闲或 Pending 时可保存并立即应用选择；后续新 Session 沿用选择，失败时保留原模型配置。
-- [ ] `/reload`：外部 Config 修改在 reload 前不生效；成功后更新后续请求，失败时保留当前 Harness、Session 与旧配置。
-- [ ] 七类 Tool 卡：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls` 都显示准确的 requested、running、completed 或 failed 状态与摘要。
-- [ ] outside cwd：绝对路径命中 Session cwd 外目标时，执行中卡片显示绝对路径与 `outside cwd`；Yolo 不变成 sandbox。
-- [ ] 失败：观察至少一个 Config、路径、Tool 非零退出或 capability failure；信息与退出状态一致。
-- [ ] truncation：制造超过 2000 行或 50KB 的输出；卡片显示 truncation details，Bash 截断时显示完整输出文件路径，不出现第二份未截断完成态输出。
-- [ ] Session：退出并恢复后，已完成 Tool Result、失败与 truncation 信息保持一致。
-- [ ] 退出：`/exit` 与终端中断都能结束进程，不留下占用终端的前台任务。
+| 项目 | 验收内容 | macOS | Linux | Windows |
+| --- | --- | --- | --- | --- |
+| 启动 | `susan --config <dir>` 打开 TUI，终端保持可用，布局在 80×24 下无意外自动换行。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 输入 | 单行、多行、粘贴与全宽字符可编辑并提交；输入 viewport 不吞掉左右边框。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 取消 | 分别在 Provider streaming 与长时间 Bash Tool 运行中取消；界面回到稳定状态，进程按平台保证结束。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 恢复 | `susan --resume`、`susan --resume --last` 与指定 Session id 可恢复；Pending Agent Loop 不自动请求 Provider。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| `/new` | 空 Session 且 cwd 相同时复用当前 Session；非空 Session 切换成功后才替换当前会话，失败时保留当前会话。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| `/model` | 空闲或 Pending 时可保存并立即应用选择；后续新 Session 沿用选择，失败时保留原模型配置。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| `/reload` | 外部 Config 修改在 reload 前不生效；成功后更新后续请求，失败时保留当前 Harness、Session 与旧配置。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 七类 Tool 卡 | `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls` 都显示准确的 requested、running、completed 或 failed 状态与摘要。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| outside cwd | 绝对路径命中 Session cwd 外目标时，执行中卡片显示绝对路径与 `outside cwd`；Yolo 不变成 sandbox。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 失败 | 观察至少一个 Config、路径、Tool 非零退出或 capability failure；信息与退出状态一致。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| truncation | 制造超过 2000 行或 50KB 的输出；卡片显示 truncation details，Bash 截断时显示完整输出文件路径，不出现第二份未截断完成态输出。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| Session | 退出并恢复后，已完成 Tool Result、失败与 truncation 信息保持一致。 | 尚未执行 | 尚未执行 | 尚未执行 |
+| 退出 | `/exit` 与终端中断都能结束进程，不留下占用终端的前台任务。 | 尚未执行 | 尚未执行 | 尚未执行 |
 
-每项记录“尚未执行”“失败”或“通过”。任一必选项失败或缺失时，记录平台、终端、复现命令、Session id 与可公开的错误输出，并阻止该 TUI Package Version 发布。不再使用 workflow 专用 issue-comment marker。
+每项结果只能写“尚未执行”“失败”或“通过”。任一必选项尚未执行或失败时，记录平台、终端、复现命令、Session id 与可公开的错误输出，并阻止该 TUI Package Version 发布。不再使用 workflow 专用 issue-comment marker。

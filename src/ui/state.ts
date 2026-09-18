@@ -127,6 +127,7 @@ export type TuiInputIntent =
   | { readonly type: "clear" }
   | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
+  | { readonly type: "reload" }
   | { readonly type: "exit" }
   | { readonly type: "interrupt" }
   | { readonly type: "retry" }
@@ -140,6 +141,7 @@ export type TuiSubmissionIntent =
   | { readonly type: "clear" }
   | { readonly type: "compact"; readonly customInstructions?: string }
   | { readonly type: "model-picker" }
+  | { readonly type: "reload" }
   | { readonly type: "submit"; readonly content: string };
 
 export type TuiAction =
@@ -150,7 +152,7 @@ export type TuiAction =
   | { readonly type: "notice"; readonly message: string }
   | { readonly type: "clear-input" }
   | { readonly type: "close-model-picker" }
-  | { readonly type: "new-session"; readonly snapshot: HarnessSnapshot };
+  | { readonly type: "new-session"; readonly snapshot: HarnessSnapshot; readonly inputHistory?: readonly string[] };
 
 const emptyStream = {
   text: "",
@@ -410,7 +412,7 @@ export function reduceTuiState(
     case "close-model-picker":
       return { ...state, modelPickerActive: false };
     case "new-session":
-      return createTuiState(action.snapshot, state.inputHistory);
+      return createTuiState(action.snapshot, action.inputHistory ?? state.inputHistory);
     default:
       return state;
   }
@@ -696,6 +698,10 @@ function applyInputIntent(
       };
     case "notice":
       return { ...state, notice: intent.message };
+    case "clear":
+    case "new-session":
+    case "reload":
+      return { ...state, ...clearedDraftState(state), notice: null };
     case "compact":
       return { ...state, ...clearedDraftState(state), status: "running", notice: "正在压缩上下文…", failure: null };
     case "model-picker": {

@@ -1,3 +1,4 @@
+import { unusedAssembly } from "./tui-assembly-fixture";
 import { PassThrough } from "node:stream";
 import { render, renderToString } from "ink";
 import { describe, expect, it, vi } from "vitest";
@@ -174,9 +175,8 @@ describe("TUI status bar", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -201,9 +201,8 @@ describe("TUI status bar", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -245,9 +244,8 @@ describe("TUI status bar", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -383,9 +381,8 @@ describe("TUI context usage display", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -428,9 +425,8 @@ describe("TUI completed output history", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -470,9 +466,8 @@ describe("TUI completed output history", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -552,9 +547,8 @@ describe("TUI activity slot", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -657,19 +651,8 @@ describe("TUI Tool rendering", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async (selection) => ({
-          ok: true,
-          command: {
-            type: "configure-model",
-            provider,
-            model: selection.model,
-            reasoningEffort: selection.reasoningEffort,
-            contextWindow: 128_000,
-            maxOutputTokens: 16_384,
-          },
-        })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -743,19 +726,8 @@ describe("TUI Tool rendering", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async (selection) => ({
-          ok: true,
-          command: {
-            type: "configure-model",
-            provider,
-            model: selection.model,
-            reasoningEffort: selection.reasoningEffort,
-            contextWindow: 128_000,
-            maxOutputTokens: 16_384,
-          },
-        })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -810,9 +782,8 @@ describe("TUI reasoning rendering", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       {
         stdin,
@@ -863,9 +834,8 @@ describe("TUI reasoning rendering", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       {
         stdin: terminalInput(),
@@ -924,9 +894,8 @@ describe("TUI reasoning rendering", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       {
         stdin: terminalInput(),

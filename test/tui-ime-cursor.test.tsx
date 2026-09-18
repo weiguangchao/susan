@@ -1,3 +1,4 @@
+import { unusedAssembly } from "./tui-assembly-fixture";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
@@ -157,19 +158,8 @@ async function renderIdleTui(): Promise<{
     <TuiApp
       harness={harness}
       inputHistory={[]}
-      startNewSession={() => harness}
+      assembly={unusedAssembly}
       modelCatalog={modelCatalog}
-      applyModelSelection={async (selection) => ({
-        ok: true,
-        command: {
-          type: "configure-model",
-          provider,
-          model: selection.model,
-          reasoningEffort: selection.reasoningEffort,
-          contextWindow: 128_000,
-          maxOutputTokens: 16_384,
-        },
-      })}
     />,
     { stdin, stdout: createTuiOutput(stdout), interactive: true, patchConsole: false },
   );

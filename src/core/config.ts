@@ -420,7 +420,11 @@ async function readConfigFile(configPath: string): Promise<ConfigFileResult> {
       ]);
     }
 
-    throw error;
+    return configError(configPath, "SUSAN_CONFIG_IO", [{
+      path: configPath,
+      code: "read_failed",
+      message: "Unable to read the Config file",
+    }]);
   }
 
   let text: string;

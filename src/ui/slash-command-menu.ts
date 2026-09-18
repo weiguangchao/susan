@@ -5,6 +5,7 @@ export const slashCommands = [
   { name: "/exit", label: "退出", intent: "exit" },
   { name: "/new", label: "新对话", intent: "clear" },
   { name: "/model", label: "模型", intent: "model-picker" },
+  { name: "/reload", label: "重新加载配置", intent: "reload" },
 ] as const;
 
 export type SlashCommand = (typeof slashCommands)[number];

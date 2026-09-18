@@ -152,10 +152,10 @@ export type HarnessCommand =
   | { readonly type: "interrupt" }
   | {
       readonly type: "configure-model";
-      readonly provider: ProviderClient;
-      readonly model: string;
+      readonly provider?: ProviderClient;
+      readonly model?: string;
       readonly modelInput?: ModelInput;
-      readonly reasoningEffort: ReasoningEffort;
+      readonly reasoningEffort?: ReasoningEffort;
       readonly contextWindow: number;
       readonly maxOutputTokens: number;
     };

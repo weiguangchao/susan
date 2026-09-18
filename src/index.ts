@@ -1,3 +1,8 @@
+export { createHarnessAssembly } from "./assembly";
+export type {
+  AssemblyOptions, SessionSelection, AssembleOptions, AssemblyResult,
+  ConfigUpdateResult, HarnessAssembly, AssemblyConfigView, AssemblyError,
+} from "./assembly";
 export {
   openAICompletionProvider,
 } from "./adapters/openai-completion";

@@ -1,47 +1,22 @@
+import { resolve } from "node:path";
 import { render } from "ink";
-import {
-  createProviderClient,
-  formatSusanHomeError,
-  loadConfig,
-  resolveSusanHome,
-  updateConfigActiveModel,
-} from "./config";
-import type { ConfigError, ResolvedConfig } from "./core/config";
-import { formatCliError, parseCli, type ResumeMode } from "./core/cli";
+import { createHarnessAssembly, type AssembleOptions } from "./assembly";
+import type { ConfigError } from "./core/config";
+import { formatCliError, parseCli } from "./core/cli";
 import { formatConfigError } from "./core/config-error";
-import { createBuiltInToolSet } from "./core/built-in-tools";
-import { createHarness, type Harness } from "./core/harness";
-import { resolveSessionLaunch } from "./core/launch";
-import type {
-  ModelPickerCatalog,
-} from "./core/model-picker";
-import {
-  DEFAULT_MODEL_CONTEXT_WINDOW,
-  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-} from "./core/provider";
-import {
-  createSessionStore,
-  type SessionStore,
-  type SessionSummary,
-  type SessionTranscript,
-} from "./core/session";
+import type { SessionSummary } from "./core/session";
 import { ConfigErrorApp } from "./ui/config-error";
 import { SessionPickerApp } from "./ui/session-picker";
-import { TuiApp } from "./ui/tui";
+import { modelPickerCatalog, TuiApp } from "./ui/tui";
 import { createTuiOutput } from "./ui/terminal-output";
 
 const TTY_REQUIRED = "susan: TUI requires an interactive terminal\n";
 export const CLEAR_TERMINAL_SEQUENCE = "\u001B[2J\u001B[3J\u001B[H";
-
 export function clearTerminal(
   stdout: { readonly write: (value: string) => unknown } = process.stdout,
 ): void {
   stdout.write(CLEAR_TERMINAL_SEQUENCE);
 }
-
-type SessionStart =
-  | { readonly ok: true; readonly session: SessionTranscript }
-  | { readonly ok: false; readonly exitCode: number };
 
 export async function runCli(argv: readonly string[]): Promise<number> {
   const parsed = parseCli(argv);
@@ -49,128 +24,68 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     process.stderr.write(formatCliError(parsed.error));
     return 1;
   }
-
-  const home = await resolveSusanHome(parsed.flags.susanHomeParent);
-  if (!home.ok) {
-    process.stderr.write(formatSusanHomeError(home.error));
-    return 1;
-  }
-  const store = createSessionStore({
-    sessionsDirectory: home.value.sessionsDirectory,
+  const assembly = createHarnessAssembly({
+    susanHomeParent:
+      parsed.flags.susanHomeParent === undefined
+        ? undefined
+        : resolve(parsed.flags.susanHomeParent),
   });
-  const inputHistory = await loadInputHistory(store);
-  if (!inputHistory.ok) {
-    process.stderr.write(
-      `susan: ${inputHistory.error.message}\n`,
+  let request: AssembleOptions = {
+    session:
+      parsed.flags.resume.kind === "none"
+        ? { kind: "new" }
+        : parsed.flags.resume,
+    newSessionCwd: process.cwd(),
+  };
+  let result = await assembly.assemble(request);
+  while (true) {
+    if (result.kind === "config-error") {
+      if (!isInteractive()) {
+        process.stderr.write(formatConfigErrorText(result.error));
+        return 1;
+      }
+      if ((await showConfigError(result.error)) === "exit") return 0;
+      const updated = await assembly.reload();
+      result =
+        updated.kind === "updated" ? await assembly.assemble(request) : updated;
+      continue;
+    }
+    if (result.kind === "startup-error") {
+      process.stderr.write(`susan: ${result.error.message}\n`);
+      return 1;
+    }
+    if (!isInteractive()) {
+      process.stderr.write(TTY_REQUIRED);
+      return 1;
+    }
+    if (result.kind === "session-picker") {
+      const picked = await showSessionPicker(result.sessions);
+      if (picked === "exit") return 0;
+      request = {
+        ...request,
+        session:
+          picked === "new" ? { kind: "new" } : { kind: "id", id: picked },
+      };
+      result = await assembly.assemble(request);
+      continue;
+    }
+    clearTerminal();
+    const instance = render(
+      <TuiApp
+        harness={result.harness}
+        inputHistory={result.inputHistory}
+        assembly={assembly}
+        modelCatalog={modelPickerCatalog(result.config)}
+      />,
+      { incrementalRendering: true, stdout: createTuiOutput(process.stdout) },
     );
-    return 1;
+    await instance.waitUntilExit();
+    return 0;
   }
-  const loadedConfig = await loadResolvedConfig(home.value.configPath);
-  if (!loadedConfig.ok) {
-    return loadedConfig.exitCode;
-  }
-  let config = loadedConfig.config;
-  const configPath = home.value.configPath;
-
-  const started = await resolveStartupSession(store, parsed.flags.resume);
-  if (!started.ok) {
-    return started.exitCode;
-  }
-
-  if (!isInteractive()) {
-    process.stderr.write(TTY_REQUIRED);
-    return 1;
-  }
-
-  let harness;
-  try {
-    harness = createSusanHarness(config, store, started.session);
-  } catch (error) {
-    process.stderr.write(
-      `susan: ${error instanceof Error ? error.message : "Unable to start Session"}\n`,
-    );
-    return 1;
-  }
-
-  clearTerminal();
-  const inkStdout = createTuiOutput(process.stdout);
-  const instance = render(
-    <TuiApp
-      harness={harness}
-      inputHistory={inputHistory.value}
-      startNewSession={() => createNewSusanSession(config, store)}
-      modelCatalog={modelPickerCatalog(config)}
-      applyModelSelection={async (selection) => {
-        const updated = await updateConfigActiveModel(configPath, selection);
-        if (!updated.ok) {
-          return {
-            ok: false,
-            message: formatConfigError(updated.error).heading,
-          };
-        }
-        const activeModel = updated.config.activeModel;
-        if (activeModel === undefined) {
-          return { ok: false, message: "模型配置未完整" };
-        }
-        config = updated.config;
-        return {
-          ok: true,
-          command: {
-            type: "configure-model",
-            provider: createProviderClient(activeModel.provider),
-            model: activeModel.model,
-            modelInput: activeModel.modelInput,
-            reasoningEffort: activeModel.reasoningEffort,
-            contextWindow: activeModel.contextWindow,
-            maxOutputTokens: activeModel.maxOutputTokens,
-          },
-        };
-      }}
-    />,
-    { incrementalRendering: true, stdout: inkStdout },
-  );
-  await instance.waitUntilExit();
-  return 0;
 }
 
 function isInteractive(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
-}
-
-async function loadInputHistory(
-  store: SessionStore,
-): Promise<
-  | { readonly ok: true; readonly value: readonly string[] }
-  | { readonly ok: false; readonly error: { readonly message: string } }
-> {
-  const result = await store.loadInputHistory();
-  if (result.ok) {
-    return result;
-  }
-  return { ok: false, error: result.error };
-}
-
-type ConfigStart =
-  | { readonly ok: true; readonly config: ResolvedConfig }
-  | { readonly ok: false; readonly exitCode: number };
-
-async function loadResolvedConfig(
-  configPath: string | undefined,
-): Promise<ConfigStart> {
-  while (true) {
-    const loaded = await loadConfig({ configPath });
-    if (loaded.ok) {
-      return { ok: true, config: loaded.config };
-    }
-    if (!isInteractive()) {
-      process.stderr.write(formatConfigErrorText(loaded.error));
-      return { ok: false, exitCode: 1 };
-    }
-    const action = await showConfigError(loaded.error);
-    if (action === "exit") {
-      return { ok: false, exitCode: 0 };
-    }
-  }
 }
 
 function formatConfigErrorText(error: ConfigError): string {
@@ -187,59 +102,7 @@ function formatConfigErrorText(error: ConfigError): string {
   return `${lines.join("\n")}\n`;
 }
 
-async function resolveStartupSession(
-  store: SessionStore,
-  resume: ResumeMode,
-): Promise<SessionStart> {
-  const launch = await resolveSessionLaunch(store, resume);
-  if (launch.kind === "error") {
-    process.stderr.write(`susan: ${launch.error.message}\n`);
-    return { ok: false, exitCode: 1 };
-  }
-  if (launch.kind === "resume") {
-    return { ok: true, session: launch.session };
-  }
-  if (launch.kind === "new") {
-    return createSessionResult(store, true);
-  }
-  if (!isInteractive()) {
-    process.stderr.write(TTY_REQUIRED);
-    return { ok: false, exitCode: 1 };
-  }
-
-  const picked = await showSessionPicker(launch.sessions);
-  if (picked === "exit") {
-    return { ok: false, exitCode: 0 };
-  }
-  if (picked === "new") {
-    return createSessionResult(store, true);
-  }
-  const loaded = await store.loadSession(picked);
-  if (!loaded.ok) {
-    process.stderr.write(`susan: ${loaded.error.message}\n`);
-    return { ok: false, exitCode: 1 };
-  }
-  return { ok: true, session: loaded.value };
-}
-
-async function createSessionResult(
-  store: SessionStore,
-  reuseEmpty = false,
-): Promise<SessionStart> {
-  const created = await store.createSession({
-    cwd: process.cwd(),
-    reuseEmpty,
-  });
-  if (!created.ok) {
-    process.stderr.write(`susan: ${created.error.message}\n`);
-    return { ok: false, exitCode: 1 };
-  }
-  return { ok: true, session: created.value };
-}
-
-async function showConfigError(
-  error: ConfigError,
-): Promise<"reload" | "exit"> {
+async function showConfigError(error: ConfigError): Promise<"reload" | "exit"> {
   return new Promise((resolve) => {
     const instance = render(
       <ConfigErrorApp
@@ -279,64 +142,4 @@ async function showSessionPicker(
       />,
     );
   });
-}
-
-function createSusanHarness(
-  config: ResolvedConfig,
-  store: SessionStore,
-  session: SessionTranscript,
-): Harness {
-  if (session.header.cwd !== process.cwd()) {
-    try {
-      process.chdir(session.header.cwd);
-    } catch (error) {
-      throw new Error(
-        error instanceof Error
-          ? `Unable to restore Session cwd ${session.header.cwd}: ${error.message}`
-          : `Unable to restore Session cwd ${session.header.cwd}`,
-      );
-    }
-  }
-
-  const activeModel = config.activeModel;
-  return createHarness({
-    ...(activeModel === undefined
-      ? {}
-      : { provider: createProviderClient(activeModel.provider) }),
-    sessionStore: store,
-    session,
-    model: activeModel?.model,
-    modelInput: activeModel?.modelInput,
-    reasoningEffort: activeModel?.reasoningEffort,
-    contextWindow:
-      activeModel?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
-    maxOutputTokens:
-      activeModel?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-    tools: createBuiltInToolSet({ sessionCwd: session.header.cwd }),
-  });
-}
-
-function modelPickerCatalog(config: ResolvedConfig): ModelPickerCatalog {
-  return {
-    defaultProviderAlias: config.defaultProvider,
-    preferredModel: config.defaultModel,
-    preferredReasoningEffort: config.defaultReasoningEffort,
-    providers: Object.entries(config.providers).map(([alias, provider]) => ({
-      alias,
-      type: provider.type,
-      baseURL: provider.baseURL.host,
-      models: provider.models ?? [],
-    })),
-  };
-}
-
-async function createNewSusanSession(
-  config: ResolvedConfig,
-  store: SessionStore,
-): Promise<Harness> {
-  const created = await store.createSession({ cwd: process.cwd() });
-  if (!created.ok) {
-    throw new Error(created.error.message);
-  }
-  return createSusanHarness(config, store, created.value);
 }

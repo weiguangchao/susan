@@ -1,4 +1,5 @@
-import { PassThrough } from "node:stream";
+import { terminalInput, terminalOutput, stripAnsi, latestVisibleFrame, flushEffects } from "./terminal-fixture";
+import { unusedAssembly } from "./tui-assembly-fixture";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
 import type {
@@ -8,45 +9,6 @@ import type {
   ProviderClient,
 } from "../src/index";
 import { TuiApp } from "../src/index";
-
-function terminalInput(): NodeJS.ReadStream {
-  const input = new PassThrough() as PassThrough & {
-    isTTY: boolean;
-    ref(): void;
-    setRawMode(mode: boolean): void;
-    unref(): void;
-  };
-  input.isTTY = true;
-  input.ref = () => {};
-  input.setRawMode = () => {};
-  input.unref = () => {};
-  return input as unknown as NodeJS.ReadStream;
-}
-
-function terminalOutput(onWrite: (chunk: string) => void): NodeJS.WriteStream {
-  const output = new PassThrough() as PassThrough & {
-    columns: number;
-    isTTY: boolean;
-    rows: number;
-  };
-  output.columns = 80;
-  output.isTTY = true;
-  output.rows = 24;
-  output.on("data", (chunk: Buffer) => onWrite(chunk.toString("utf8")));
-  return output as unknown as NodeJS.WriteStream;
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-function latestVisibleFrame(frames: readonly string[]): string {
-  return frames.findLast((frame) => frame.trim() !== "") ?? "";
-}
-
-async function flushEffects(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
-}
 
 describe("model picker application", () => {
   it("clears an abbreviated menu query before opening and cancelling the model picker", async () => {
@@ -81,7 +43,7 @@ describe("model picker application", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={{
           defaultProviderAlias: "deepseek",
           preferredModel: "deepseek-v4-flash",
@@ -92,10 +54,6 @@ describe("model picker application", () => {
             models: [{ id: "deepseek-v4-flash" }],
           }],
         }}
-        applyModelSelection={async () => ({
-          ok: false,
-          message: "not used",
-        })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -168,7 +126,17 @@ describe("model picker application", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={{
+          ...unusedAssembly,
+          async applyModelSelection(selection) {
+            snapshot = { ...snapshot, model: selection.model, reasoningEffort: selection.reasoningEffort };
+            return { kind: "updated", config: {
+              defaultProvider: selection.providerAlias, defaultModel: selection.model,
+              defaultReasoningEffort: selection.reasoningEffort,
+              providers: [{ alias: "deepseek", type: "openai-completion", host: "example.test", models: [{ id: "deepseek-v4-flash" }] }],
+            } };
+          },
+        }}
         modelCatalog={{
           defaultProviderAlias: "deepseek",
           preferredModel: "deepseek-v4-flash",
@@ -181,17 +149,7 @@ describe("model picker application", () => {
             },
           ],
         }}
-        applyModelSelection={async (selection) => ({
-          ok: true,
-          command: {
-            type: "configure-model",
-            provider,
-            model: selection.model,
-            reasoningEffort: selection.reasoningEffort,
-            contextWindow: 128_000,
-            maxOutputTokens: 16_384,
-          },
-        })}
+
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );
@@ -252,7 +210,7 @@ describe("model picker application", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={{
           defaultProviderAlias: "deepseek",
           preferredModel: "model-0",
@@ -268,10 +226,6 @@ describe("model picker application", () => {
             },
           ],
         }}
-        applyModelSelection={async () => ({
-          ok: false,
-          message: "not used",
-        })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );

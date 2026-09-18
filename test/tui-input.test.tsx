@@ -71,7 +71,7 @@ describe("TUI input", () => {
       columns: 80,
     });
 
-    expect(stripAnsi(output)).toBe(" › /compact 压缩上下文\n   /exit 退出\n   /model 模型\n   /new 新对话");
+    expect(stripAnsi(output)).toBe(" › /compact 压缩上下文\n   /exit 退出\n   /model 模型\n   /new 新对话\n   /reload 重新加载配置");
     const view = SlashCommandMenuView({ menu: menuState("/") }) as ReactElement<{
       children: ReactNode;
     }>;
@@ -134,7 +134,7 @@ describe("TUI input", () => {
       columns: 80,
     });
 
-    expect(stripAnsi(output)).toBe("   /compact 压缩上下文\n › /exit 退出\n   /model 模型\n   /new 新对话");
+    expect(stripAnsi(output)).toBe("   /compact 压缩上下文\n › /exit 退出\n   /model 模型\n   /new 新对话\n   /reload 重新加载配置");
     expect(output).not.toContain("\u001B[7m");
   });
 
@@ -157,7 +157,7 @@ describe("TUI input", () => {
       }),
     );
 
-    expect(output.split("\n")).toHaveLength(4);
+    expect(output.split("\n")).toHaveLength(5);
     for (const line of output.split("\n")) {
       expect(stringWidth(line)).toBeLessThanOrEqual(10);
     }

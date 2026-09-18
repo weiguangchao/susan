@@ -1069,6 +1069,7 @@ describe("TUI state", () => {
         { name: "/exit", label: "退出" },
         { name: "/model", label: "模型" },
         { name: "/new", label: "新对话" },
+        { name: "/reload", label: "重新加载配置" },
       ],
       selected: { name: "/compact" },
     });
@@ -1137,9 +1138,9 @@ describe("TUI state", () => {
       type: "input-key",
       key: { input: "", downArrow: true },
     });
-    expect(state.slashCommandSelectedIndex).toBe(3);
+    expect(state.slashCommandSelectedIndex).toBe(4);
     expect(resolveInputIntent(state, { input: "\r", return: true })).toEqual({
-      type: "clear",
+      type: "reload",
     });
 
     state = reduceTuiState(state, {

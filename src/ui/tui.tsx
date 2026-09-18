@@ -9,9 +9,10 @@ import {
   useStdout,
 } from "ink";
 import stringWidth from "string-width";
+import type { AssemblyConfigView, ConfigUpdateResult, HarnessAssembly } from "../assembly";
+import { formatConfigError } from "../core/config-error";
 import type {
   Harness,
-  HarnessCommand,
   HarnessError,
 } from "../core/harness";
 import {
@@ -39,7 +40,6 @@ import {
   createTuiState,
   formatProviderFailure,
   formatToolCallDetail,
-  isEmptySession,
   reduceTuiState,
   resolveInputIntent,
   resolveSlashCommandMenu,
@@ -54,29 +54,29 @@ import {
 export type TuiAppProps = {
   readonly harness: Harness;
   readonly inputHistory: readonly string[];
-  readonly startNewSession: () => Harness | Promise<Harness>;
+  readonly assembly: HarnessAssembly;
   readonly modelCatalog: ModelPickerCatalog;
-  readonly applyModelSelection: (
-    selection: ModelPickerSelection,
-  ) => Promise<ModelSelectionApplyResult>;
   readonly onExit?: () => void;
 };
 
-export type ConfigureModelCommand = Extract<
-  HarnessCommand,
-  { type: "configure-model" }
->;
+export function modelPickerCatalog(config: AssemblyConfigView): ModelPickerCatalog {
+  return {
+    defaultProviderAlias: config.defaultProvider,
+    preferredModel: config.defaultModel,
+    preferredReasoningEffort: config.defaultReasoningEffort,
+    providers: config.providers.map(({ host, ...provider }) => ({ ...provider, baseURL: host })),
+  };
+}
 
-export type ModelSelectionApplyResult =
-  | { readonly ok: true; readonly command: ConfigureModelCommand }
-  | { readonly ok: false; readonly message: string };
+export function assemblyErrorMessage(result: Exclude<ConfigUpdateResult, { kind: "updated" }>): string {
+  return result.kind === "config-error" ? formatConfigError(result.error).heading : result.error.message;
+}
 
 export function TuiApp({
   harness: initialHarness,
   inputHistory,
-  startNewSession,
+  assembly,
   modelCatalog,
-  applyModelSelection,
   onExit,
 }: TuiAppProps) {
   const [harness, setHarness] = useState(initialHarness);
@@ -93,6 +93,7 @@ export function TuiApp({
   const { rows, columns } = useTerminalDimensions(stdout);
   const stateRef = useRef(state);
   const modelPickerStateRef = useRef(modelPickerState);
+  const operationRef = useRef(false);
   const now = useNow(state.retry !== null);
 
   stateRef.current = state;
@@ -116,15 +117,26 @@ export function TuiApp({
   }, [exit, onExit]);
 
   const replaceSession = useCallback(async () => {
-    const snapshot = harness.getSnapshot();
-    if (isEmptySession(snapshot)) {
-      dispatch({ type: "new-session", snapshot });
+    const result = await assembly.assemble({ session: { kind: "new" }, newSessionCwd: harness.getSnapshot().cwd });
+    if (result.kind !== "ready") {
+      if (result.kind !== "session-picker") dispatch({ type: "notice", message: assemblyErrorMessage(result) });
       return;
     }
-    const nextHarness = await startNewSession();
-    setHarness(nextHarness);
-    dispatch({ type: "new-session", snapshot: nextHarness.getSnapshot() });
-  }, [harness, startNewSession]);
+    setHarness(result.harness);
+    setModelPickerState(createModelPickerState(modelPickerCatalog(result.config)));
+    dispatch({ type: "new-session", snapshot: result.harness.getSnapshot(), inputHistory: result.inputHistory });
+  }, [harness, assembly]);
+
+  const refreshConfig = useCallback(async () => {
+    const result = await assembly.reload();
+    if (result.kind !== "updated") {
+      dispatch({ type: "notice", message: assemblyErrorMessage(result) });
+      return;
+    }
+    setModelPickerState(createModelPickerState(modelPickerCatalog(result.config)));
+    dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
+    dispatch({ type: "notice", message: "配置已重新加载" });
+  }, [assembly, harness]);
 
   const handleModelError = useCallback(
     (error: HarnessError) => {
@@ -173,6 +185,10 @@ export function TuiApp({
         await replaceSession();
         return;
       }
+      if (intent.type === "reload") {
+        await refreshConfig();
+        return;
+      }
       if (intent.type === "model-picker") {
         setModelPickerState((current) =>
           createModelPickerState(current.catalog),
@@ -206,34 +222,22 @@ export function TuiApp({
         }
       }
     },
-    [dispatch, handleModelError, harness, quit, replaceSession],
+    [dispatch, handleModelError, harness, quit, replaceSession, refreshConfig],
   );
 
   const applyPickerSelection = useCallback(
     async (selection: ModelPickerSelection) => {
-      const result = await applyModelSelection(selection);
-      if (!result.ok) {
-        dispatch({ type: "notice", message: result.message });
-        return;
-      }
-      const configured = await harness.dispatch(result.command);
-      if (!configured.ok) {
-        dispatch({ type: "notice", message: configured.error.message });
+      const result = await assembly.applyModelSelection(selection);
+      if (result.kind !== "updated") {
+        dispatch({ type: "notice", message: assemblyErrorMessage(result) });
         return;
       }
       dispatch({ type: "snapshot", snapshot: harness.getSnapshot() });
-      setModelPickerState((current) =>
-        createModelPickerState({
-          ...current.catalog,
-          defaultProviderAlias: selection.providerAlias,
-          preferredModel: selection.model,
-          preferredReasoningEffort: selection.reasoningEffort,
-        }),
-      );
+      setModelPickerState(createModelPickerState(modelPickerCatalog(result.config)));
       dispatch({ type: "close-model-picker" });
       dispatch({ type: "notice", message: "模型配置已更新" });
     },
-    [applyModelSelection, dispatch, harness],
+    [assembly, dispatch, harness],
   );
 
   const inputWidth = inputContentWidth(columns);
@@ -247,6 +251,7 @@ export function TuiApp({
     if (isKeyboardProtocolResponse(input)) {
       return;
     }
+    if (operationRef.current) return;
     const currentState = {
       ...stateRef.current,
       status: harness.getSnapshot().status,
@@ -270,7 +275,8 @@ export function TuiApp({
         return;
       }
       if (pickerIntent.type === "apply") {
-        void applyPickerSelection(pickerIntent.selection);
+        operationRef.current = true;
+        void applyPickerSelection(pickerIntent.selection).finally(() => { operationRef.current = false; });
         return;
       }
       setModelPickerState((current) =>
@@ -296,7 +302,12 @@ export function TuiApp({
       type: "input-intent",
       intent,
     });
-    void executeIntent(intent);
+    if (intent.type === "clear" || intent.type === "new-session" || intent.type === "reload") {
+      operationRef.current = true;
+      void executeIntent(intent).finally(() => { operationRef.current = false; });
+    } else {
+      void executeIntent(intent);
+    }
   });
 
   const completedToolIds = new Set(

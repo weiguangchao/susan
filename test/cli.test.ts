@@ -225,7 +225,7 @@ describe("CLI flags", () => {
     expect(captured).not.toContain("SUSAN_CONFIG_MISSING");
   });
 
-  it("loads Config from <dir>/.susan and keeps Session Store there", async () => {
+  it("loads Config from <dir>/.susan before creating Session files", async () => {
     const root = await mkdtemp(join(tmpdir(), "susan-cli-home-"));
     const stderr = vi
       .spyOn(process.stderr, "write")
@@ -244,9 +244,7 @@ describe("CLI flags", () => {
       expect(captured).toContain("SUSAN_CONFIG_MISSING");
       expect(captured).toContain(join(root, ".susan", "config.json"));
       expect((await stat(join(root, ".susan"))).isDirectory()).toBe(true);
-      expect((await stat(join(root, ".susan", "sessions"))).isDirectory()).toBe(
-        true,
-      );
+      await expect(stat(join(root, ".susan", "sessions"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { force: true, recursive: true });
     }

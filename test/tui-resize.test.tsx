@@ -1,3 +1,4 @@
+import { unusedAssembly } from "./tui-assembly-fixture";
 import { PassThrough } from "node:stream";
 import { Terminal } from "@xterm/headless";
 import { render } from "ink";
@@ -155,8 +156,7 @@ describe("TUI terminal resize", () => {
     });
     const { harness, emit } = streamingHarness();
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function screen() {
@@ -246,8 +246,7 @@ describe("TUI terminal resize", () => {
     });
     const { harness, emit } = streamingHarness();
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function flush() {
@@ -302,8 +301,7 @@ describe("TUI terminal resize", () => {
       });
       const { harness, emit } = streamingHarness();
       const instance = render(<TuiApp harness={harness} inputHistory={[]}
-        startNewSession={() => harness} modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+        assembly={unusedAssembly} modelCatalog={modelCatalog} />,
         { stdin: terminalInput(), stdout: createTuiOutput(stdout), interactive: true,
           patchConsole: false, incrementalRendering: true });
       async function flush() {
@@ -383,8 +381,7 @@ describe("TUI terminal resize", () => {
     const { harness, emit } = streamingHarness({ status: "idle" });
     const stdin = terminalInput();
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin, stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function flush() {
@@ -438,8 +435,7 @@ describe("TUI terminal resize", () => {
     const { harness, emit } = streamingHarness({ status: "idle" });
     const stdin = terminalInput();
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin, stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function flush() {
@@ -565,8 +561,7 @@ describe("TUI terminal resize", () => {
     });
     const { harness, emit } = streamingHarness({ status: "idle" });
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin, stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function flush() {
@@ -643,8 +638,7 @@ describe("TUI terminal resize", () => {
     });
     const { harness, emit } = streamingHarness({ status: "idle" });
     const instance = render(<TuiApp harness={harness} inputHistory={[]}
-      startNewSession={() => harness} modelCatalog={modelCatalog}
-      applyModelSelection={async () => ({ ok: false, message: "not used" })} />,
+      assembly={unusedAssembly} modelCatalog={modelCatalog} />,
       { stdin, stdout: createTuiOutput(stdout), interactive: true,
         patchConsole: false, incrementalRendering: true });
     async function flush() {
@@ -721,9 +715,8 @@ describe("TUI terminal resize", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       {
         stdin,
@@ -805,9 +798,8 @@ describe("TUI terminal resize", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       {
         stdin,
@@ -937,9 +929,8 @@ describe("TUI terminal resize", () => {
       <TuiApp
         harness={harness}
         inputHistory={[]}
-        startNewSession={() => harness}
+        assembly={unusedAssembly}
         modelCatalog={modelCatalog}
-        applyModelSelection={async () => ({ ok: false, message: "not used" })}
       />,
       { stdin, stdout, interactive: true, patchConsole: false },
     );

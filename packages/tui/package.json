@@ -16,7 +16,7 @@
     "typecheck": "pnpm run build:harness && tsc --noEmit",
     "test": "pnpm run build:harness && vitest run",
     "lint": "pnpm run typecheck",
-    "dev": "pnpm run build:harness && tsx src/cli.ts",
+    "dev": "pnpm run build:harness && tsx src/cli.ts --config ../..",
     "package:smoke": "pnpm run build && node scripts/package-smoke.mjs"
   },
   "bin": {

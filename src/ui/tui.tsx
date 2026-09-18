@@ -9,12 +9,12 @@ import {
   useStdout,
 } from "ink";
 import stringWidth from "string-width";
-import type { AssemblyConfigView, ConfigUpdateResult, HarnessAssembly } from "../assembly";
+import type { AssemblyConfigView, ConfigUpdateResult, HarnessAssembly } from "@weiguangchao/susan-harness";
 import { formatConfigError } from "../core/config-error";
 import type {
   Harness,
   HarnessError,
-} from "../core/harness";
+} from "@weiguangchao/susan-harness";
 import {
   createModelPickerState,
   modelPickerRowCount,

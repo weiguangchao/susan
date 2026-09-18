@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { Terminal } from "@xterm/headless";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
-import type { Harness, HarnessEvent, HarnessSnapshot } from "../src/index";
+import type { Harness, HarnessEvent, HarnessSnapshot } from "@weiguangchao/susan-harness";
 import { TuiApp } from "../src/index";
 import { WORKING_SPINNER_FRAMES } from "../src/ui/tui";
 import { createTuiOutput } from "../src/ui/terminal-output";

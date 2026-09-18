@@ -1,6 +1,6 @@
 import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import type { ProviderToolCall, ToolResult } from "../src/index";
+import type { ProviderToolCall, ToolResult } from "@weiguangchao/susan-harness";
 import { createTuiState, reduceTuiState } from "../src/index";
 import { SessionContentView } from "../src/ui/tui";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results";
@@ -43,7 +43,7 @@ describe("TUI Tool execution ledger", () => {
     const first = canonicalToolFixtures[0]!;
     const second = canonicalToolFixtures[1]!;
     let state = initialState();
-    const emit = (event: import("../src/index").HarnessEvent) => {
+    const emit = (event: import("@weiguangchao/susan-harness").HarnessEvent) => {
       state = reduceTuiState(state, { type: "harness-event", event });
     };
     const history = () => renderToString(<SessionContentView messages={[]}

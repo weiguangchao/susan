@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { render } from "ink";
 import { expect, it } from "vitest";
-import { createHarnessAssembly } from "../src/assembly";
-import { createSessionStore } from "../src/core/session";
+import { createHarnessAssembly } from "@weiguangchao/susan-harness";
+import { createSessionStore } from "@weiguangchao/susan-harness";
 import { modelPickerCatalog, TuiApp } from "../src/ui/tui";
 
 it("keeps the old Session on reload/new failures, then switches only after ready", async () => {

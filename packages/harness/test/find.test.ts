@@ -3,16 +3,9 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { posix, win32, join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  FIND_PROMPT_GUIDELINES,
-  FIND_PROMPT_SNIPPET,
-  createFindTool,
-  ensureTool,
-  relativizeFindResultPath,
-  type FindOperations,
-  type FindTool,
-  type ToolResult,
-} from "../src/index";
+import { FIND_PROMPT_GUIDELINES, FIND_PROMPT_SNIPPET, relativizeFindResultPath } from "../src/core/find";
+import { createFindTool, type FindOperations, type FindTool, type ToolResult } from "../src/index";
+import { ensureTool } from "../src/core/tools-manager";
 
 const FIND_DESCRIPTION =
   "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).";

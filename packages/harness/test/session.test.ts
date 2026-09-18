@@ -13,11 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSessionStore } from "../src/index";
-import type {
-  CompletionMessage,
-  CompactionEntry,
-  ProviderUsage,
-} from "../src/index";
+import type { CompletionMessage, CompactionEntry, ProviderUsage } from "../src/index";
 
 const SESSION_FIXTURES_DIR = join(
   dirname(fileURLToPath(import.meta.url)),

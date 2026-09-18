@@ -2,15 +2,9 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
-  READ_PROMPT_GUIDELINES,
-  READ_PROMPT_SNIPPET,
-  createReadTool,
-  type ReadTool,
-  type ToolResult,
-} from "../src/index";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../src/core/truncate";
+import { READ_PROMPT_GUIDELINES, READ_PROMPT_SNIPPET } from "../src/core/read";
+import { createReadTool, type ReadTool, type ToolResult } from "../src/index";
 import * as susan from "../src/index";
 
 const POSIX = process.platform !== "win32";

@@ -1,4 +1,4 @@
-import type { ConfigError, ConfigErrorCode } from "./config";
+import type { ConfigError, ConfigErrorCode } from "@weiguangchao/susan-harness";
 
 export type ConfigErrorIssueView = {
   readonly path: string;

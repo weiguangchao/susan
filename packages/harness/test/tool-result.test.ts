@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  createErrorToolResult,
-  isToolResult,
-  isToolResultContent,
-  textToolResult,
-  toolResultText,
-  type TextContent,
-  type ToolResult,
-} from "../src/index";
+import { createErrorToolResult } from "../src/core/tool-result";
+import { isToolResult, isToolResultContent, textToolResult, toolResultText, type TextContent, type ToolResult } from "../src/index";
 
 describe("Tool Result (Pi form)", () => {
   it("builds an error result from a free-text message", () => {

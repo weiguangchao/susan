@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { render } from "ink";
-import { createHarnessAssembly, type AssembleOptions } from "./assembly";
-import type { ConfigError } from "./core/config";
+import { createHarnessAssembly, type AssembleOptions } from "@weiguangchao/susan-harness";
+import type { ConfigError } from "@weiguangchao/susan-harness";
 import { formatCliError, parseCli } from "./core/cli";
 import { formatConfigError } from "./core/config-error";
-import type { SessionSummary } from "./core/session";
+import type { SessionSummary } from "@weiguangchao/susan-harness";
 import { ConfigErrorApp } from "./ui/config-error";
 import { SessionPickerApp } from "./ui/session-picker";
 import { modelPickerCatalog, TuiApp } from "./ui/tui";

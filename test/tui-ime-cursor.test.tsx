@@ -2,12 +2,7 @@ import { unusedAssembly } from "./tui-assembly-fixture";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
-import type {
-  Harness,
-  HarnessEvent,
-  HarnessSnapshot,
-  ProviderClient,
-} from "../src/index";
+import type { Harness, HarnessEvent, HarnessSnapshot, ProviderClient } from "@weiguangchao/susan-harness";
 import { TuiApp } from "../src/index";
 import { createTuiOutput } from "../src/ui/terminal-output";
 

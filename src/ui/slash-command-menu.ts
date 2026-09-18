@@ -1,4 +1,4 @@
-import type { HarnessStatus } from "../core/harness";
+import type { HarnessStatus } from "@weiguangchao/susan-harness";
 
 export const slashCommands = [
   { name: "/compact", label: "压缩上下文", intent: "compact" },

@@ -1,21 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  BASH_PROMPT_GUIDELINES,
-  BASH_PROMPT_SNIPPET,
-  EDIT_PROMPT_GUIDELINES,
-  EDIT_PROMPT_SNIPPET,
-  FIND_PROMPT_GUIDELINES,
-  FIND_PROMPT_SNIPPET,
-  GREP_PROMPT_GUIDELINES,
-  GREP_PROMPT_SNIPPET,
-  LS_PROMPT_GUIDELINES,
-  LS_PROMPT_SNIPPET,
-  READ_PROMPT_GUIDELINES,
-  READ_PROMPT_SNIPPET,
-  WRITE_PROMPT_GUIDELINES,
-  WRITE_PROMPT_SNIPPET,
-  createBuiltInToolSet,
-} from "../src/index";
+import { BASH_PROMPT_GUIDELINES, BASH_PROMPT_SNIPPET } from "../src/core/bash";
+import { EDIT_PROMPT_GUIDELINES, EDIT_PROMPT_SNIPPET } from "../src/core/edit";
+import { FIND_PROMPT_GUIDELINES, FIND_PROMPT_SNIPPET } from "../src/core/find";
+import { GREP_PROMPT_GUIDELINES, GREP_PROMPT_SNIPPET } from "../src/core/grep";
+import { LS_PROMPT_GUIDELINES, LS_PROMPT_SNIPPET } from "../src/core/ls";
+import { READ_PROMPT_GUIDELINES, READ_PROMPT_SNIPPET } from "../src/core/read";
+import { WRITE_PROMPT_GUIDELINES, WRITE_PROMPT_SNIPPET } from "../src/core/write";
+import { createBuiltInToolSet } from "../src/index";
 
 const CONTRIBUTIONS = {
   read: {

@@ -13,7 +13,8 @@
     "build": "pnpm run build:core && tsdown",
     "typecheck": "pnpm run build:core && tsc --noEmit",
     "test": "pnpm run build:core && vitest run",
-    "lint": "pnpm run typecheck"
+    "lint": "pnpm run typecheck",
+    "package:smoke": "pnpm run build && node scripts/package-smoke.mjs"
   },
   "exports": {
     ".": {
@@ -22,7 +23,6 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "private": true,
   "dependencies": {
     "@weiguangchao/susan-core": "workspace:~",
     "diff": "8.0.4",

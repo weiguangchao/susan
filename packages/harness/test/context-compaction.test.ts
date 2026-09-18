@@ -1,25 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildSystemPrompt,
-  createHarness,
-} from "../src/index";
+import { buildSystemPrompt } from "../src/core/system-prompt";
+import { createHarness } from "../src/index";
 import { COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX, modelContextMessages, estimateMessageTokens } from "../src/core/context";
 import { findCutPoint, prepareCompaction, DEFAULT_COMPACTION_SETTINGS, shouldCompact } from "../src/core/compaction/compaction";
 import { SUMMARIZATION_SYSTEM_PROMPT, SUMMARIZATION_PROMPT, UPDATE_SUMMARIZATION_PROMPT, TURN_PREFIX_SUMMARIZATION_PROMPT } from "../src/core/compaction/prompts";
 import { serializeConversation } from "../src/core/compaction/utils";
-import type {
-  CompletionMessage,
-  HarnessEvent,
-  ProviderClient,
-  ProviderFailure,
-  ProviderRequest,
-  ProviderResponse,
-  ProviderStreamEvent,
-  ProviderUsage,
-  CompactionEntry,
-  SessionStore,
-  SessionTranscript,
-} from "../src/index";
+import type { CompletionMessage, HarnessEvent, ProviderClient, ProviderFailure, ProviderRequest, ProviderResponse, ProviderStreamEvent, ProviderUsage, CompactionEntry, SessionStore, SessionTranscript } from "../src/index";
 
 function transcript(messages: readonly CompletionMessage[]): SessionTranscript {
   return {

@@ -5,10 +5,11 @@ engineering skeleton. Harness source moves in #126, TUI in #127, and #128 remove
 the remaining single-package files and updates release tooling. Do not publish
 this intermediate checkout as a completed split.
 
-- `core` is buildable and independently consumable now.
-- `harness` and `tui` are private migration skeletons. Their configured entry
-  files and tests arrive in #126 and #127. Their build/test commands intentionally
-  cannot pass until that source moves; no placeholder library or CLI is shipped.
+- `core` and `harness` are buildable and independently consumable now.
+- `tui` remains a private migration skeleton until #127. Its entry files and
+  tests have not moved yet; no placeholder CLI is shipped.
+- #126 moves Harness source, tests and fixtures into its package. Remaining
+  root TUI files now import the Harness public root; their move belongs to #127.
 - The remaining root `src`, `test`, `prototype`, release scripts and workflows
   await those tickets. Root product scripts and compiler/build configs have been
   removed. JSON has one implementation in core; remaining source imports its

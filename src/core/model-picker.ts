@@ -1,7 +1,7 @@
 import {
   REASONING_EFFORTS,
   type ReasoningEffort,
-} from "./provider";
+} from "@weiguangchao/susan-harness";
 
 export type ModelPickerProvider = {
   readonly alias: string;

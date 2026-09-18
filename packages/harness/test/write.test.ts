@@ -13,13 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  WRITE_PROMPT_GUIDELINES,
-  WRITE_PROMPT_SNIPPET,
-  createWriteTool,
-  type ToolResult,
-  type WriteTool,
-} from "../src/index";
+import { WRITE_PROMPT_GUIDELINES, WRITE_PROMPT_SNIPPET } from "../src/core/write";
+import { createWriteTool, type ToolResult, type WriteTool } from "../src/index";
 
 const POSIX = process.platform !== "win32";
 

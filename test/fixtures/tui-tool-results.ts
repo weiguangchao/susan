@@ -1,4 +1,4 @@
-import type { ProviderToolCall, ToolResult } from "../../src/index";
+import type { ProviderToolCall, ToolResult } from "@weiguangchao/susan-harness";
 
 export type CanonicalToolFixture = {
   readonly call: ProviderToolCall;

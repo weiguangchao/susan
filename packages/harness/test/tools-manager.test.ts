@@ -4,14 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ensureTool,
-  getBinDir,
-  getLatestVersion,
-  getToolAssetName,
-  getToolPath,
-  type ToolStatus,
-} from "../src/index";
+import { ensureTool, getBinDir, getLatestVersion, getToolAssetName, getToolPath, type ToolStatus } from "../src/core/tools-manager";
 
 const originalOffline = process.env.SUSAN_OFFLINE;
 const originalBinDir = process.env.SUSAN_BIN_DIR;

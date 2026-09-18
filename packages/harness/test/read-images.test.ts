@@ -17,7 +17,6 @@ it("reads magic-detected images as attachments even with text pagination argumen
 import { detectSupportedImageMimeType } from "../src/core/mime";
 import { createOpenAICompletionAdapter } from "../src/adapters/openai-completion";
 import { createSessionStore } from "../src/core/session";
-import { createCompletedToolCard } from "../src/ui/tool-ledger";
 import { estimateMessageTokens } from "../src/core/context";
 import type { CompletionMessage, ProviderRequest } from "../src/core/provider";
 
@@ -29,16 +28,13 @@ it("rejects JPEG-LS, APNG, and incomplete BMP headers like Pi", () => {
  expect(detectSupportedImageMimeType(png)).toBe("image/png");
 });
 
-it("preserves image blocks for non-vision models and renders an attachment summary", async () => {
+it("preserves image blocks for non-vision models", async () => {
  const cwd = await mkdtemp(join(tmpdir(), "susan-images-"));
  try {
   await writeFile(join(cwd, "a.png"), png);
   const result = await createReadTool({ sessionCwd: cwd }).execute({ path: "a.png" }, undefined, { modelInput: ["text"] });
   expect(result.content[0]).toEqual({type: "text", text: "Read image file [image/png]\n[Current model does not support images. The image will be omitted from this request.]"});
   expect(result.content[1]?.type).toBe("image");
-  const card = createCompletedToolCard({id: "a", name: "read", arguments: { path: "a.png" }}, result, false, cwd);
-  expect(card.summary).toBe("image/png");
-  expect(JSON.stringify(card)).not.toContain(png.toString("base64"));
   const store = createSessionStore({ sessionsDirectory: join(cwd, "sessions") });
   const created = await store.createSession({ cwd });
   if (!created.ok) throw new Error("create failed");

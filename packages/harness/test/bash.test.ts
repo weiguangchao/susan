@@ -3,14 +3,8 @@ import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  BASH_PROMPT_GUIDELINES,
-  BASH_PROMPT_SNIPPET,
-  createBashTool,
-  type BashOperations,
-  type BashTool,
-  type ToolResult,
-} from "../src/index";
+import { BASH_PROMPT_GUIDELINES, BASH_PROMPT_SNIPPET } from "../src/core/bash";
+import { createBashTool, type BashOperations, type BashTool, type ToolResult } from "../src/index";
 
 const BASH_DESCRIPTION =
   "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.";

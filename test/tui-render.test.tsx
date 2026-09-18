@@ -2,22 +2,10 @@ import { unusedAssembly } from "./tui-assembly-fixture";
 import { PassThrough } from "node:stream";
 import { render, renderToString } from "ink";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  CompletionMessage,
-  Harness,
-  HarnessCommand,
-  HarnessEvent,
-  HarnessSnapshot,
-  ProviderClient,
-  ProviderRequest,
-  ProviderStreamEvent,
-  ProviderToolCall,
-  SessionStore,
-  SessionTranscript,
-  TuiMessage,
-  TuiToolCard,
-} from "../src/index";
-import { createHarness, createTuiState, TuiApp } from "../src/index";
+import type { CompletionMessage, Harness, HarnessCommand, HarnessEvent, HarnessSnapshot, ProviderClient, ProviderRequest, ProviderStreamEvent, ProviderToolCall, SessionStore, SessionTranscript } from "@weiguangchao/susan-harness";
+import type { TuiMessage, TuiToolCard } from "../src/index";
+import { createHarness } from "@weiguangchao/susan-harness";
+import { createTuiState, TuiApp } from "../src/index";
 import { ActivityLine, SessionContentView, ToolLineView, WORKING_SPINNER_FRAMES } from "../src/ui/tui";
 
 const toolCall: ProviderToolCall = {

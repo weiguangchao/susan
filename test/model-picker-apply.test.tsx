@@ -2,12 +2,7 @@ import { terminalInput, terminalOutput, stripAnsi, latestVisibleFrame, flushEffe
 import { unusedAssembly } from "./tui-assembly-fixture";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
-import type {
-  Harness,
-  HarnessCommand,
-  HarnessSnapshot,
-  ProviderClient,
-} from "../src/index";
+import type { Harness, HarnessCommand, HarnessSnapshot, ProviderClient } from "@weiguangchao/susan-harness";
 import { TuiApp } from "../src/index";
 
 describe("model picker application", () => {

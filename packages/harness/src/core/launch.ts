@@ -1,4 +1,4 @@
-import type { ResumeMode } from "./cli";
+import type { SessionSelection } from "../assembly";
 import type {
   SessionStore,
   SessionStoreError,
@@ -14,9 +14,9 @@ export type SessionLaunch =
 
 export async function resolveSessionLaunch(
   store: SessionStore,
-  resume: ResumeMode,
+  resume: SessionSelection,
 ): Promise<SessionLaunch> {
-  if (resume.kind === "none") {
+  if (resume.kind === "new") {
     return { kind: "new" };
   }
 

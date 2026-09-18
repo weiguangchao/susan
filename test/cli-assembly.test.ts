@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { runCli } from "../src/run";
-import { createSessionStore } from "../src/core/session";
+import { createSessionStore } from "@weiguangchao/susan-harness";
 import { terminalInput, terminalOutput, stripAnsi } from "./terminal-fixture";
 
 const roots: string[] = [];

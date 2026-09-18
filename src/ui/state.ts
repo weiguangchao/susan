@@ -3,10 +3,10 @@ import type {
   HarnessSnapshot,
   HarnessStatus,
   PendingAgentLoop,
-} from "../core/harness";
+} from "@weiguangchao/susan-harness";
 import { isJsonValue, isRecord } from "@weiguangchao/susan-core";
-import { type ToolResult } from "../core/tool-result";
-import type { ProviderFailure, ReasoningEffort } from "../core/provider";
+import { type ToolResult } from "@weiguangchao/susan-harness";
+import type { ProviderFailure, ReasoningEffort } from "@weiguangchao/susan-harness";
 import { moveInputCursorVertically } from "./input-layout";
 import {
   resolveSlashCommandMenu,

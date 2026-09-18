@@ -1,10 +1,10 @@
 import { posix, win32 } from "node:path";
 import { isRecord } from "@weiguangchao/susan-core";
-import type { ProviderToolCall } from "../core/provider";
+import type { ProviderToolCall } from "@weiguangchao/susan-harness";
 import {
   toolResultText,
   type ToolResult,
-} from "../core/tool-result";
+} from "@weiguangchao/susan-harness";
 
 export type TuiToolStatus =
   | "requested"

@@ -1,24 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
-import {
-  createTuiState,
-  createModelPickerState,
-  modelPickerRowCount,
-  modelPickerWindow,
-  formatToolCallDetail,
-  isEmptySession,
-  reduceModelPickerState,
-  reduceTuiState,
-  resolveInputIntent,
-  resolveModelPickerIntent,
-  resolveSlashCommandMenu,
-  resolveSubmission,
-} from "../src/index";
-import type {
-  ProviderToolCall,
-  TuiInputIntent,
-  TuiState,
-  TuiToolStatus,
-} from "../src/index";
+import { createTuiState, createModelPickerState, modelPickerRowCount, modelPickerWindow, formatToolCallDetail, isEmptySession, reduceModelPickerState, reduceTuiState, resolveInputIntent, resolveModelPickerIntent, resolveSlashCommandMenu, resolveSubmission } from "../src/index";
+import type { ProviderToolCall } from "@weiguangchao/susan-harness";
+import type { TuiInputIntent, TuiState, TuiToolStatus } from "../src/index";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",

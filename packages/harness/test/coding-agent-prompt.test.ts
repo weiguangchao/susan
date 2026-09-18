@@ -1,23 +1,13 @@
 import { describe, expect, it } from "vitest";
-import {
-  BASH_PROMPT_GUIDELINES,
-  BASH_PROMPT_SNIPPET,
-  EDIT_PROMPT_GUIDELINES,
-  EDIT_PROMPT_SNIPPET,
-  FIND_PROMPT_GUIDELINES,
-  FIND_PROMPT_SNIPPET,
-  GREP_PROMPT_GUIDELINES,
-  GREP_PROMPT_SNIPPET,
-  LS_PROMPT_GUIDELINES,
-  LS_PROMPT_SNIPPET,
-  READ_PROMPT_GUIDELINES,
-  READ_PROMPT_SNIPPET,
-  WRITE_PROMPT_GUIDELINES,
-  WRITE_PROMPT_SNIPPET,
-  buildSystemPrompt,
-  createBuiltInToolSet,
-  type HarnessTool,
-} from "../src/index";
+import { BASH_PROMPT_GUIDELINES, BASH_PROMPT_SNIPPET } from "../src/core/bash";
+import { EDIT_PROMPT_GUIDELINES, EDIT_PROMPT_SNIPPET } from "../src/core/edit";
+import { FIND_PROMPT_GUIDELINES, FIND_PROMPT_SNIPPET } from "../src/core/find";
+import { GREP_PROMPT_GUIDELINES, GREP_PROMPT_SNIPPET } from "../src/core/grep";
+import { LS_PROMPT_GUIDELINES, LS_PROMPT_SNIPPET } from "../src/core/ls";
+import { READ_PROMPT_GUIDELINES, READ_PROMPT_SNIPPET } from "../src/core/read";
+import { WRITE_PROMPT_GUIDELINES, WRITE_PROMPT_SNIPPET } from "../src/core/write";
+import { buildSystemPrompt } from "../src/core/system-prompt";
+import { createBuiltInToolSet, type HarnessTool } from "../src/index";
 
 const IDENTITY =
   "You are Susan, an expert coding agent operating inside a minimal personal Harness. You help users by reading files, executing commands, editing code, and writing new files.";

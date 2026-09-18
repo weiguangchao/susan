@@ -1,4 +1,4 @@
-import type { SessionSummary } from "./session";
+import type { SessionSummary } from "@weiguangchao/susan-harness";
 
 export type SessionPickerState = {
   readonly sessions: readonly SessionSummary[];

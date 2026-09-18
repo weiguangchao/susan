@@ -1,4 +1,4 @@
-import type { HarnessAssembly } from "../src/assembly";
+import type { HarnessAssembly } from "@weiguangchao/susan-harness";
 
 // Rendering-only fixtures never switch Session or configure a model.
 export const unusedAssembly: HarnessAssembly = {

@@ -3,15 +3,9 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  GREP_PROMPT_GUIDELINES,
-  GREP_PROMPT_SNIPPET,
-  createGrepTool,
-  ensureTool,
-  type GrepOperations,
-  type GrepTool,
-  type ToolResult,
-} from "../src/index";
+import { GREP_PROMPT_GUIDELINES, GREP_PROMPT_SNIPPET } from "../src/core/grep";
+import { createGrepTool, type GrepOperations, type GrepTool, type ToolResult } from "../src/index";
+import { ensureTool } from "../src/core/tools-manager";
 
 const GREP_DESCRIPTION =
   "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.";

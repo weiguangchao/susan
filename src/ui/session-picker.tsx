@@ -5,7 +5,7 @@ import {
   reduceSessionPickerState,
   resolveSessionPickerIntent,
 } from "../core/picker";
-import type { SessionSummary } from "../core/session";
+import type { SessionSummary } from "@weiguangchao/susan-harness";
 
 export type SessionPickerAppProps = {
   readonly sessions: readonly SessionSummary[];

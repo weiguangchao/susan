@@ -3,30 +3,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import {
-  buildSystemPrompt,
-  createBuiltInToolSet,
-  createHarness,
-  createReadTool,
-  createSessionStore,
-  createWriteTool,
-} from "../src/index";
-import type {
-  CompletionMessage,
-  HarnessCommand,
-  HarnessError,
-  HarnessEvent,
-  HarnessOptions,
-  HarnessStatus,
-  HarnessTool,
-  ProviderClient,
-  ProviderRequest,
-  ProviderStreamEvent,
-  ProviderUsage,
-  SessionStore,
-  SessionUsageRecord,
-  SessionTranscript,
-} from "../src/index";
+import { buildSystemPrompt } from "../src/core/system-prompt";
+import { createBuiltInToolSet, createHarness, createReadTool, createSessionStore, createWriteTool } from "../src/index";
+import type { CompletionMessage, HarnessCommand, HarnessError, HarnessEvent, HarnessOptions, HarnessStatus, HarnessTool, ProviderClient, ProviderRequest, ProviderStreamEvent, ProviderUsage, SessionStore, SessionUsageRecord, SessionTranscript } from "../src/index";
 
 const SESSION_FIXTURES_DIR = join(
   dirname(fileURLToPath(import.meta.url)),

@@ -1,17 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type {
-  Config,
-  ConfigError,
-  ConfigIssue,
-  ProviderAdapter,
-  ProviderFailure,
-  ProviderRequest,
-  ProviderStreamEvent,
-  ProviderToolDefinition,
-  ProviderType,
-  ResolvedProviderConfig,
-  SessionRecord,
-} from "../src/index";
+import type { Config, ConfigError, ConfigIssue, ProviderAdapter, ProviderFailure, ProviderRequest, ProviderStreamEvent, ProviderToolDefinition, ProviderType, ResolvedProviderConfig, SessionRecord } from "../src/index";
 
 describe("shared type contracts", () => {
   it("models the config schema and structured config errors", () => {

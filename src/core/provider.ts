@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from "./json";
+import type { JsonObject, JsonValue } from "@weiguangchao/susan-core";
 import type { ToolResultContent } from "./tool-result";
 
 export type ProviderType =

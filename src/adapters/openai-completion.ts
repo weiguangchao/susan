@@ -4,7 +4,7 @@ import OpenAI, {
   APIUserAbortError,
   APIError,
 } from "openai";
-import { isJsonValue, isRecord, type JsonValue } from "../core/json";
+import { isJsonValue, isRecord, type JsonValue } from "@weiguangchao/susan-core";
 import { toolResultText } from "../core/tool-result";
 import { SUSAN_USER_AGENT } from "../version";
 import type {

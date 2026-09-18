@@ -1,5 +1,5 @@
 import { posix, win32 } from "node:path";
-import { isRecord } from "../core/json";
+import { isRecord } from "@weiguangchao/susan-core";
 import type { ProviderToolCall } from "../core/provider";
 import {
   toolResultText,

@@ -1,48 +1,13 @@
 {
-  "name": "@weiguangchao/susan",
-  "version": "0.0.1",
-  "description": "Minimal personal TUI harness agent",
+  "name": "susan",
+  "private": true,
   "type": "module",
-  "bin": {
-    "susan": "./dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "THIRD_PARTY_NOTICES"
-  ],
-  "engines": {
-    "node": ">=22 <26"
-  },
-  "scripts": {
-    "dev": "tsx src/cli.ts --config .",
-    "prototype:tool-cards": "python3 -m http.server 4177 --bind 127.0.0.1 --directory src/ui",
-    "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:unit": "vitest run test/built-in-tools.test.ts test/coding-agent-prompt.test.ts test/config.test.ts test/context-compaction.test.ts test/input-layout.test.ts test/model-picker-apply.test.tsx test/release-gate.test.ts test/release-workflow.test.ts test/shared-contracts.test.ts test/tool-result.test.ts test/tui-ime-cursor.test.tsx test/tui-input.test.tsx test/tui-render.test.tsx test/tui-resize.test.tsx test/tui-state.test.ts test/tui-tool-ledger.test.tsx test/management-http.test.ts test/tui-assembly.test.tsx",
-    "test:integration": "vitest run test/bash.test.ts test/cli.test.ts test/edit.test.ts test/file-mutation-queue.test.ts test/find.test.ts test/grep.test.ts test/harness.test.ts test/ls.test.ts test/openai-completion-provider.test.ts test/read.test.ts test/session.test.ts test/write.test.ts test/read-images.test.ts test/tools-manager.test.ts test/assembly.test.ts test/cli-assembly.test.ts",
-    "build": "tsdown",
-    "package:smoke": "pnpm build && node scripts/package-smoke.mjs",
-    "prepack": "pnpm build"
-  },
-  "dependencies": {
-    "diff": "8.0.4",
-    "ink": "7.1.1",
-    "openai": "^7.9.0",
-    "react": "^19.2.8",
-    "string-width": "^8.2.2",
-    "zod": "^4.5.4"
-  },
+  "packageManager": "pnpm@10.34.5",
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/react": "^19.2.0",
-    "@xterm/headless": "6.0.0",
     "tsdown": "^0.22.14",
     "tsx": "^4.23.13",
     "typescript": "^5.9.0",
     "vitest": "^4.1.11"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true
   }
 }

@@ -4,7 +4,7 @@ import type {
   HarnessStatus,
   PendingAgentLoop,
 } from "../core/harness";
-import { isJsonValue, isRecord } from "../core/json";
+import { isJsonValue, isRecord } from "@weiguangchao/susan-core";
 import { type ToolResult } from "../core/tool-result";
 import type { ProviderFailure, ReasoningEffort } from "../core/provider";
 import { moveInputCursorVertically } from "./input-layout";

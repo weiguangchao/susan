@@ -1,5 +1,5 @@
 import type { CompletionMessage } from "../provider";
-import { isRecord } from "../json";
+import { isRecord } from "@weiguangchao/susan-core";
 
 /** File paths touched by a session branch or compaction range. */
 export interface FileOperations {

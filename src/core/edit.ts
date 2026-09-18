@@ -16,7 +16,7 @@ import {
 } from "./edit-diff";
 import { withFileMutationQueue } from "./file-mutation-queue";
 import { resolveToCwd } from "./path-utils";
-import { isRecord, type JsonObject } from "./json";
+import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
 import type { ToolResult } from "./tool-result";
 export const editToolSystemPromptContribution = {
   snippet:

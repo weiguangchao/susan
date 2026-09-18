@@ -74,11 +74,6 @@ export type {
   ModelPickerSelection,
   ModelPickerState,
 } from "./core/model-picker";
-export type {
-  JsonObject,
-  JsonPrimitive,
-  JsonValue,
-} from "./core/json";
 export {
   createErrorToolResult,
   isToolResult,

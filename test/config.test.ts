@@ -18,7 +18,7 @@ import {
   resolveSusanHome,
   updateConfigActiveModel,
 } from "../src/index";
-import type { JsonObject } from "../src/index";
+import type { JsonObject } from "@weiguangchao/susan-core";
 
 const MIGRATION_FIXTURES_DIR = join(
   dirname(fileURLToPath(import.meta.url)),

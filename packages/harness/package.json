@@ -1,0 +1,32 @@
+{
+  "name": "@weiguangchao/susan-harness",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22 <26"
+  },
+  "scripts": {
+    "build:core": "pnpm --filter @weiguangchao/susan-core build",
+    "build": "pnpm run build:core && tsdown",
+    "typecheck": "pnpm run build:core && tsc --noEmit",
+    "test": "pnpm run build:core && vitest run",
+    "lint": "pnpm run typecheck"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "private": true,
+  "dependencies": {
+    "@weiguangchao/susan-core": "workspace:~",
+    "diff": "8.0.4",
+    "openai": "^7.9.0",
+    "zod": "^4.5.4"
+  }
+}

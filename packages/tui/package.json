@@ -1,0 +1,34 @@
+{
+  "name": "@weiguangchao/susan",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22 <26"
+  },
+  "scripts": {
+    "build:harness": "pnpm --filter @weiguangchao/susan-harness build",
+    "build": "pnpm run build:harness && tsdown",
+    "typecheck": "pnpm run build:harness && tsc --noEmit",
+    "test": "pnpm run build:harness && vitest run",
+    "lint": "pnpm run typecheck",
+    "dev": "pnpm run build:harness && tsx src/cli.ts"
+  },
+  "private": true,
+  "bin": {
+    "susan": "./dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@xterm/headless": "6.0.0"
+  },
+  "dependencies": {
+    "@weiguangchao/susan-core": "workspace:~",
+    "ink": "7.1.1",
+    "react": "^19.2.8",
+    "string-width": "^8.2.2",
+    "@weiguangchao/susan-harness": "workspace:~"
+  }
+}

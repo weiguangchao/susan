@@ -10,7 +10,7 @@ import {
   latestCompactionCheckpoint,
   modelContextMessages,
 } from "./context";
-import type { JsonValue } from "./json";
+import type { JsonValue } from "@weiguangchao/susan-core";
 import {
   createErrorToolResult,
   type ToolResult,

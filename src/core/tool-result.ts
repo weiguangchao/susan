@@ -1,4 +1,4 @@
-import { isRecord } from "./json";
+import { isRecord } from "@weiguangchao/susan-core";
 
 /**
  * Tool Result 基础设施的 Pi 形态（400d690）：

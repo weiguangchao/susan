@@ -10,7 +10,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { platform } from "node:process";
-import { isJsonValue, isRecord } from "./json";
+import { isJsonValue, isRecord } from "@weiguangchao/susan-core";
 import { isReasoningEffort } from "./provider";
 import { isToolResultContent } from "./tool-result";
 import type {

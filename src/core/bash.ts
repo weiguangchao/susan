@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access as fsAccess, constants } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { isRecord, type JsonObject } from "./json";
+import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
 import { OutputAccumulator, type OutputSnapshot } from "./output-accumulator";
 import { type ToolResult } from "./tool-result";
 import {

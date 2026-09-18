@@ -7,40 +7,15 @@ settings:
 patchedDependencies:
   ink@7.1.1:
     hash: 65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5
-    path: patches/ink@7.1.1.patch
+    path: packages/tui/patches/ink@7.1.1.patch
 
 importers:
 
   .:
-    dependencies:
-      diff:
-        specifier: 8.0.4
-        version: 8.0.4
-      ink:
-        specifier: 7.1.1
-        version: 7.1.1(patch_hash=65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5)(@types/react@19.2.18)(react@19.2.8)
-      openai:
-        specifier: ^7.9.0
-        version: 7.9.0(ws@8.21.3)(zod@4.5.4)
-      react:
-        specifier: ^19.2.8
-        version: 19.2.8
-      string-width:
-        specifier: ^8.2.2
-        version: 8.2.2
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
-      '@types/react':
-        specifier: ^19.2.0
-        version: 19.2.18
-      '@xterm/headless':
-        specifier: 6.0.0
-        version: 6.0.0
       tsdown:
         specifier: ^0.22.14
         version: 0.22.14(tsx@4.23.13)(typescript@5.9.3)
@@ -53,6 +28,48 @@ importers:
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.13))
+
+  packages/core: {}
+
+  packages/harness:
+    dependencies:
+      '@weiguangchao/susan-core':
+        specifier: workspace:~
+        version: link:../core
+      diff:
+        specifier: 8.0.4
+        version: 8.0.4
+      openai:
+        specifier: ^7.9.0
+        version: 7.9.0(ws@8.21.3)(zod@4.5.4)
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
+  packages/tui:
+    dependencies:
+      '@weiguangchao/susan-core':
+        specifier: workspace:~
+        version: link:../core
+      '@weiguangchao/susan-harness':
+        specifier: workspace:~
+        version: link:../harness
+      ink:
+        specifier: 7.1.1
+        version: 7.1.1(patch_hash=65e52f6521c3ec1ef1ce6c2833fd0e1a42dd3224c92ddeeaf5759aa7679a72e5)(@types/react@19.2.18)(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      string-width:
+        specifier: ^8.2.2
+        version: 8.2.2
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.18
+      '@xterm/headless':
+        specifier: 6.0.0
+        version: 6.0.0
 
 packages:
 

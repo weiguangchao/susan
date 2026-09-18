@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { withFileMutationQueue } from "./file-mutation-queue";
-import { isRecord, type JsonObject } from "./json";
+import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
 import { resolveToCwd } from "./path-utils";
 import { type ToolResult } from "./tool-result";
 

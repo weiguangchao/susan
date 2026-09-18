@@ -2,7 +2,7 @@ import { detectSupportedImageMimeTypeFromFile } from "./mime";
 import type { ToolExecutionContext } from "./provider";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
-import { isRecord, type JsonObject } from "./json";
+import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
 import { resolveReadPathAsync } from "./path-utils";
 import { type ToolResult } from "./tool-result";
 import {

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { isRecord, type JsonObject } from "./json";
+import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
 import { pathExists, resolveToCwd } from "./path-utils";
 import { type ToolResult } from "./tool-result";
 import { ensureTool } from "./tools-manager";

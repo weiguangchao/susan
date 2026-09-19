@@ -33,22 +33,24 @@ import {
 import { pinLiveFrameRows } from "./terminal-output";
 import { ModelPickerView } from "./model-picker";
 import {
+  formatToolCallDetail,
   toolResultRows,
+  type TuiToolCard,
   type TuiToolResultRow,
 } from "./tool-ledger";
 import {
-  createTuiState,
-  formatProviderFailure,
-  formatToolCallDetail,
-  reduceTuiState,
-  resolveInputIntent,
   resolveSlashCommandMenu,
   type SlashCommandMenu,
+} from "./slash-command-menu";
+import {
+  createTuiState,
+  formatProviderFailure,
+  reduceTuiState,
+  resolveInputIntent,
   type TuiCompletedOutput,
   type TuiInputIntent,
   type TuiMessage,
   type TuiState,
-  type TuiToolCard,
 } from "./state";
 
 export type TuiAppProps = {

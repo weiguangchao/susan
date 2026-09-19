@@ -42,13 +42,10 @@ export {
   createTuiState,
   isEmptySession,
   formatProviderFailure,
-  formatToolCallDetail,
   normalizeSubmission,
   reduceTuiState,
   resolveInputIntent,
-  resolveSlashCommandMenu,
   resolveSubmission,
-  slashCommands,
 } from "./ui/state";
 export type {
   TuiAction,
@@ -56,11 +53,17 @@ export type {
   TuiInputIntent,
   TuiInputKey,
   TuiMessage,
-  SlashCommand,
-  SlashCommandMenu,
   TuiRetry,
   TuiState,
   TuiSubmissionIntent,
-  TuiToolCard,
-  TuiToolStatus,
 } from "./ui/state";
+export {
+  resolveSlashCommandMenu,
+  slashCommands,
+} from "./ui/slash-command-menu";
+export type {
+  SlashCommand,
+  SlashCommandMenu,
+} from "./ui/slash-command-menu";
+export { formatToolCallDetail } from "./ui/tool-ledger";
+export type { TuiToolCard, TuiToolStatus } from "./ui/tool-ledger";

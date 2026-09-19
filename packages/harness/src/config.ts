@@ -1,11 +1,13 @@
-import { openAICompletionProvider } from "./adapters/openai-completion";
 import {
   DEFAULT_CONFIG_PATH,
   DEFAULT_SUSAN_HOME,
   formatSusanHomeError,
+  resolveSusanHome,
+} from "./core/susan-home";
+import { openAICompletionProvider } from "./adapters/openai-completion";
+import {
   loadConfig as loadConfigWithProviders,
   resolveConfig as resolveConfigWithProviders,
-  resolveSusanHome,
   updateConfigActiveModel as updateConfigActiveModelWithProviders,
 } from "./core/config";
 import type {

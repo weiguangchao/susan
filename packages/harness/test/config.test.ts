@@ -12,7 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { platform } from "node:process";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SUSAN_HOME, loadConfig, resolveSusanHome, updateConfigActiveModel } from "../src/index";
+import { loadConfig, updateConfigActiveModel } from "../src/index";
+import { DEFAULT_SUSAN_HOME, resolveSusanHome } from "../src/core/susan-home";
 import type { JsonObject } from "@weiguangchao/susan-core";
 
 const MIGRATION_FIXTURES_DIR = join(

@@ -73,16 +73,18 @@ export type {
   ConfigIssue,
   ConfigResult,
   ProviderConfigEntry,
-  SusanHome,
-  SusanHomeError,
-  SusanHomeErrorCode,
-  SusanHomeResult,
   ActiveModelConfiguration,
   ActiveModelSelection,
   ResolvedModelEntry,
   ResolvedProviderEntry,
   ResolvedConfig,
 } from "./core/config";
+export type {
+  SusanHome,
+  SusanHomeError,
+  SusanHomeErrorCode,
+  SusanHomeResult,
+} from "./core/susan-home";
 export type {
   ImageContent,
   TextContent,

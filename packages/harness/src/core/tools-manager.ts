@@ -14,7 +14,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import { SUSAN_USER_AGENT } from "../version";
-import { DEFAULT_SUSAN_HOME } from "./config";
+import { DEFAULT_SUSAN_HOME } from "./susan-home";
 import { fetchWithRetry } from "./management-http";
 
 const NETWORK_TIMEOUT_MS = 10_000;

@@ -13,8 +13,8 @@ import type {
   ConfigError,
   ResolvedConfig,
   ResolvedModelEntry,
-  SusanHome,
 } from "./core/config";
+import type { SusanHome } from "./core/susan-home";
 import { createBuiltInToolSet } from "./core/built-in-tools";
 import { createHarness, type Harness } from "./core/harness";
 import {

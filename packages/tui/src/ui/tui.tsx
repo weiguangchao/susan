@@ -17,13 +17,14 @@ import type {
 } from "@weiguangchao/susan-harness";
 import {
   createModelPickerState,
+  ModelPickerView,
   modelPickerRowCount,
   reduceModelPickerState,
   resolveModelPickerIntent,
   type ModelPickerCatalog,
   type ModelPickerSelection,
   type ModelPickerState,
-} from "../core/model-picker";
+} from "./model-picker";
 import {
   inputBoxWidth,
   inputContentWidth,
@@ -31,7 +32,6 @@ import {
   layoutInput,
 } from "./input-layout";
 import { pinLiveFrameRows } from "./terminal-output";
-import { ModelPickerView } from "./model-picker";
 import {
   formatToolCallDetail,
   toolResultRows,

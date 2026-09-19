@@ -12,7 +12,7 @@ export {
   modelPickerWindow,
   reduceModelPickerState,
   resolveModelPickerIntent,
-} from "./core/model-picker";
+} from "./ui/model-picker";
 export type {
   CliError,
   CliFlags,
@@ -35,7 +35,7 @@ export type {
   ModelPickerProvider,
   ModelPickerSelection,
   ModelPickerState,
-} from "./core/model-picker";
+} from "./ui/model-picker";
 export { TuiApp } from "./ui/tui";
 export type { TuiAppProps } from "./ui/tui";
 export {

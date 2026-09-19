@@ -1,5 +1,5 @@
 import stringWidth from "string-width";
-import { toolResultRows, type TuiToolCard } from "../tool-ledger";
+import { toolLedgerRowCount, type TuiToolCard } from "../tool-ledger";
 import type { TuiCompletedOutput, TuiMessage, TuiState } from "../state";
 
 export const USER_MESSAGE_BAR = "▌";
@@ -83,10 +83,7 @@ export function completedItemRows(
   width: number,
 ): number {
   if (item.kind === "tool-batch") {
-    return item.tools.reduce(
-      (sum, tool) => sum + 1 + toolResultRows(tool).length,
-      0,
-    );
+    return toolLedgerRowCount(item.tools);
   }
   if (item.message.kind === "interrupted") {
     return 2;
@@ -127,7 +124,5 @@ export function liveContentRows(
     (stream !== null && stream.reasoning === "" && stream.text === "")
       ? 1
       : 0;
-  return reasoningRows + textRows + tools.reduce(
-    (sum, tool) => sum + 1 + toolResultRows(tool).length, 0,
-  ) + activityRow;
+  return reasoningRows + textRows + toolLedgerRowCount(tools) + activityRow;
 }

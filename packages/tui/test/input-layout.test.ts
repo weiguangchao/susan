@@ -4,7 +4,7 @@ import {
   inputContentWidth,
   inputImeCursorPosition,
   layoutInput,
-} from "../src/ui/input-layout";
+} from "../src/ui/input";
 
 const reportedPaste = `{
   "editor.fontFamily": "Monaco,Menlo, 'Courier New', monospace",

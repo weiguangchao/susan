@@ -1,5 +1,5 @@
 import stringWidth from "string-width";
-import type { TuiInputCursor } from "./state";
+import type { TuiInputCursor } from "../state";
 
 export type InputVisualRow = {
   readonly text: string;

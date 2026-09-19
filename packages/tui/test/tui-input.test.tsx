@@ -3,11 +3,9 @@ import stringWidth from "string-width";
 import { Children, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { createTuiState, resolveSlashCommandMenu } from "../src/index";
-import {
-  ActivityLine,
-  InputLine,
-  SlashCommandMenuView,
-} from "../src/ui/tui";
+import { InputLine } from "../src/ui/input";
+import { SlashCommandMenuView } from "../src/ui/slash-command-menu";
+import { ActivityLine } from "../src/ui/tui";
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");

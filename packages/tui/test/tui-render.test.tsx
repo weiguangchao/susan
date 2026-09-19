@@ -7,7 +7,8 @@ import type { TuiMessage, TuiToolCard } from "../src/index";
 import { createHarness } from "@weiguangchao/susan-harness";
 import { createTuiState, TuiApp } from "../src/index";
 import { ActivityLine } from "../src/ui/tui";
-import { SessionContentView, ToolLineView, WORKING_SPINNER_FRAMES } from "../src/ui/session-content";
+import { SessionContentView, WORKING_SPINNER_FRAMES } from "../src/ui/session-content";
+import { ToolLedgerView } from "../src/ui/tool-ledger";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",
@@ -34,7 +35,7 @@ function approvalPromptFragments(output: string): string[] {
 }
 
 function renderTool(tool: TuiToolCard): string {
-  return stripAnsi(renderToString(<ToolLineView tool={tool} />, { columns: 80 }));
+  return stripAnsi(renderToString(<ToolLedgerView tools={[tool]} />, { columns: 80 }));
 }
 
 function terminalInput(): NodeJS.ReadStream {

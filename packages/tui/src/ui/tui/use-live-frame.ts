@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { layoutInput } from "../input-layout";
+import { layoutInput } from "../input";
 import { modelPickerRowCount, type ModelPickerState } from "../model-picker";
 import {
   completedItemGapAbove,

@@ -1,4 +1,4 @@
-import { moveInputCursorVertically } from "../input-layout";
+import { moveInputCursorVertically } from "../input";
 import type { TuiInputCursor, TuiState } from "./types";
 
 export function insertInput(state: TuiState, text: string): TuiState {

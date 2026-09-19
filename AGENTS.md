@@ -8,6 +8,10 @@
 
 TUI 通过公开 API 调用 Harness，两者共用 Core；Harness 不依赖 TUI。
 
+## 编码规约
+
+- 单文件代码最多 400 行
+
 ## Agent skills
 
 ### Issue tracker

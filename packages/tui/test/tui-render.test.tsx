@@ -6,7 +6,8 @@ import type { CompletionMessage, Harness, HarnessCommand, HarnessEvent, HarnessS
 import type { TuiMessage, TuiToolCard } from "../src/index";
 import { createHarness } from "@weiguangchao/susan-harness";
 import { createTuiState, TuiApp } from "../src/index";
-import { ActivityLine, SessionContentView, ToolLineView, WORKING_SPINNER_FRAMES } from "../src/ui/tui";
+import { ActivityLine } from "../src/ui/tui";
+import { SessionContentView, ToolLineView, WORKING_SPINNER_FRAMES } from "../src/ui/session-content";
 
 const toolCall: ProviderToolCall = {
   id: "call-1",

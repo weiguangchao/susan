@@ -2,7 +2,7 @@ import { Box, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
 import type { ProviderToolCall, ToolResult } from "@weiguangchao/susan-harness";
 import { createTuiState, reduceTuiState } from "../src/index";
-import { SessionContentView } from "../src/ui/tui";
+import { SessionContentView } from "../src/ui/session-content";
 import { canonicalToolFixtures } from "./fixtures/tui-tool-results";
 
 function initialState() {

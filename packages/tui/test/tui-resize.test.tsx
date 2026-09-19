@@ -5,7 +5,7 @@ import { render } from "ink";
 import { describe, expect, it } from "vitest";
 import type { Harness, HarnessEvent, HarnessSnapshot } from "@weiguangchao/susan-harness";
 import { TuiApp } from "../src/index";
-import { WORKING_SPINNER_FRAMES } from "../src/ui/tui";
+import { WORKING_SPINNER_FRAMES } from "../src/ui/session-content";
 import { createTuiOutput } from "../src/ui/terminal-output";
 
 function terminalInput(): NodeJS.ReadStream {

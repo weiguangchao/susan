@@ -1,145 +1,40 @@
-import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import {
-  createProviderClient,
   loadConfig,
-  resolveConfig,
   resolveSusanHome,
   updateConfigActiveModel,
-} from "./config";
-import type {
-  ActiveModelSelection,
-  ConfigError,
-  ResolvedConfig,
-  ResolvedModelEntry,
-} from "./core/config";
-import type { SusanHome } from "./core/susan-home";
-import { createBuiltInToolSet } from "./core/built-in-tools";
-import { createHarness, type Harness } from "./core/harness";
-import {
-  DEFAULT_MODEL_CONTEXT_WINDOW,
-  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-  type ProviderType,
-  type ReasoningEffort,
-} from "./core/provider";
+} from "../config";
+import type { ResolvedConfig } from "../core/config";
+import type { SusanHome } from "../core/susan-home";
+import { createBuiltInToolSet } from "../core/built-in-tools";
+import { createHarness, type Harness } from "../core/harness";
 import {
   createSessionStore,
   type SessionHeader,
   type SessionStore,
-  type SessionSummary,
   type SessionTranscript,
-} from "./core/session";
+} from "../core/session";
+import { validateCwd } from "./cwd";
+import { failure } from "./errors";
+import { configView, modelOptions, resolveModelSelection } from "./model";
+import type {
+  AssemblyFailure,
+  AssemblyOptions,
+  AssemblyResult,
+  ConfigUpdateResult,
+  HarnessAssembly,
+} from "./types";
 
-export type AssemblyOptions = { susanHomeParent?: string };
-export type SessionSelection =
-  | { kind: "new" }
-  | { kind: "last" }
-  | { kind: "id"; id: string }
-  | { kind: "picker" };
-export type AssembleOptions = {
-  session: SessionSelection;
-  newSessionCwd: string;
-};
-export type AssemblyConfigView = {
-  defaultProvider?: string;
-  defaultModel?: string;
-  defaultReasoningEffort?: ReasoningEffort;
-  providers: readonly {
-    alias: string;
-    type: ProviderType;
-    host: string;
-    models: readonly ResolvedModelEntry[];
-  }[];
-};
-export type AssemblyError = {
-  stage:
-    | "options"
-    | "home"
-    | "session"
-    | "cwd"
-    | "history"
-    | "harness"
-    | "operation";
-  code: string;
-  message: string;
-  path?: string;
-};
-type AssemblyFailure =
-  | { kind: "config-error"; error: ConfigError }
-  | { kind: "startup-error"; error: AssemblyError };
-export type AssemblyResult =
-  | {
-      kind: "ready";
-      harness: Harness;
-      session: SessionHeader;
-      inputHistory: readonly string[];
-      config: AssemblyConfigView;
-    }
-  | { kind: "session-picker"; sessions: readonly SessionSummary[] }
-  | AssemblyFailure;
-export type ConfigUpdateResult =
-  | { kind: "updated"; config: AssemblyConfigView }
-  | AssemblyFailure;
-export interface HarnessAssembly {
-  assemble(options: AssembleOptions): Promise<AssemblyResult>;
-  reload(): Promise<ConfigUpdateResult>;
-  applyModelSelection(
-    selection: ActiveModelSelection,
-  ): Promise<ConfigUpdateResult>;
-}
-
-function failure(
-  stage: AssemblyError["stage"],
-  code: string,
-  message: string,
-  path?: string,
-): AssemblyFailure {
-  return {
-    kind: "startup-error",
-    error: { stage, code, message, ...(path === undefined ? {} : { path }) },
-  };
-}
-function configView(config: ResolvedConfig): AssemblyConfigView {
-  return {
-    defaultProvider: config.defaultProvider,
-    defaultModel: config.defaultModel,
-    defaultReasoningEffort: config.defaultReasoningEffort,
-    providers: Object.entries(config.providers).map(([alias, provider]) => ({
-      alias,
-      type: provider.type,
-      host: provider.baseURL.host,
-      models: structuredClone(provider.models ?? []),
-    })),
-  };
-}
-function modelOptions(config: ResolvedConfig) {
-  const active = config.activeModel;
-  return {
-    provider:
-      active === undefined ? undefined : createProviderClient(active.provider),
-    model: active?.model,
-    modelInput: active?.modelInput,
-    reasoningEffort: active?.reasoningEffort,
-    contextWindow: active?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
-    maxOutputTokens: active?.maxOutputTokens ?? DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
-  };
-}
-
-async function validateCwd(cwd: string): Promise<AssemblyFailure | undefined> {
-  try {
-    if (!isAbsolute(cwd) || !(await stat(cwd)).isDirectory())
-      throw new Error("Session cwd must be an accessible absolute directory");
-    await access(cwd, constants.R_OK | constants.X_OK);
-  } catch (error) {
-    return failure(
-      "cwd",
-      "SUSAN_ASSEMBLY_CWD_UNAVAILABLE",
-      error instanceof Error ? error.message : "Session cwd is unavailable",
-      cwd,
-    );
-  }
-}
+export type {
+  AssemblyOptions,
+  SessionSelection,
+  AssembleOptions,
+  AssemblyResult,
+  ConfigUpdateResult,
+  HarnessAssembly,
+  AssemblyConfigView,
+  AssemblyError,
+} from "./types";
 
 export function createHarnessAssembly(
   options: AssemblyOptions = {},
@@ -349,26 +244,9 @@ export function createHarnessAssembly(
             "SUSAN_ASSEMBLY_NOT_READY",
             "Config has not been loaded",
           );
-        const selected = resolveConfig(
-          {
-            defaultProvider: selection.providerAlias,
-            defaultModel: selection.model,
-            defaultReasoningEffort: selection.reasoningEffort,
-            providers: Object.fromEntries(
-              Object.entries(config.providers).map(([alias, provider]) => [
-                alias,
-                {
-                  ...provider,
-                  baseURL: provider.baseURL.href,
-                  models: provider.models?.map((model) => ({
-                    ...model,
-                    input:
-                      model.input === undefined ? undefined : [...model.input],
-                  })),
-                },
-              ]),
-            ),
-          },
+        const selected = resolveModelSelection(
+          config,
+          selection,
           home.configPath,
         );
         if (!selected.ok)

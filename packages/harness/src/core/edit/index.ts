@@ -8,16 +8,15 @@ import {
   applyEditsToNormalizedContent,
   detectLineEnding,
   type Edit,
-  generateDiffString,
-  generateUnifiedPatch,
   normalizeToLF,
   restoreLineEndings,
   stripBom,
-} from "./edit-diff";
-import { withFileMutationQueue } from "./file-mutation-queue";
-import { resolveToCwd } from "./path-utils";
+} from "./text-ops";
+import { generateDiffString, generateUnifiedPatch } from "./diff";
+import { withFileMutationQueue } from "../file-mutation-queue";
+import { resolveToCwd } from "../path-utils";
 import { isRecord, type JsonObject } from "@weiguangchao/susan-core";
-import type { ToolResult } from "./tool-result";
+import type { ToolResult } from "../tool-result";
 export const editToolSystemPromptContribution = {
   snippet:
     "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",

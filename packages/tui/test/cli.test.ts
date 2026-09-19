@@ -382,7 +382,7 @@ describe("package metadata", () => {
     expect(pkg.files).toContain("dist");
     expect(pkg.type).toBe("module");
     expect(pkg.scripts).toMatchObject({
-      dev: "pnpm run build:harness && tsx src/cli.ts",
+      dev: "pnpm run build:harness && tsx src/cli.ts --config ../..",
     });
   });
 });

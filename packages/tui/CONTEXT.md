@@ -17,7 +17,7 @@ _Avoid_: description, shortLabel, 命令说明
 _Avoid_: slash prefix, filter text, command query
 
 **Slash Command Menu**:
-由 Slash Query 派生的 Slash Command 候选列表，不是带开关的独立模式。可见当且仅当输入为 Slash Query，且 Agent Loop 未在进行，且 Model Picker 未打开；可见时输入框里的 Slash Query 就是过滤条件，不显示时 Slash Query 仍留在输入框。它是列出 Slash Command 目录的唯一 TUI 表面：可见时独占输入框上方的活动槽；该槽空闲且菜单未显示时只显示「空闲」，不列出命令。
+由 Slash Query 派生的 Slash Command 候选列表，不是带开关的独立模式。可见当且仅当输入为 Slash Query，且 Agent Loop 未在进行，且 Model Picker 未打开；可见时输入框里的 Slash Query 就是过滤条件，不显示时 Slash Query 仍留在输入框。它是列出 Slash Command 目录的唯一 TUI 表面：可见时独占输入框上方的活动槽；没有菜单、重试、失败或通知需要展示时，活动槽不显示内容、不占行，也不列出命令。
 _Avoid_: command palette, hint bar, 操作台, 命令选择界面, CommandHintLine
 
 **Selected Slash Command**:

@@ -6,8 +6,8 @@ settings:
 
 patchedDependencies:
   ink@6.8.0:
-    hash: 078618274eb734283c7e37f7110321b8fd4ca27ed2b624767b4f8ad0a8792bb7
-    path: patches/ink@6.8.0.patch
+    hash: ba4c06fa9c0905bed553081d64be14a9fd62c9e264db6821b3da48839cedb049
+    path: packages/tui/patches/ink@6.8.0.patch
 
 importers:
 
@@ -39,7 +39,7 @@ importers:
         version: link:../harness
       ink:
         specifier: ^6.0.1
-        version: 6.8.0(patch_hash=078618274eb734283c7e37f7110321b8fd4ca27ed2b624767b4f8ad0a8792bb7)(@types/react@19.3.0)(react@19.3.0)
+        version: 6.8.0(patch_hash=ba4c06fa9c0905bed553081d64be14a9fd62c9e264db6821b3da48839cedb049)(@types/react@19.3.0)(react@19.3.0)
       react:
         specifier: ^19.0.0
         version: 19.3.0
@@ -369,7 +369,7 @@ snapshots:
 
   indent-string@5.0.0: {}
 
-  ink@6.8.0(patch_hash=078618274eb734283c7e37f7110321b8fd4ca27ed2b624767b4f8ad0a8792bb7)(@types/react@19.3.0)(react@19.3.0):
+  ink@6.8.0(patch_hash=ba4c06fa9c0905bed553081d64be14a9fd62c9e264db6821b3da48839cedb049)(@types/react@19.3.0)(react@19.3.0):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.2.5
       ansi-escapes: 7.3.0

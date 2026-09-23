@@ -184,9 +184,11 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          const startTime = performance.now();
          const { output, outputHeight, staticOutput } = render(this.rootNode, this.isScreenReaderEnabled);
          this.options.onRender?.({ renderTime: performance.now() - startTime });
-@@ -319,22 +342,32 @@ export default class Ink {
+@@ -319,22 +342,33 @@ export default class Ink {
          // Only apply when writing to a real TTY — piped output always gets trailing newlines.
-         const isFullscreen = this.options.stdout.isTTY && outputHeight >= this.options.stdout.rows;
+-        const isFullscreen = this.options.stdout.isTTY && outputHeight >= this.options.stdout.rows;
++        const staticHeight = this.fullStaticOutput ? this.fullStaticOutput.split('\n').length - 1 : 0;
++        const isFullscreen = this.options.stdout.isTTY && staticHeight + outputHeight >= this.options.stdout.rows;
          const outputToRender = isFullscreen ? output : output + '\n';
 -        if (this.lastOutputHeight >= this.options.stdout.rows) {
 +        // A focus/style update keeps the same layout. Repainting it through

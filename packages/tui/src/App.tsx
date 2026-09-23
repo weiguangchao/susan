@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ModelProvider } from "@susan/harness";
-import { Banner } from "./components/Banner.js";
+import { Banner, bannerRows } from "./components/Banner.js";
 import { Composer } from "./components/Composer.js";
 import { LogEntry, LogList } from "./components/LogView.js";
 import { StatusBar } from "./components/StatusBar.js";
@@ -22,19 +22,55 @@ export interface AppProps {
   inputHistory: InputHistory;
 }
 
-type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
+type SpacerEntry = { kind: "spacer"; id: string; rows: number; afterHistory: number };
+type StaticEntry = { kind: "banner"; id: "banner" } | SpacerEntry | LogItem;
+const footerRows = 5; // Composer: 3, StatusBar: 2.
 
 export function App({ root, provider, mocked, selection, inputHistory }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const terminalFocused = useTerminalFocus();
   const [, refreshModel] = useState(0);
   const view = useAgent({ root, provider, onSessionStarted: () => selection?.recordUse() ?? Promise.resolve() });
+  const historyCount = useRef(view.history.length);
+  historyCount.current = view.history.length;
+  const previousRows = useRef(stdout.rows ?? 24);
+  const resizeId = useRef(0);
+  const [resizeSpacers, setResizeSpacers] = useState<SpacerEntry[]>([]);
+  const modelLabel = selection?.label ?? provider.label;
+  // Print the initial gap once. Static preserves it in scrollback as output grows.
+  const spacerRows = Math.max(0,
+    (stdout.rows ?? 24) - bannerRows(root, modelLabel, mocked, stdout.columns ?? 80) - footerRows);
+
+  useEffect(() => {
+    const onResize = () => {
+      const rows = stdout.rows ?? previousRows.current;
+      const added = rows - previousRows.current;
+      previousRows.current = rows;
+      if (added > 0) setResizeSpacers((items) => [...items, {
+        kind: "spacer", id: `resize-${++resizeId.current}`,
+        rows: added, afterHistory: historyCount.current,
+      }]);
+    };
+    stdout.on("resize", onResize);
+    return () => { stdout.off("resize", onResize); };
+  }, [stdout]);
 
   // The banner scrolls with the transcript instead of being re-painted every
   // frame, so it has to live inside <Static> as the first entry.
   const staticEntries: StaticEntry[] = useMemo(
-    () => [{ kind: "banner", id: "banner" }, ...view.history],
-    [view.history],
+    () => {
+      const entries: StaticEntry[] = [
+        { kind: "banner", id: "banner" },
+        { kind: "spacer", id: "spacer", rows: spacerRows, afterHistory: 0 },
+      ];
+      for (let index = 0; index <= view.history.length; index++) {
+        entries.push(...resizeSpacers.filter((item) => item.afterHistory === index));
+        if (index < view.history.length) entries.push(view.history[index]!);
+      }
+      return entries;
+    },
+    [view.history, resizeSpacers, spacerRows],
   );
 
   useInput(
@@ -73,9 +109,11 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
             <Banner
               key="banner"
               root={root}
-              model={selection?.label ?? provider.label}
+              model={modelLabel}
               mocked={mocked}
             />
+          ) : entry.kind === "spacer" ? (
+            <Box key={entry.id} height={entry.rows} />
           ) : (
             <LogEntry key={entry.id} item={entry} />
           )
@@ -120,7 +158,7 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
         root={root}
         usageDisplay={view.usageDisplay}
         contextWindow={selection?.current.model.contextWindow}
-        model={selection?.label ?? provider.label}
+        model={modelLabel}
       />
     </Box>
   );

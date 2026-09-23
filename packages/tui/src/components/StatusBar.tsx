@@ -1,42 +1,40 @@
 import { Box, Text } from "ink";
 import { cacheHitRate, type Usage } from "@susan/harness";
 import { theme } from "../theme.js";
-import { Spinner } from "./Spinner.js";
 
 export interface StatusBarProps {
-  busy: boolean;
-  status: string;
-  usage: Usage;
-  model?: string;
+  root: string;
+  contextUsage: Usage | null;
+  contextWindow?: number;
+  model: string;
 }
 
 function compact(n: number): string {
   if (n < 1000) return String(n);
-  return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
 }
 
-export function StatusBar({ busy, status, usage, model }: StatusBarProps) {
-  const hitRate = cacheHitRate(usage);
+export function StatusBar({ root, contextUsage, contextWindow, model }: StatusBarProps) {
+  // Input usage is the provider-measured prompt context of the last request.
+  // Output usage can contain reasoning tokens that are not replayed next time.
+  const used = contextUsage?.inputTokens ?? null;
+  const percentage = used !== null && contextWindow
+    ? `${((used / contextWindow) * 100).toFixed(1)}%`
+    : "—%";
+  const cached = contextUsage ? cacheHitRate(contextUsage) : null;
+  const usageText = `${used === null ? "—" : compact(used)} / ${contextWindow ? compact(contextWindow) : "—"} (${percentage}) cached (${cached === null ? "—" : cached}%)`;
+
   return (
-    <Box paddingX={1} justifyContent="space-between">
-      <Box>
-        {busy ? (
-          <>
-            <Spinner />
-            <Text color={theme.muted}> {status || "working"}</Text>
-          </>
-        ) : (
-          <Text color={theme.muted}>
-            auto mode{model ? ` · ${model}` : ""} · enter to send · esc to interrupt
-          </Text>
-        )}
+    <Box flexDirection="column" paddingX={1}>
+      <Box width="100%" justifyContent="space-between">
+        <Box flexShrink={0}>
+          <Text color={theme.text}>{usageText}</Text>
+        </Box>
+        <Box flexGrow={1} minWidth={0} justifyContent="flex-end" marginLeft={1}>
+          <Text color={theme.text} wrap="truncate-start">{model}</Text>
+        </Box>
       </Box>
-      <Box>
-        <Text color={theme.muted}>
-          {compact(usage.inputTokens)} in · {compact(usage.outputTokens)} out
-          {hitRate === null ? "" : ` · ${compact(usage.cacheReadTokens)} cached (${hitRate}%)`}
-        </Text>
-      </Box>
+      <Text color={theme.muted} wrap="truncate-end">{root}</Text>
     </Box>
   );
 }

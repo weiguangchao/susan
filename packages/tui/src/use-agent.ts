@@ -22,19 +22,13 @@ export interface AgentView {
   streamingText: string;
   thinkingText: string;
   busy: boolean;
-  status: string;
-  usage: Usage;
+  contextUsage: Usage | null;
   send(input: string): void;
   interrupt(): void;
   reset(): void;
+  clearContextUsage(): void;
   pushNotice(level: "info" | "warn" | "error", text: string): void;
 }
-
-const EMPTY_USAGE: Usage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-};
 
 /**
  * Bridges the harness event stream to React state.
@@ -49,8 +43,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
   const [streamingText, setStreamingText] = useState("");
   const [thinkingText, setThinkingText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
-  const [usage, setUsage] = useState<Usage>(EMPTY_USAGE);
+  const [contextUsage, setContextUsage] = useState<Usage | null>(null);
 
   const liveRef = useRef<LogItem[]>([]);
   const streamRef = useRef("");
@@ -105,7 +98,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
       if (agent.busy) return;
 
       setBusy(true);
-      setStatus("thinking");
+      setContextUsage(null);
       applyStream("");
       setThinkingText("");
       liveRef.current = [
@@ -133,12 +126,10 @@ export function useAgent(options: UseAgentOptions): AgentView {
 
               case "text_delta":
                 applyStream(streamRef.current + event.text);
-                setStatus("responding");
                 break;
 
               case "thinking_delta":
                 setThinkingText((text) => (text + event.text).slice(-400));
-                setStatus("thinking");
                 break;
 
               case "text_end":
@@ -166,7 +157,6 @@ export function useAgent(options: UseAgentOptions): AgentView {
                   summary: event.summary,
                   status: "running",
                 });
-                setStatus(`${event.name}: ${event.summary}`);
                 break;
 
               case "tool_result":
@@ -174,10 +164,11 @@ export function useAgent(options: UseAgentOptions): AgentView {
                   status: event.ok ? "done" : "error",
                   display: event.display,
                 });
+                setContextUsage(null);
                 break;
 
               case "usage":
-                setUsage(event.total);
+                setContextUsage(event.usage);
                 break;
 
               case "notice":
@@ -243,7 +234,6 @@ export function useAgent(options: UseAgentOptions): AgentView {
           setStreamingText("");
           setThinkingText("");
           setBusy(false);
-          setStatus("");
         }
       })();
     },
@@ -266,8 +256,10 @@ export function useAgent(options: UseAgentOptions): AgentView {
     setLive([]);
     setStreamingText("");
     setThinkingText("");
-    setUsage(EMPTY_USAGE);
+    setContextUsage(null);
   }, [agent, pushNotice]);
+
+  const clearContextUsage = useCallback(() => setContextUsage(null), []);
 
   return {
     agent,
@@ -276,11 +268,11 @@ export function useAgent(options: UseAgentOptions): AgentView {
     streamingText,
     thinkingText,
     busy,
-    status,
-    usage,
+    contextUsage,
     send,
     interrupt,
     reset,
+    clearContextUsage,
     pushNotice,
   };
 }

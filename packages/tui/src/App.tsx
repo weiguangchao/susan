@@ -5,6 +5,7 @@ import { Banner } from "./components/Banner.js";
 import { Composer } from "./components/Composer.js";
 import { LogEntry, LogList } from "./components/LogView.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { Spinner } from "./components/Spinner.js";
 import { runCommand } from "./commands.js";
 import { ModelSelection } from "./model-selection.js";
 import type { LogItem } from "./session-state.js";
@@ -48,6 +49,7 @@ export function App({ root, provider, mocked, selection }: AppProps) {
       onModelChange: () => {
         if (!selection) return;
         view.agent.setProvider(selection.provider());
+        view.clearContextUsage();
         refreshModel((value) => value + 1);
         void selection.save().catch((error: unknown) =>
           view.pushNotice("error", `could not save model preference: ${(error as Error).message}`));
@@ -91,6 +93,13 @@ export function App({ root, provider, mocked, selection }: AppProps) {
         </Box>
       ) : null}
 
+      {view.busy ? (
+        <Box paddingX={1}>
+          <Spinner color={theme.thinking} />
+          <Text color={theme.thinking}> working</Text>
+        </Box>
+      ) : null}
+
       <Composer
         isActive
         placeholder={
@@ -100,10 +109,10 @@ export function App({ root, provider, mocked, selection }: AppProps) {
       />
 
       <StatusBar
-        busy={view.busy}
-        status={view.status}
-        usage={view.usage}
-        model={selection?.label}
+        root={root}
+        contextUsage={view.contextUsage}
+        contextWindow={selection?.current.model.contextWindow}
+        model={selection?.label ?? provider.label}
       />
     </Box>
   );

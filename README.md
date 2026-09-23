@@ -240,8 +240,9 @@ Things the loop takes seriously:
 
 ## Tool execution
 
-Susan runs valid tool calls automatically. The status bar displays `auto mode`.
-Tool inputs are still validated, and file paths must stay inside the project root.
+Susan runs valid tool calls automatically. Tool inputs are still validated, and
+file paths must stay inside the project root. The status bar shows the latest
+measured request usage against the selected model's context window.
 
 ## Adding a tool
 

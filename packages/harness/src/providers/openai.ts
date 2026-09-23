@@ -17,6 +17,7 @@ export const DEFAULT_OPENAI_MODEL = "gpt-4o";
 const PROVIDER_ID = "openai";
 
 export interface OpenAIProviderOptions {
+  providerId?: string;
   model?: string;
   /**
    * Any OpenAI-compatible Chat Completions endpoint: OpenAI itself, vLLM,
@@ -31,6 +32,7 @@ export interface OpenAIProviderOptions {
    * older compatible servers reject the field - turn it off for those.
    */
   streamUsage?: boolean;
+  reasoningEffort?: string;
 }
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -52,7 +54,7 @@ function toApiTools(tools: Tool[]): ChatTool[] {
  * result into one user message, OpenAI wants one `tool` message per call. One
  * of our user messages therefore expands into several here.
  */
-function toApiMessages(system: string, messages: Message[]): ChatMessage[] {
+function toApiMessages(system: string, messages: Message[], providerId = PROVIDER_ID): ChatMessage[] {
   const out: ChatMessage[] = [{ role: "system", content: system }];
 
   for (const message of messages) {
@@ -76,7 +78,7 @@ function toApiMessages(system: string, messages: Message[]): ChatMessage[] {
 
     // Replay our own payload when we have it; another provider's is meaningless
     // here, so rebuild the turn from the neutral blocks instead.
-    if (message.raw?.provider === PROVIDER_ID) {
+    if (message.raw?.provider === providerId) {
       out.push(message.raw.value as ChatMessage);
       continue;
     }
@@ -165,13 +167,16 @@ class OpenAITurn implements TurnStream {
   #resolve!: (final: TurnFinal) => void;
   #reject!: (error: unknown) => void;
   readonly #final: Promise<TurnFinal>;
+  readonly #providerId: string;
 
   constructor(
     start: () => Promise<
       AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
     >,
+    providerId = PROVIDER_ID,
   ) {
     this.#start = start;
+    this.#providerId = providerId;
     this.#final = new Promise<TurnFinal>((resolve, reject) => {
       this.#resolve = resolve;
       this.#reject = reject;
@@ -265,7 +270,7 @@ class OpenAITurn implements TurnStream {
 
     this.#resolve({
       content,
-      raw: { provider: PROVIDER_ID, value: rawMessage },
+      raw: { provider: this.#providerId, value: rawMessage },
       stopReason: toStopReason(finishReason, ordered.length > 0),
       usage: toUsage(usage),
     });
@@ -287,15 +292,17 @@ class OpenAITurn implements TurnStream {
  * because that is the surface every compatible server actually implements.
  */
 export class OpenAIProvider implements ModelProvider {
-  readonly id = PROVIDER_ID;
+  readonly id: string;
   readonly label: string;
   readonly #client: OpenAI;
   readonly #model: string;
   readonly #maxTokens: number;
   readonly #temperature: number | undefined;
   readonly #streamUsage: boolean;
+  readonly #reasoningEffort?: string;
 
   constructor(options: OpenAIProviderOptions = {}) {
+    this.id = options.providerId ?? PROVIDER_ID;
     const baseURL = options.baseURL ?? process.env.OPENAI_BASE_URL;
     this.#model =
       options.model ??
@@ -304,6 +311,7 @@ export class OpenAIProvider implements ModelProvider {
     this.#maxTokens = options.maxTokens ?? 8_192;
     this.#temperature = options.temperature;
     this.#streamUsage = options.streamUsage ?? true;
+    this.#reasoningEffort = options.reasoningEffort;
 
     this.#client = new OpenAI({
       // Compatible servers frequently want no key at all, but the SDK insists
@@ -317,15 +325,16 @@ export class OpenAIProvider implements ModelProvider {
   }
 
   stream(request: TurnRequest): TurnStream {
-    return new OpenAITurn(() =>
-      this.#client.chat.completions.create(
+    return new OpenAITurn(
+      () => this.#client.chat.completions.create(
         {
           model: this.#model,
           max_tokens: this.#maxTokens,
+          ...(this.#reasoningEffort ? { reasoning_effort: this.#reasoningEffort as OpenAI.ReasoningEffort } : {}),
           ...(this.#temperature === undefined
             ? {}
             : { temperature: this.#temperature }),
-          messages: toApiMessages(request.system, request.messages),
+          messages: toApiMessages(request.system, request.messages, this.id),
           tools: toApiTools(request.tools),
           stream: true,
           ...(this.#streamUsage
@@ -334,6 +343,7 @@ export class OpenAIProvider implements ModelProvider {
         },
         { signal: request.signal },
       ),
+      this.id,
     );
   }
 }

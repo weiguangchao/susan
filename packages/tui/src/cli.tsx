@@ -3,21 +3,23 @@ import path from "node:path";
 import { render } from "ink";
 import {
   AnthropicProvider,
+  loadModelConfig,
+  loadModelPreferences,
   MockProvider,
   OpenAIProvider,
+  resolveSusanHome,
   type ModelProvider,
   type PermissionMode,
 } from "@susan/harness";
 import { App } from "./App.js";
 import { runHeadless } from "./headless.js";
-
-type ProviderChoice = "anthropic" | "openai" | "mock";
+import { ModelSelection } from "./model-selection.js";
 
 interface Options {
   root: string;
   mode: PermissionMode;
   model?: string;
-  provider?: ProviderChoice;
+  provider?: string;
   baseUrl?: string;
   prompt?: string;
   help: boolean;
@@ -32,7 +34,7 @@ usage
 options
   --cwd <dir>        project root the agent may touch (default: current dir)
   --mode <mode>      ask | auto | readonly   (default: ask)
-  --provider <p>     anthropic | openai | mock   (default: whichever key is set)
+  --provider <p>     configured provider name; without config: anthropic | openai | mock
   --model <id>       model id
   --base-url <url>   custom endpoint; implies --provider openai unless
                      --provider says otherwise
@@ -53,6 +55,7 @@ environment
   SUSAN_MODEL         default model id for anthropic
   SUSAN_OPENAI_MODEL  default model id for openai
   SUSAN_HOME          session storage directory (default: ~/.susan)
+                      also contains confg.json and model-state.json
 
 examples
   susan                                        # pick from the environment
@@ -89,12 +92,7 @@ function parseArgs(argv: string[]): Options {
         i++;
         break;
       case "--provider":
-        if (value === "anthropic" || value === "openai" || value === "mock") {
-          options.provider = value;
-        } else {
-          console.error(`susan: invalid --provider ${value ?? ""}`);
-          process.exit(2);
-        }
+        if (value) options.provider = value;
         i++;
         break;
       case "--base-url":
@@ -147,6 +145,10 @@ function pickProvider(options: Options): {
     options.provider ??
     (hasAnthropic ? "anthropic" : hasOpenAI ? "openai" : "mock");
 
+  if (choice !== "anthropic" && choice !== "openai" && choice !== "mock") {
+    throw new Error(`unknown provider ${choice}`);
+  }
+
   switch (choice) {
     case "anthropic":
       return {
@@ -177,7 +179,22 @@ async function main(): Promise<void> {
     return;
   }
 
-  const { provider, mocked } = pickProvider(options);
+  const home = resolveSusanHome();
+  const choices = await loadModelConfig(home);
+  const selection = choices
+    ? new ModelSelection(choices, await loadModelPreferences(home), home)
+    : null;
+  if (selection && options.baseUrl) throw new Error("--base-url cannot override a configured provider; edit confg.json");
+  if (selection && (options.provider || options.model)) {
+    const matching = selection.choices.filter((choice) =>
+      (!options.provider || choice.providerName === options.provider) &&
+      (!options.model || choice.model.id === options.model));
+    if (matching.length !== 1) throw new Error("--provider and --model must identify one configured model");
+    selection.select(`${matching[0]!.providerName}/${matching[0]!.model.id}`);
+  }
+  const { provider, mocked } = selection
+    ? { provider: selection.provider(), mocked: false }
+    : pickProvider(options);
 
   if (options.prompt !== undefined) {
     const code = await runHeadless({
@@ -202,6 +219,7 @@ async function main(): Promise<void> {
       provider={provider}
       mode={options.mode}
       mocked={mocked}
+      selection={selection}
     />,
   );
   await app.waitUntilExit();

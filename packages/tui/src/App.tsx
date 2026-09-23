@@ -7,6 +7,7 @@ import { LogEntry, LogList } from "./components/LogView.js";
 import { PermissionPrompt } from "./components/PermissionPrompt.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { runCommand } from "./commands.js";
+import { ModelSelection } from "./model-selection.js";
 import type { LogItem } from "./session-state.js";
 import { glyphs, theme } from "./theme.js";
 import { useAgent } from "./use-agent.js";
@@ -16,13 +17,15 @@ export interface AppProps {
   provider: ModelProvider;
   mode: PermissionMode;
   mocked: boolean;
+  selection: ModelSelection | null;
 }
 
 type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
 
-export function App({ root, provider, mode: initialMode, mocked }: AppProps) {
+export function App({ root, provider, mode: initialMode, mocked, selection }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<PermissionMode>(initialMode);
+  const [, refreshModel] = useState(0);
   const view = useAgent({ root, provider, permissionMode: initialMode });
 
   // The banner scrolls with the transcript instead of being re-painted every
@@ -47,6 +50,15 @@ export function App({ root, provider, mode: initialMode, mocked }: AppProps) {
       reset: view.reset,
       exit,
       notice: view.pushNotice,
+      selection,
+      onModelChange: () => {
+        if (!selection) return;
+        view.agent.setProvider(selection.provider());
+        refreshModel((value) => value + 1);
+        void selection.save().catch((error: unknown) =>
+          view.pushNotice("error", `could not save model preference: ${(error as Error).message}`));
+      },
+      busy: view.busy,
     });
     if (!handled) view.send(value);
   };
@@ -59,7 +71,7 @@ export function App({ root, provider, mode: initialMode, mocked }: AppProps) {
             <Banner
               key="banner"
               root={root}
-              model={provider.label}
+              model={selection?.label ?? provider.label}
               mode={mode}
               mocked={mocked}
             />
@@ -106,6 +118,7 @@ export function App({ root, provider, mode: initialMode, mocked }: AppProps) {
         status={view.status}
         usage={view.usage}
         mode={mode}
+        model={selection?.label}
       />
     </Box>
   );

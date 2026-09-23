@@ -31,3 +31,10 @@ export {
   type OpenAIProviderOptions,
 } from "./providers/openai.js";
 export { MockProvider } from "./providers/mock.js";
+export { ResponsesProvider, type ResponsesProviderOptions } from "./providers/responses.js";
+export {
+  DEFAULT_REASONING_EFFORT, reasoningChoices, modelChoices,
+  loadModelConfig, loadModelPreferences, saveModelPreferences,
+  type ModelChoice, type ModelConfig, type ProviderConfig, type ProviderType,
+  type SusanConfig, type ModelPreferences,
+} from "./model-config.js";

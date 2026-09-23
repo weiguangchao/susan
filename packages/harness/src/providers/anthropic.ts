@@ -17,6 +17,7 @@ export const DEFAULT_MODEL = "claude-opus-5";
 const PROVIDER_ID = "anthropic";
 
 export interface AnthropicProviderOptions {
+  providerId?: string;
   model?: string;
   maxTokens?: number;
   apiKey?: string;
@@ -38,13 +39,13 @@ function toApiTools(tools: Tool[]): Anthropic.Tool[] {
   }));
 }
 
-function toApiMessages(messages: Message[]): Anthropic.MessageParam[] {
+function toApiMessages(messages: Message[], providerId = PROVIDER_ID): Anthropic.MessageParam[] {
   return messages.map((message): Anthropic.MessageParam => {
     if (message.role === "assistant") {
       // Replay our own blocks when we have them: thinking-block signatures must
       // round-trip byte for byte. Another provider's payload is meaningless
       // here, so fall through and rebuild the turn from the neutral blocks.
-      if (message.raw?.provider === PROVIDER_ID) {
+      if (message.raw?.provider === providerId) {
         return {
           role: "assistant",
           content: message.raw.value as Anthropic.ContentBlockParam[],
@@ -127,9 +128,11 @@ function toBlocks(content: Anthropic.ContentBlock[]): AssistantBlock[] {
 
 class AnthropicTurn implements TurnStream {
   readonly #stream: ReturnType<Anthropic["messages"]["stream"]>;
+  readonly #providerId: string;
 
-  constructor(stream: ReturnType<Anthropic["messages"]["stream"]>) {
+  constructor(stream: ReturnType<Anthropic["messages"]["stream"]>, providerId = PROVIDER_ID) {
     this.#stream = stream;
+    this.#providerId = providerId;
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<ProviderEvent> {
@@ -158,7 +161,7 @@ class AnthropicTurn implements TurnStream {
     const message = await this.#stream.finalMessage();
     return {
       content: toBlocks(message.content),
-      raw: { provider: PROVIDER_ID, value: message.content },
+      raw: { provider: this.#providerId, value: message.content },
       stopReason: toStopReason(message.stop_reason),
       usage: toUsage(message.usage),
     };
@@ -167,7 +170,7 @@ class AnthropicTurn implements TurnStream {
 
 /** Claude, over the Messages API, streaming, with a manually driven loop. */
 export class AnthropicProvider implements ModelProvider {
-  readonly id = PROVIDER_ID;
+  readonly id: string;
   readonly label: string;
   readonly #client: Anthropic;
   readonly #model: string;
@@ -175,6 +178,7 @@ export class AnthropicProvider implements ModelProvider {
   readonly #effort: NonNullable<AnthropicProviderOptions["effort"]>;
 
   constructor(options: AnthropicProviderOptions = {}) {
+    this.id = options.providerId ?? PROVIDER_ID;
     this.#model = options.model ?? process.env.SUSAN_MODEL ?? DEFAULT_MODEL;
     this.#maxTokens = options.maxTokens ?? 64_000;
     this.#effort = options.effort ?? "high";
@@ -215,11 +219,11 @@ export class AnthropicProvider implements ModelProvider {
         thinking: { type: "adaptive", display: "summarized" },
         output_config: { effort: this.#effort },
         tools: toApiTools(request.tools),
-        messages: toApiMessages(request.messages),
+        messages: toApiMessages(request.messages, this.id),
       },
       { signal: request.signal },
     );
-    return new AnthropicTurn(stream);
+    return new AnthropicTurn(stream, this.id);
   }
 }
 

@@ -44,6 +44,52 @@ node packages/tui/dist/cli.js --prompt "what does the harness package do?" --mod
 
 ## Providers
 
+### Configure providers and models
+
+Put `confg.json` in Susan Home (`SUSAN_HOME`, or `~/.susan` when unset).
+`config.json` is also accepted when `confg.json` does not exist. For example:
+
+```json
+{
+  "providers": {
+    "my-gateway": {
+      "baseUrl": "https://gateway.example.com/v1",
+      "type": "responses",
+      "apiKey": "replace-with-your-key",
+      "model": [
+        {
+          "name": "Coder",
+          "id": "coder-model-id",
+          "contextWindow": 128000,
+          "outputToken": 8192,
+          "reasoningEffort": { "low": null }
+        }
+      ]
+    }
+  }
+}
+```
+
+`type` is `openai-completion`, `responses`, or `anthropic`. `model` accepts one
+model object or an array. `outputToken` limits each model request;
+`contextWindow` records the model's capacity for configuration validation.
+`reasoningEffort` is optional. Each type has built-in levels; setting a level
+to `null` hides it from selection. In the example, `/reasoning` will not show
+`low`. The built-in levels are:
+
+| Type | Levels | Initial selection |
+|---|---|---|
+| `openai-completion` | none, low, medium, high | none |
+| `responses` | none, minimal, low, medium, high, xhigh | medium |
+| `anthropic` | low, medium, high, xhigh, max | high |
+
+Use `/model` to list configured models and `/model my-gateway/coder-model-id`
+to switch. Use `/reasoning` to list visible levels and `/reasoning high` to
+select one. Susan saves each provider/model's selected level in
+`model-state.json` under Susan Home and restores it on the next switch or run.
+When there is no configuration file, the CLI and environment behavior below
+still applies.
+
 | Provider | Selected by | Default model |
 |---|---|---|
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5` |
@@ -123,7 +169,7 @@ y / a / n    answer a permission prompt
 
 Susan saves each conversation as JSONL under `SUSAN_HOME/session/YYYY/MM/`.
 `SUSAN_HOME` defaults to `~/.susan`. The repository's `pnpm start` and
-`pnpm dev` scripts set it to `.susan` in the repository's parent directory.
+`pnpm dev` scripts set it to `.susan` in the repository root.
 Filenames start with local date and time and end with a random number.
 The first line records the session and project root; following lines record
 user messages, assistant messages, tool results, and per-turn token usage.

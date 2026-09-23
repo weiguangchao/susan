@@ -1,9 +1,22 @@
-import { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { useRef, useState } from "react";
+import { Box, Text, useCursor, useInput } from "ink";
+import type { DOMElement } from "ink";
 import { glyphs, theme } from "../theme.js";
+
+function cursorPosition(node: DOMElement | null): { x: number; y: number } | undefined {
+  if (!node) return undefined;
+  let x = 0;
+  let y = 0;
+  for (let current: DOMElement | undefined = node; current; current = current.parentNode) {
+    x += current.yogaNode?.getComputedLeft() ?? 0;
+    y += current.yogaNode?.getComputedTop() ?? 0;
+  }
+  return { x, y };
+}
 
 export interface ComposerProps {
   isActive: boolean;
+  terminalFocused?: boolean;
   placeholder: string;
   initialHistory: string[];
   onSubmit(value: string): void;
@@ -12,15 +25,22 @@ export interface ComposerProps {
 /**
  * A single-line editor with predictable key handling for input and history.
  */
-export function Composer({ isActive, placeholder, initialHistory, onSubmit }: ComposerProps) {
+export function Composer({ isActive, terminalFocused = true, placeholder, initialHistory, onSubmit }: ComposerProps) {
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
   const [history, setHistory] = useState<string[]>(initialHistory);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  const cursorCell = useRef<DOMElement>(null);
+  const { setCursorPosition, setCursorNode } = useCursor();
+  const position = !isActive || terminalFocused ? undefined : cursorPosition(cursorCell.current);
+  setCursorPosition(position);
+  setCursorNode(!isActive || terminalFocused ? undefined : cursorCell.current ?? undefined);
 
   useInput(
     (input, key) => {
+      // Ink forwards terminal focus reports through useInput as ordinary text.
+      if (input === "[I" || input === "[O") return;
       if (key.return) {
         const trimmed = value.trim();
         if (!trimmed) return;
@@ -122,15 +142,15 @@ export function Composer({ isActive, placeholder, initialHistory, onSubmit }: Co
         <Text color={theme.muted}>{placeholder}</Text>
       ) : empty ? (
         <>
-          <Text inverse> </Text>
+          <Box ref={cursorCell}><Text inverse={terminalFocused}> </Text></Box>
           <Text color={theme.muted}>{placeholder}</Text>
         </>
       ) : (
-        <Text>
-          {before}
-          <Text inverse>{at}</Text>
-          {after}
-        </Text>
+        <>
+          <Text>{before}</Text>
+          <Box ref={cursorCell}><Text inverse={terminalFocused}>{at}</Text></Box>
+          <Text>{after}</Text>
+        </>
       )}
     </Box>
   );

@@ -1,0 +1,326 @@
+diff --git a/build/components/App.d.ts b/build/components/App.d.ts
+index e121e4a836f4ce800ec3cdc4075b38e50100e45a..cfdcb13ee2ce997fc9d0e5eb629a5140d0b351b6 100644
+--- a/build/components/App.d.ts
++++ b/build/components/App.d.ts
+@@ -1,5 +1,6 @@
+ import React, { type ReactNode } from 'react';
+ import { type CursorPosition } from '../log-update.js';
++import { type DOMElement } from '../dom.js';
+ type Props = {
+     readonly children: ReactNode;
+     readonly stdin: NodeJS.ReadStream;
+@@ -10,8 +11,9 @@ type Props = {
+     readonly exitOnCtrlC: boolean;
+     readonly onExit: (errorOrResult?: unknown) => void;
+     readonly setCursorPosition: (position: CursorPosition | undefined) => void;
++    readonly setCursorNode: (node: DOMElement | undefined) => void;
+ };
+-declare function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, exitOnCtrlC, onExit, setCursorPosition, }: Props): React.ReactNode;
++declare function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, exitOnCtrlC, onExit, setCursorPosition, setCursorNode, }: Props): React.ReactNode;
+ declare namespace App {
+     var displayName: string;
+ }
+diff --git a/build/components/App.js b/build/components/App.js
+index c80a9bfe2cca435b949819bbfb82963f8c14b5f8..d6a7dff5141263ba1b628b188417122a8a3cf5d8 100644
+--- a/build/components/App.js
++++ b/build/components/App.js
+@@ -16,7 +16,7 @@ const escape = '\u001B';
+ // Root component for all Ink apps
+ // It renders stdin and stdout contexts, so that children can access them if needed
+ // It also handles Ctrl+C exiting and cursor visibility
+-function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, exitOnCtrlC, onExit, setCursorPosition, }) {
++function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, exitOnCtrlC, onExit, setCursorPosition, setCursorNode, }) {
+     const [isFocusEnabled, setIsFocusEnabled] = useState(true);
+     const [activeFocusId, setActiveFocusId] = useState(undefined);
+     // Focusables array is managed internally via setFocusables callback pattern
+@@ -314,7 +314,8 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
+     }), [stderr, writeToStderr]);
+     const cursorContextValue = useMemo(() => ({
+         setCursorPosition,
+-    }), [setCursorPosition]);
++        setCursorNode,
++    }), [setCursorPosition, setCursorNode]);
+     const focusContextValue = useMemo(() => ({
+         activeId: activeFocusId,
+         add: addFocusable,
+diff --git a/build/components/CursorContext.d.ts b/build/components/CursorContext.d.ts
+index 80d4ab985d372ea3c28bf5a6ddac323b28d49a36..77839562455917e84fe4c299fcf7245f1438c26a 100644
+--- a/build/components/CursorContext.d.ts
++++ b/build/components/CursorContext.d.ts
+@@ -1,4 +1,5 @@
+ import { type CursorPosition } from '../log-update.js';
++import { type DOMElement } from '../dom.js';
+ export type Props = {
+     /**
+     Set the cursor position relative to the Ink output.
+@@ -6,6 +7,7 @@ export type Props = {
+     Pass `undefined` to hide the cursor.
+     */
+     readonly setCursorPosition: (position: CursorPosition | undefined) => void;
++    readonly setCursorNode: (node: DOMElement | undefined) => void;
+ };
+ declare const CursorContext: import("react").Context<Props>;
+ export default CursorContext;
+diff --git a/build/components/CursorContext.js b/build/components/CursorContext.js
+index 9f6efa3dcb74eb9317f0b870ce676b82d68c33b6..2ba2bc3bd5757a00855fe44751507d0b19bc69dd 100644
+--- a/build/components/CursorContext.js
++++ b/build/components/CursorContext.js
+@@ -2,6 +2,7 @@ import { createContext } from 'react';
+ // eslint-disable-next-line @typescript-eslint/naming-convention
+ const CursorContext = createContext({
+     setCursorPosition() { },
++    setCursorNode() { },
+ });
+ CursorContext.displayName = 'InternalCursorContext';
+ export default CursorContext;
+diff --git a/build/hooks/use-cursor.d.ts b/build/hooks/use-cursor.d.ts
+index fc2a8a2a5c70787fe365365fe3cacbacd5adf89f..4c878150d9ac852200597a8a5a18c05902cce2d7 100644
+--- a/build/hooks/use-cursor.d.ts
++++ b/build/hooks/use-cursor.d.ts
+@@ -8,5 +8,6 @@ Pass `undefined` to hide the cursor.
+ */
+ declare const useCursor: () => {
+     setCursorPosition: (position: CursorPosition | undefined) => void;
++    setCursorNode: (node: import('../dom.js').DOMElement | undefined) => void;
+ };
+ export default useCursor;
+diff --git a/build/hooks/use-cursor.js b/build/hooks/use-cursor.js
+index e3bb1f9f5dede91dd38a00ba13d84fb22836e82f..c8e6cb67c7d90a5992beb877351228a55555ba40 100644
+--- a/build/hooks/use-cursor.js
++++ b/build/hooks/use-cursor.js
+@@ -10,20 +10,26 @@ Pass `undefined` to hide the cursor.
+ const useCursor = () => {
+     const context = useContext(CursorContext);
+     const positionRef = useRef(undefined);
++    const nodeRef = useRef(undefined);
+     const setCursorPosition = useCallback((position) => {
+         positionRef.current = position;
+     }, []);
++    const setCursorNode = useCallback((node) => {
++        nodeRef.current = node;
++    }, []);
+     // Propagate cursor position to log-update only during commit phase.
+     // useInsertionEffect runs before resetAfterCommit (which triggers onRender),
+     // and does NOT run for abandoned concurrent renders (e.g. suspended components).
+     // This prevents cursor state from leaking across render boundaries.
+     useInsertionEffect(() => {
+         context.setCursorPosition(positionRef.current);
++        context.setCursorNode(nodeRef.current);
+         return () => {
+             context.setCursorPosition(undefined);
++            context.setCursorNode(undefined);
+         };
+     });
+-    return { setCursorPosition };
++    return { setCursorPosition, setCursorNode };
+ };
+ export default useCursor;
+ //# sourceMappingURL=use-cursor.js.map
+diff --git a/build/ink.d.ts b/build/ink.d.ts
+index 5e3eb90fdc38d26f489be61c79858eb9ee5c4061..b0dcff2ea526d07341d64abab9e7c0b25ab8e1a0 100644
+--- a/build/ink.d.ts
++++ b/build/ink.d.ts
+@@ -74,6 +74,8 @@ export default class Ink {
+     unsubscribeExit: () => void;
+     handleAppExit: (errorOrResult?: unknown) => void;
+     setCursorPosition: (position: CursorPosition | undefined) => void;
++    setCursorNode: (node: import('./dom.js').DOMElement | undefined) => void;
++    refreshCursorPosition: () => void;
+     restoreLastOutput: () => void;
+     calculateLayout: () => void;
+     onRender: () => void;
+diff --git a/build/ink.js b/build/ink.js
+index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856edef3d8a8 100644
+--- a/build/ink.js
++++ b/build/ink.js
+@@ -88,6 +88,7 @@ export default class Ink {
+     options;
+     log;
+     cursorPosition;
++    cursorNode;
+     throttledLog;
+     isScreenReaderEnabled;
+     // Ignore last render after unmounting a tree to prevent empty output before exit
+@@ -141,6 +142,7 @@ export default class Ink {
+         this.log = logUpdate.create(options.stdout, {
+             incremental: options.incrementalRendering,
+         });
++        this.log.setCursorResolver(this.getCursorNodePosition);
+         this.cursorPosition = undefined;
+         this.throttledLog = unthrottled
+             ? this.log
+@@ -231,6 +233,26 @@ export default class Ink {
+         this.cursorPosition = position;
+         this.log.setCursorPosition(position);
+     };
++    setCursorNode = (node) => {
++        this.cursorNode = node;
++    };
++    getCursorNodePosition = () => {
++        const node = this.cursorNode;
++        if (!node?.yogaNode) {
++            return undefined;
++        }
++        let x = 0;
++        let y = 0;
++        for (let current = node; current; current = current.parentNode) {
++            x += current.yogaNode?.getComputedLeft() ?? 0;
++            y += current.yogaNode?.getComputedTop() ?? 0;
++        }
++        return { x, y };
++    };
++    refreshCursorPosition = () => {
++        const position = this.getCursorNodePosition();
++        if (position) this.setCursorPosition(position);
++    };
+     restoreLastOutput = () => {
+         // Clear() resets log-update's cursor state, so replay the latest cursor intent
+         // before restoring output after external stdout/stderr writes.
+@@ -247,6 +269,7 @@ export default class Ink {
+         if (this.isUnmounted) {
+             return;
+         }
++        this.refreshCursorPosition();
+         const startTime = performance.now();
+         const { output, outputHeight, staticOutput } = render(this.rootNode, this.isScreenReaderEnabled);
+         this.options.onRender?.({ renderTime: performance.now() - startTime });
+@@ -319,22 +342,32 @@ export default class Ink {
+         // Only apply when writing to a real TTY — piped output always gets trailing newlines.
+         const isFullscreen = this.options.stdout.isTTY && outputHeight >= this.options.stdout.rows;
+         const outputToRender = isFullscreen ? output : output + '\n';
+-        if (this.lastOutputHeight >= this.options.stdout.rows) {
++        // A focus/style update keeps the same layout. Repainting it through
++        // log-update avoids clearing and reprinting a full terminal screen.
++        if (this.lastOutputHeight >= this.options.stdout.rows &&
++            (hasStaticOutput || outputHeight !== this.lastOutputHeight)) {
+             const sync = shouldSynchronize(this.options.stdout);
+             if (sync) {
+                 this.options.stdout.write(bsu);
+             }
+             this.options.stdout.write(ansiEscapes.clearTerminal + this.fullStaticOutput + output);
+             this.lastOutput = output;
+-            this.lastOutputToRender = outputToRender;
++            this.lastOutputToRender = output;
+             this.lastOutputHeight = outputHeight;
+-            this.log.sync(outputToRender);
++            // clearTerminal wrote `output` without a trailing newline. Keep
++            // log-update's cursor origin in sync with the actual terminal.
++            this.log.sync(output);
+             if (sync) {
+                 this.options.stdout.write(esu);
+             }
+             return;
+         }
+         // To ensure static output is cleanly rendered before main output, clear main output first
++        // A cursor-only update must keep the exact bytes last written. In
++        // particular, the fullscreen clear above writes no final newline.
++        const outputForLog = !hasStaticOutput && output === this.lastOutput && this.lastOutputToRender
++            ? this.lastOutputToRender
++            : outputToRender;
+         if (hasStaticOutput) {
+             const sync = shouldSynchronize(this.options.stdout);
+             if (sync) {
+@@ -349,15 +382,15 @@ export default class Ink {
+         }
+         else if (output !== this.lastOutput || this.log.isCursorDirty()) {
+             // ThrottledLog manages its own bsu/esu at actual write time
+-            this.throttledLog(outputToRender);
++            this.throttledLog(outputForLog);
+         }
+         this.lastOutput = output;
+-        this.lastOutputToRender = outputToRender;
++        this.lastOutputToRender = outputForLog;
+         this.lastOutputHeight = outputHeight;
+     };
+     render(node) {
+         const tree = (React.createElement(AccessibilityContext.Provider, { value: { isScreenReaderEnabled: this.isScreenReaderEnabled } },
+-            React.createElement(App, { stdin: this.options.stdin, stdout: this.options.stdout, stderr: this.options.stderr, exitOnCtrlC: this.options.exitOnCtrlC, writeToStdout: this.writeToStdout, writeToStderr: this.writeToStderr, setCursorPosition: this.setCursorPosition, onExit: this.handleAppExit }, node)));
++            React.createElement(App, { stdin: this.options.stdin, stdout: this.options.stdout, stderr: this.options.stderr, exitOnCtrlC: this.options.exitOnCtrlC, writeToStdout: this.writeToStdout, writeToStderr: this.writeToStderr, setCursorPosition: this.setCursorPosition, setCursorNode: this.setCursorNode, onExit: this.handleAppExit }, node)));
+         if (this.options.concurrent) {
+             // Concurrent mode: use updateContainer (async scheduling)
+             reconciler.updateContainer(tree, this.container, null, noop);
+diff --git a/build/log-update.d.ts b/build/log-update.d.ts
+index a7393554c2cbaa57edb1a604c1829773a3f77328..29e7063f86695d303ac1928915d9848df248ef76 100644
+--- a/build/log-update.d.ts
++++ b/build/log-update.d.ts
+@@ -6,6 +6,7 @@ export type LogUpdate = {
+     done: () => void;
+     sync: (str: string) => void;
+     setCursorPosition: (position: CursorPosition | undefined) => void;
++    setCursorResolver: (resolver: () => CursorPosition | undefined) => void;
+     isCursorDirty: () => boolean;
+     willRender: (str: string) => boolean;
+     (str: string): boolean;
+diff --git a/build/log-update.js b/build/log-update.js
+index 73e297d0185fa4861c33eaa11761d1418588f0c9..409c82b81b22b5c1b812bd867f5131cef16f4539 100644
+--- a/build/log-update.js
++++ b/build/log-update.js
+@@ -12,7 +12,8 @@ const createStandard = (stream, { showCursor = false } = {}) => {
+     let cursorDirty = false;
+     let previousCursorPosition;
+     let cursorWasShown = false;
+-    const getActiveCursor = () => (cursorDirty ? cursorPosition : undefined);
++    let cursorResolver;
++    const getActiveCursor = () => cursorDirty ? cursorResolver?.() ?? cursorPosition : undefined;
+     const hasChanges = (str, activeCursor) => {
+         const cursorChanged = cursorPositionChanged(activeCursor, previousCursorPosition);
+         return str !== previousOutput || cursorChanged;
+@@ -31,14 +32,16 @@ const createStandard = (stream, { showCursor = false } = {}) => {
+             return false;
+         }
+         const lines = str.split('\n');
+-        const visibleCount = visibleLineCount(lines, str);
+-        const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor);
++        // Without a trailing newline, the physical cursor is on the last
++        // output row rather than the row after it.
++        const cursorRow = lines.length - 1;
++        const cursorSuffix = buildCursorSuffix(cursorRow, activeCursor);
+         if (str === previousOutput && cursorChanged) {
+             stream.write(buildCursorOnlySequence({
+                 cursorWasShown,
+                 previousLineCount,
+                 previousCursorPosition,
+-                visibleLineCount: visibleCount,
++                visibleLineCount: cursorRow,
+                 cursorPosition: activeCursor,
+             }));
+         }
+@@ -83,7 +86,7 @@ const createStandard = (stream, { showCursor = false } = {}) => {
+             stream.write(hideCursorEscape);
+         }
+         if (activeCursor) {
+-            stream.write(buildCursorSuffix(visibleLineCount(lines, str), activeCursor));
++            stream.write(buildCursorSuffix(lines.length - 1, activeCursor));
+         }
+         previousCursorPosition = activeCursor ? { ...activeCursor } : undefined;
+         cursorWasShown = activeCursor !== undefined;
+@@ -92,6 +95,9 @@ const createStandard = (stream, { showCursor = false } = {}) => {
+         cursorPosition = position;
+         cursorDirty = true;
+     };
++    render.setCursorResolver = (resolver) => {
++        cursorResolver = resolver;
++    };
+     render.isCursorDirty = () => cursorDirty;
+     render.willRender = (str) => hasChanges(str, getActiveCursor());
+     return render;
+@@ -104,7 +110,8 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
+     let cursorDirty = false;
+     let previousCursorPosition;
+     let cursorWasShown = false;
+-    const getActiveCursor = () => (cursorDirty ? cursorPosition : undefined);
++    let cursorResolver;
++    const getActiveCursor = () => cursorDirty ? cursorResolver?.() ?? cursorPosition : undefined;
+     const hasChanges = (str, activeCursor) => {
+         const cursorChanged = cursorPositionChanged(activeCursor, previousCursorPosition);
+         return str !== previousOutput || cursorChanged;
+@@ -227,6 +234,9 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
+         cursorPosition = position;
+         cursorDirty = true;
+     };
++    render.setCursorResolver = (resolver) => {
++        cursorResolver = resolver;
++    };
+     render.isCursorDirty = () => cursorDirty;
+     render.willRender = (str) => hasChanges(str, getActiveCursor());
+     return render;

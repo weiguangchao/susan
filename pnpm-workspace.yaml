@@ -3,3 +3,5 @@ packages:
 minimumReleaseAgeExclude:
   - '@anthropic-ai/sdk@0.128.0'
   - openai@7.22.0
+patchedDependencies:
+  ink@6.8.0: patches/ink@6.8.0.patch

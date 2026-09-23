@@ -12,6 +12,7 @@ import { ModelSelection } from "./model-selection.js";
 import type { LogItem } from "./session-state.js";
 import { glyphs, theme } from "./theme.js";
 import { useAgent } from "./use-agent.js";
+import { useTerminalFocus } from "./use-terminal-focus.js";
 
 export interface AppProps {
   root: string;
@@ -25,6 +26,7 @@ type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
 
 export function App({ root, provider, mocked, selection, inputHistory }: AppProps) {
   const { exit } = useApp();
+  const terminalFocused = useTerminalFocus();
   const [, refreshModel] = useState(0);
   const view = useAgent({ root, provider, onSessionStarted: () => selection?.recordUse() ?? Promise.resolve() });
 
@@ -106,6 +108,7 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
 
       <Composer
         isActive
+        terminalFocused={terminalFocused}
         initialHistory={inputHistory.entries}
         placeholder={
           view.busy ? "working - esc to interrupt" : "ask susan to do something"

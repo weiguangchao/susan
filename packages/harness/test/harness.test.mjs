@@ -7,6 +7,7 @@ import { after, before, describe, it } from "node:test";
 import {
   Agent,
   AnthropicProvider,
+  cacheHitRate,
   MockProvider,
   OpenAIProvider,
   builtinTools,
@@ -73,7 +74,7 @@ describe("anthropic provider", () => {
     const first = fake.log[0];
     assert.equal(first.url, "/v1/messages");
     assert.deepEqual(first.thinking, { type: "adaptive", display: "summarized" });
-    assert.deepEqual(first.output_config, { effort: "high" });
+    assert.equal(first.output_config, undefined);
     assert.deepEqual(first.cache_control, { type: "ephemeral" });
     // The tool list is part of the cached prefix: frozen order, every tool
     // streaming its input eagerly.
@@ -82,6 +83,13 @@ describe("anthropic provider", () => {
       ["read", "write", "edit", "ls", "grep", "bash"],
     );
     assert.ok(first.tools.every((t) => t.eager));
+  });
+
+  it("sends an explicitly selected reasoning level", async () => {
+    fake.log.length = 0;
+    const selected = new AnthropicProvider({ model: "claude-fake", baseURL: fake.url, effort: "low" });
+    await collect(makeAgent(selected), "what is in this directory");
+    assert.deepEqual(fake.log[0].output_config, { effort: "low" });
   });
 
   it("replays the thinking block with its signature intact", async () => {
@@ -139,9 +147,10 @@ describe("anthropic provider", () => {
     const agent = makeAgent(provider());
     await collect(agent, "what is in this directory");
     const usage = agent.session.usage;
-    assert.equal(usage.inputTokens, 2400);
+    assert.equal(usage.inputTokens, 4400);
     assert.equal(usage.outputTokens, 120);
     assert.equal(usage.cacheReadTokens, 1800);
+    assert.equal(cacheHitRate(usage), 41);
   });
 });
 

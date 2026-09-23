@@ -101,7 +101,9 @@ function toStopReason(raw: string | null): StopReason {
 
 function toUsage(usage: Anthropic.Usage): Usage {
   return {
-    inputTokens: usage.input_tokens ?? 0,
+    inputTokens: (usage.input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0),
     outputTokens: usage.output_tokens ?? 0,
     cacheReadTokens: usage.cache_read_input_tokens ?? 0,
   };
@@ -175,13 +177,13 @@ export class AnthropicProvider implements ModelProvider {
   readonly #client: Anthropic;
   readonly #model: string;
   readonly #maxTokens: number;
-  readonly #effort: NonNullable<AnthropicProviderOptions["effort"]>;
+  readonly #effort?: AnthropicProviderOptions["effort"];
 
   constructor(options: AnthropicProviderOptions = {}) {
     this.id = options.providerId ?? PROVIDER_ID;
     this.#model = options.model ?? process.env.SUSAN_MODEL ?? DEFAULT_MODEL;
     this.#maxTokens = options.maxTokens ?? 64_000;
-    this.#effort = options.effort ?? "high";
+    this.#effort = options.effort;
 
     const baseURL = options.baseURL ?? process.env.ANTHROPIC_BASE_URL;
     const clientOptions: ConstructorParameters<typeof Anthropic>[0] = {};
@@ -217,7 +219,7 @@ export class AnthropicProvider implements ModelProvider {
         cache_control: { type: "ephemeral" },
         system: request.system,
         thinking: { type: "adaptive", display: "summarized" },
-        output_config: { effort: this.#effort },
+        ...(this.#effort ? { output_config: { effort: this.#effort } } : {}),
         tools: toApiTools(request.tools),
         messages: toApiMessages(request.messages, this.id),
       },

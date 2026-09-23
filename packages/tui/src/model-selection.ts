@@ -4,18 +4,12 @@ import {
   type ModelChoice, type ModelPreferences, type ModelProvider,
 } from "@susan/harness";
 
-const DEFAULT_SELECTION = {
-  "openai-completion": "none",
-  responses: "medium",
-  anthropic: "high",
-} as const;
-
 export class ModelSelection {
   readonly choices: ModelChoice[];
   readonly #preferences: ModelPreferences;
   readonly #home: string;
   #index = 0;
-  #effort: string;
+  #effort?: string;
   #saving: Promise<void> = Promise.resolve();
 
   constructor(choices: ModelChoice[], preferences: ModelPreferences, home: string) {
@@ -26,9 +20,12 @@ export class ModelSelection {
   }
 
   get current(): ModelChoice { return this.choices[this.#index]!; }
-  get effort(): string { return this.#effort; }
+  get effort(): string | undefined { return this.#effort; }
   get key(): string { return `${this.current.providerName}/${this.current.model.id}`; }
-  get label(): string { return `${this.current.model.name} (${this.key}) · ${this.#effort}`; }
+  get label(): string {
+    const model = `${this.current.model.name} (${this.key})`;
+    return this.#effort ? `${model} · ${this.#effort}` : model;
+  }
 
   find(query: string): ModelChoice | undefined {
     return this.choices.find((choice) =>
@@ -39,12 +36,17 @@ export class ModelSelection {
   select(query: string): void {
     const choice = this.find(query);
     if (!choice) throw new Error(`unknown model ${query}`);
-    this.#preferences[this.key] = this.#effort;
+    if (this.#effort) this.#preferences[this.key] = this.#effort;
     this.#index = this.choices.indexOf(choice);
     this.#effort = this.#selectEffort(choice);
   }
 
   setEffort(name: string): void {
+    if (name === "default") {
+      this.#effort = undefined;
+      delete this.#preferences[this.key];
+      return;
+    }
     if (!(name in this.current.efforts)) throw new Error(`unavailable reasoning level ${name}`);
     this.#effort = name;
     this.#preferences[this.key] = name;
@@ -58,7 +60,7 @@ export class ModelSelection {
 
   provider(): ModelProvider {
     const { provider, model, efforts } = this.current;
-    const effort = efforts[this.#effort]!;
+    const effort = this.#effort ? efforts[this.#effort] : undefined;
     const providerId = `${provider.type}:${this.key}`;
     switch (provider.type) {
       case "anthropic":
@@ -66,29 +68,29 @@ export class ModelSelection {
           providerId,
           model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
           maxTokens: model.outputToken,
-          effort: effort as "low" | "medium" | "high" | "xhigh" | "max",
+          ...(effort ? { effort: effort as "low" | "medium" | "high" | "xhigh" | "max" } : {}),
         });
       case "responses":
         return new ResponsesProvider({
           providerId,
           model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
-          maxTokens: model.outputToken, reasoningEffort: effort,
+          maxTokens: model.outputToken,
+          ...(effort ? { reasoningEffort: effort } : {}),
         });
       case "openai-completion":
         return new OpenAIProvider({
           providerId,
           model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
           maxTokens: model.outputToken,
-          ...(effort === "none" ? {} : { reasoningEffort: effort }),
+          ...(effort ? { reasoningEffort: effort } : {}),
         });
     }
   }
 
-  #selectEffort(choice: ModelChoice): string {
+  #selectEffort(choice: ModelChoice): string | undefined {
     const key = `${choice.providerName}/${choice.model.id}`;
     const saved = this.#preferences[key];
     if (saved && saved in choice.efforts) return saved;
-    const fallback = DEFAULT_SELECTION[choice.provider.type];
-    return fallback in choice.efforts ? fallback : Object.keys(choice.efforts)[0]!;
+    return undefined;
   }
 }

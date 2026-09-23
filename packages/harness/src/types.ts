@@ -100,6 +100,7 @@ export interface Tool<Input = unknown> {
 // ---------------------------------------------------------------------------
 
 export interface Usage {
+  /** Total input tokens, including cache reads and writes. */
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;

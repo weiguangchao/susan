@@ -5,8 +5,8 @@ import { z } from "zod";
 import { resolveSusanHome } from "./session/store.js";
 
 export const DEFAULT_REASONING_EFFORT = {
-  "openai-completion": { none: "none", low: "low", medium: "medium", high: "high" },
-  responses: { none: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh" },
+  "openai-completion": { none: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+  responses: { none: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
   anthropic: { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
 } as const;
 

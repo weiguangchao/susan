@@ -1,4 +1,5 @@
 export * from "./types.js";
+export { cacheHitRate } from "./usage.js";
 export { Agent, type AgentOptions } from "./loop.js";
 export { Session, SessionStore, resolveSusanHome } from "./session/index.js";
 export { buildSystemPrompt } from "./prompt.js";

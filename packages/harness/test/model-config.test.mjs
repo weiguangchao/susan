@@ -4,12 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, it } from "node:test";
 import {
-  loadModelConfig, loadModelPreferences, saveModelPreferences,
+  loadModelConfig, loadModelPreferences, reasoningChoices, saveModelPreferences,
 } from "../dist/index.js";
 
 let home;
 before(async () => { home = await mkdtemp(path.join(os.tmpdir(), "susan-config-")); });
 after(async () => { await rm(home, { recursive: true, force: true }); });
+
+it("offers the OpenAI API effort values for both endpoints", () => {
+  const levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+  assert.deepEqual(Object.keys(reasoningChoices("openai-completion")), levels);
+  assert.deepEqual(Object.keys(reasoningChoices("responses")), levels);
+});
 
 it("loads configured providers and hides reasoning levels set to null", async () => {
   await writeFile(path.join(home, "confg.json"), JSON.stringify({ providers: {

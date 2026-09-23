@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { Usage } from "@susan/harness";
+import { cacheHitRate, type Usage } from "@susan/harness";
 import { theme } from "../theme.js";
 import { Spinner } from "./Spinner.js";
 
@@ -16,6 +16,7 @@ function compact(n: number): string {
 }
 
 export function StatusBar({ busy, status, usage, model }: StatusBarProps) {
+  const hitRate = cacheHitRate(usage);
   return (
     <Box paddingX={1} justifyContent="space-between">
       <Box>
@@ -33,9 +34,7 @@ export function StatusBar({ busy, status, usage, model }: StatusBarProps) {
       <Box>
         <Text color={theme.muted}>
           {compact(usage.inputTokens)} in · {compact(usage.outputTokens)} out
-          {usage.cacheReadTokens > 0
-            ? ` · ${compact(usage.cacheReadTokens)} cached`
-            : ""}
+          {hitRate === null ? "" : ` · ${compact(usage.cacheReadTokens)} cached (${hitRate}%)`}
         </Text>
       </Box>
     </Box>

@@ -76,16 +76,23 @@ model object or an array. `outputToken` limits each model request;
 to `null` hides it from selection. In the example, `/reasoning` will not show
 `low`. The built-in levels are:
 
-| Type | Levels | Initial selection |
-|---|---|---|
-| `openai-completion` | none, low, medium, high | none |
-| `responses` | none, minimal, low, medium, high, xhigh | medium |
-| `anthropic` | low, medium, high, xhigh, max | high |
+| Type | Levels |
+|---|---|
+| `openai-completion` | none, minimal, low, medium, high, xhigh, max |
+| `responses` | none, minimal, low, medium, high, xhigh, max |
+| `anthropic` | low, medium, high, xhigh, max |
+
+These are API-level choices, not a guarantee that every model accepts every
+level. Check the model's supported levels and hide unsupported choices with
+`reasoningEffort` entries set to `null`.
 
 Use `/model` to list configured models and `/model my-gateway/coder-model-id`
-to switch. Use `/reasoning` to list visible levels and `/reasoning high` to
-select one. Susan saves each provider/model's selected level in
+to switch. Use `/reasoning` to list visible levels, with `default` first. Use
+`/reasoning high` to select a level or `/reasoning default` to let the provider
+choose. Susan saves each provider/model's selected level in
 `model-state.json` under Susan Home and restores it on the next switch or run.
+Until a level is selected, Susan omits the effort field and lets the provider
+choose its default.
 When there is no configuration file, the CLI and environment behavior below
 still applies.
 
@@ -167,7 +174,8 @@ up / down    input history        ctrl+c   quit
 Susan saves each conversation as JSONL under `SUSAN_HOME/session/YYYY/MM/`.
 `SUSAN_HOME` defaults to `~/.susan`. The repository's `pnpm start` and
 `pnpm dev` scripts set it to `.susan` in the repository root.
-Filenames start with local date and time and end with a random number.
+Filenames start with local date and time and end with the first user input's
+12-character SHA-256 prefix.
 The first line records the session and project root; following lines record
 user messages, assistant messages, tool results, and per-turn token usage.
 `/clear` starts a new file on the next message. Saved sessions are not yet

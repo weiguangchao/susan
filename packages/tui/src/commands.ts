@@ -1,4 +1,4 @@
-import type { Agent } from "@susan/harness";
+import { cacheHitRate, type Agent } from "@susan/harness";
 import type { ModelSelection } from "./model-selection.js";
 
 export interface CommandContext {
@@ -73,8 +73,10 @@ export function runCommand(input: string, ctx: CommandContext): boolean {
       if (!ctx.selection) {
         ctx.notice("warn", "no models configured in Susan Home/confg.json");
       } else if (!arg) {
-        ctx.notice("info", Object.keys(ctx.selection.current.efforts).map((level) =>
-          `${level === ctx.selection!.effort ? "*" : " "} ${level}`).join("\n"));
+        ctx.notice("info", ["default", ...Object.keys(ctx.selection.current.efforts)]
+          .map((level) =>
+            `${level === (ctx.selection!.effort ?? "default") ? "*" : " "} ${level}`)
+          .join("\n"));
       } else if (ctx.busy) {
         ctx.notice("warn", "wait for the current run before changing reasoning");
       } else {
@@ -89,10 +91,12 @@ export function runCommand(input: string, ctx: CommandContext): boolean {
 
     case "cost": {
       const usage = ctx.agent.session.usage;
+      const hitRate = cacheHitRate(usage);
       ctx.notice(
         "info",
         `${usage.inputTokens} input · ${usage.outputTokens} output · ` +
-          `${usage.cacheReadTokens} cached · ${ctx.agent.session.turns} model turns`,
+          `${usage.cacheReadTokens} cached (${hitRate === null ? "n/a" : `${hitRate}%`}) · ` +
+          `${ctx.agent.session.turns} model turns`,
       );
       return true;
     }

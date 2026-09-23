@@ -38,6 +38,7 @@ export function startFakeOpenAI() {
         toolNames: (payload.tools ?? []).map((t) => t.function.name),
         stream_options: payload.stream_options ?? null,
         max_tokens: payload.max_tokens,
+        reasoning_effort: payload.reasoning_effort,
       });
 
       const sawToolResult = payload.messages.some((m) => m.role === "tool");

@@ -21,7 +21,7 @@ function messageStart(res, inputTokens) {
         input_tokens: inputTokens,
         output_tokens: 1,
         cache_read_input_tokens: 900,
-        cache_creation_input_tokens: 0,
+        cache_creation_input_tokens: 100,
       },
     },
   });

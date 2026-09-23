@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, it } from "node:test";
 import { promisify } from "node:util";
-import { Agent, ResponsesProvider } from "../dist/index.js";
+import { Agent, ResponsesProvider, cacheHitRate } from "../dist/index.js";
 
 let server;
 let url;
@@ -54,6 +54,7 @@ it("sends Responses function calls and results with configured reasoning", async
   assert.equal(requests[0].payload.stream, true);
   assert.equal(requests[0].payload.max_output_tokens, 500);
   assert.ok(requests[1].payload.input.some((item) => item.type === "function_call_output" && item.call_id === "call_1"));
+  assert.equal(cacheHitRate(agent.session.usage), 20);
 });
 
 it("loads confg.json through the CLI and sends its model settings", async () => {
@@ -71,6 +72,6 @@ it("loads confg.json through the CLI and sends its model settings", async () => 
     assert.match(stdout, /Done\./);
     assert.equal(requests[beforeCount].payload.model, "configured-model");
     assert.equal(requests[beforeCount].payload.max_output_tokens, 321);
-    assert.deepEqual(requests[beforeCount].payload.reasoning, { effort: "medium" });
+    assert.equal(requests[beforeCount].payload.reasoning, undefined);
   } finally { await rm(home, { recursive: true, force: true }); }
 });

@@ -1,5 +1,6 @@
 import {
   Agent,
+  cacheHitRate,
   resolveSusanHome,
   type ModelProvider,
 } from "@susan/harness";
@@ -51,8 +52,11 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   }
 
   const usage = agent.session.usage;
+  const hitRate = cacheHitRate(usage);
   process.stdout.write(
-    `\n[usage] ${usage.inputTokens} in · ${usage.outputTokens} out · ${agent.session.turns} turns\n`,
+    `\n[usage] ${usage.inputTokens} in · ${usage.outputTokens} out · ` +
+      `${usage.cacheReadTokens} cached (${hitRate === null ? "n/a" : `${hitRate}%`}) · ` +
+      `${agent.session.turns} turns\n`,
   );
 
   return failed ? 1 : 0;

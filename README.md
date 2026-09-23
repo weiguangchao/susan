@@ -172,6 +172,10 @@ up / down    input history        ctrl+c   quit
 /help  /tools  /cost  /clear  /exit
 ```
 
+Up and down browse the last 100 submitted inputs, including inputs from other
+providers and models. The history is saved in `SUSAN_HOME/input-history.json`
+and remains available after restarting Susan. Down restores an unfinished draft.
+
 ## Saved sessions
 
 Susan saves each conversation as JSONL under `SUSAN_HOME/session/YYYY/MM/`.

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { render } from "ink";
 import { createElement } from "react";
 import { App } from "../dist/App.js";
+import { InputHistory } from "../dist/input-history.js";
 
 function deferred() {
   let release;
@@ -25,6 +26,7 @@ async function waitForFrame(frames, pattern) {
 
 test("token usage stays visible while running and cache rate accumulates across prompts", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "susan-status-"));
+  const inputHistory = await InputHistory.load(home);
   const previousHome = process.env.SUSAN_HOME;
   process.env.SUSAN_HOME = home;
 
@@ -80,6 +82,7 @@ test("token usage stays visible while running and cache rate accumulates across 
     provider,
     mocked: false,
     selection: null,
+    inputHistory,
   }), { stdin, stdout, stderr: stdout, debug: true, patchConsole: false });
 
   try {
@@ -90,9 +93,9 @@ test("token usage stays visible while running and cache rate accumulates across 
     await waitForFrame(frames, /› hello/);
     stdin.write("\r");
     await waitForFrame(frames, /working - esc to interrupt/);
-    assert.match(frames.at(-1), /[\d.]+k? \/ — \(—%\)/);
-    assert.doesNotMatch(frames.at(-1), /cached \(|\b\d+ out\b/);
-    assert.doesNotMatch(frames.at(-1), /~\d/);
+    const running = await waitForFrame(frames, /[\d.]+k? \/ — \(—%\)/);
+    assert.doesNotMatch(running, /cached \(|\b\d+ out\b/);
+    assert.doesNotMatch(running, /~\d/);
 
     first.release();
     const firstOutput = await waitForFrame(frames, /\nhello\n/);

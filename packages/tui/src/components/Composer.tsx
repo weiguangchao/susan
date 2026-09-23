@@ -5,17 +5,19 @@ import { glyphs, theme } from "../theme.js";
 export interface ComposerProps {
   isActive: boolean;
   placeholder: string;
+  initialHistory: string[];
   onSubmit(value: string): void;
 }
 
 /**
  * A single-line editor with predictable key handling for input and history.
  */
-export function Composer({ isActive, placeholder, onSubmit }: ComposerProps) {
+export function Composer({ isActive, placeholder, initialHistory, onSubmit }: ComposerProps) {
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(initialHistory);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
 
   useInput(
     (input, key) => {
@@ -24,6 +26,7 @@ export function Composer({ isActive, placeholder, onSubmit }: ComposerProps) {
         if (!trimmed) return;
         setHistory((prev) => [trimmed, ...prev].slice(0, 100));
         setHistoryIndex(null);
+        setDraft("");
         setValue("");
         setCursor(0);
         onSubmit(trimmed);
@@ -41,6 +44,7 @@ export function Composer({ isActive, placeholder, onSubmit }: ComposerProps) {
 
       if (key.upArrow) {
         if (history.length === 0) return;
+        if (historyIndex === null) setDraft(value);
         const next = historyIndex === null ? 0 : Math.min(historyIndex + 1, history.length - 1);
         const entry = history[next] ?? "";
         setHistoryIndex(next);
@@ -53,8 +57,8 @@ export function Composer({ isActive, placeholder, onSubmit }: ComposerProps) {
         const next = historyIndex - 1;
         if (next < 0) {
           setHistoryIndex(null);
-          setValue("");
-          setCursor(0);
+          setValue(draft);
+          setCursor(draft.length);
           return;
         }
         const entry = history[next] ?? "";

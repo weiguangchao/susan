@@ -12,6 +12,7 @@ import {
 } from "@susan/harness";
 import { App } from "./App.js";
 import { runHeadless } from "./headless.js";
+import { InputHistory } from "./input-history.js";
 import { ModelSelection } from "./model-selection.js";
 
 interface Options {
@@ -199,12 +200,15 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
+  const inputHistory = await InputHistory.load(home);
+
   const app = render(
     <App
       root={options.root}
       provider={provider}
       mocked={mocked}
       selection={selection}
+      inputHistory={inputHistory}
     />,
   );
   await app.waitUntilExit();

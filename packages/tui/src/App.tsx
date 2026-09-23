@@ -7,6 +7,7 @@ import { LogEntry, LogList } from "./components/LogView.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { Spinner } from "./components/Spinner.js";
 import { runCommand } from "./commands.js";
+import { InputHistory } from "./input-history.js";
 import { ModelSelection } from "./model-selection.js";
 import type { LogItem } from "./session-state.js";
 import { glyphs, theme } from "./theme.js";
@@ -17,11 +18,12 @@ export interface AppProps {
   provider: ModelProvider;
   mocked: boolean;
   selection: ModelSelection | null;
+  inputHistory: InputHistory;
 }
 
 type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
 
-export function App({ root, provider, mocked, selection }: AppProps) {
+export function App({ root, provider, mocked, selection, inputHistory }: AppProps) {
   const { exit } = useApp();
   const [, refreshModel] = useState(0);
   const view = useAgent({ root, provider, onSessionStarted: () => selection?.recordUse() ?? Promise.resolve() });
@@ -40,6 +42,8 @@ export function App({ root, provider, mocked, selection }: AppProps) {
   );
 
   const handleSubmit = (value: string) => {
+    void inputHistory.record(value).catch((error: unknown) =>
+      view.pushNotice("error", `could not save input history: ${(error as Error).message}`));
     const handled = runCommand(value, {
       agent: view.agent,
       reset: view.reset,
@@ -102,6 +106,7 @@ export function App({ root, provider, mocked, selection }: AppProps) {
 
       <Composer
         isActive
+        initialHistory={inputHistory.entries}
         placeholder={
           view.busy ? "working - esc to interrupt" : "ask susan to do something"
         }

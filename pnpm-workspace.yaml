@@ -1,0 +1,5 @@
+packages:
+  - "packages/*"
+minimumReleaseAgeExclude:
+  - '@anthropic-ai/sdk@0.128.0'
+  - openai@7.22.0

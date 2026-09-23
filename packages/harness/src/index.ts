@@ -1,0 +1,33 @@
+export * from "./types.js";
+export { Agent, type AgentOptions } from "./loop.js";
+export { Session } from "./session.js";
+export { PermissionGate, type PermissionVerdict } from "./permissions.js";
+export { buildSystemPrompt } from "./prompt.js";
+export { displayPath, resolveInRoot } from "./paths.js";
+export {
+  builtinTools,
+  toolByName,
+  defineTool,
+  ok,
+  fail,
+  truncate,
+  bashTool,
+  editTool,
+  grepTool,
+  lsTool,
+  readTool,
+  writeTool,
+} from "./tools/index.js";
+export {
+  AnthropicProvider,
+  DEFAULT_MODEL,
+  describeAuthError,
+  type AnthropicProviderOptions,
+} from "./providers/anthropic.js";
+export {
+  OpenAIProvider,
+  DEFAULT_OPENAI_MODEL,
+  describeOpenAIError,
+  type OpenAIProviderOptions,
+} from "./providers/openai.js";
+export { MockProvider } from "./providers/mock.js";

@@ -1,0 +1,23 @@
+{
+  "name": "susan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "susan - a code agent TUI with a full harness architecture",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build --force",
+    "clean": "tsc --build --clean",
+    "start": "pnpm --filter @susan/tui start",
+    "dev": "pnpm build && pnpm --filter @susan/tui start",
+    "test": "pnpm build && node --test \"packages/harness/test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

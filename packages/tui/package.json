@@ -1,0 +1,26 @@
+{
+  "name": "@susan/tui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "susan": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node ./dist/cli.js"
+  },
+  "dependencies": {
+    "@susan/harness": "workspace:*",
+    "ink": "^6.0.1",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2"
+  }
+}

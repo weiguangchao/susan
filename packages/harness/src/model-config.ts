@@ -14,7 +14,6 @@ export type ProviderType = keyof typeof DEFAULT_REASONING_EFFORT;
 export type ReasoningLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const modelSchema = z.object({
-  name: z.string().min(1),
   id: z.string().min(1),
   contextWindow: z.number().int().positive(),
   outputToken: z.number().int().positive(),

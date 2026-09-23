@@ -29,8 +29,7 @@ export class ModelSelection {
   get effort(): string | undefined { return this.#effort; }
   get key(): string { return `${this.current.providerName}/${this.current.model.id}`; }
   get label(): string {
-    const model = `${this.current.model.name} (${this.key})`;
-    return this.#effort ? `${model} · ${this.#effort}` : model;
+    return this.#effort ? `${this.key} · ${this.#effort}` : this.key;
   }
 
   find(query: string): ModelChoice | undefined {

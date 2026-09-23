@@ -21,7 +21,7 @@ it("loads configured providers and hides reasoning levels set to null", async ()
   await writeFile(path.join(home, "confg.json"), JSON.stringify({ providers: {
     gateway: {
       baseUrl: "http://localhost:1234/v1", type: "responses", apiKey: "test",
-      model: [{ name: "Test model", id: "test-model", contextWindow: 32000,
+      model: [{ id: "test-model", contextWindow: 32000,
         outputToken: 4000, reasoningEffort: { low: null, high: "high" } }],
     },
   } }));
@@ -42,7 +42,7 @@ it("stores reasoning selection by provider and model", async () => {
 it("rejects malformed model limits before starting", async () => {
   await writeFile(path.join(home, "confg.json"), JSON.stringify({ providers: {
     gateway: { baseUrl: "http://localhost:1234/v1", type: "responses", apiKey: "test",
-      model: { name: "Bad", id: "bad", contextWindow: 10, outputToken: 11 } },
+      model: { id: "bad", contextWindow: 10, outputToken: 11 } },
   } }));
   await assert.rejects(loadModelConfig(home), /outputToken exceeds contextWindow/);
 });

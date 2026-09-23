@@ -55,7 +55,7 @@ export function runCommand(input: string, ctx: CommandContext): boolean {
       } else if (!arg) {
         ctx.notice("info", ctx.selection.choices.map((choice) => {
           const key = `${choice.providerName}/${choice.model.id}`;
-          return `${key === ctx.selection!.key ? "*" : " "} ${key} (${choice.model.name})`;
+          return `${key === ctx.selection!.key ? "*" : " "} ${key}`;
         }).join("\n"));
       } else if (ctx.busy) {
         ctx.notice("warn", "wait for the current run before switching models");

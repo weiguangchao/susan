@@ -57,7 +57,6 @@ Put `confg.json` in Susan Home (`SUSAN_HOME`, or `~/.susan` when unset).
       "apiKey": "replace-with-your-key",
       "model": [
         {
-          "name": "Coder",
           "id": "coder-model-id",
           "contextWindow": 128000,
           "outputToken": 8192,

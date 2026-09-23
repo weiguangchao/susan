@@ -14,21 +14,23 @@ it("remembers each model's reasoning level when switching and after restart", as
     const choices = modelChoices({ providers: {
       gateway: { type: "responses", baseUrl: "http://localhost:1234/v1", apiKey: "test",
         model: [
-          { name: "A", id: "a", contextWindow: 10000, outputToken: 1000 },
-          { name: "B", id: "b", contextWindow: 10000, outputToken: 1000,
+          { id: "a", contextWindow: 10000, outputToken: 1000 },
+          { id: "b", contextWindow: 10000, outputToken: 1000,
             reasoningEffort: { low: null } },
         ] },
     } });
     const selection = new ModelSelection(choices, {}, home);
     assert.equal(selection.effort, undefined);
-    assert.equal(selection.label, "A (gateway/a)");
+    assert.equal(selection.label, "gateway/a");
     const firstProviderId = selection.provider().id;
     selection.setEffort("high");
+    assert.equal(selection.label, "gateway/a · high");
     selection.select("gateway/b");
     assert.notEqual(selection.provider().id, firstProviderId);
     assert.equal(selection.effort, undefined);
     assert.throws(() => selection.setEffort("low"), /unavailable/);
     selection.setEffort("xhigh");
+    assert.equal(selection.label, "gateway/b · xhigh");
     selection.select("gateway/a");
     assert.equal(selection.effort, "high");
     await selection.save();
@@ -58,8 +60,8 @@ it("restores only the last model used for a session", async () => {
     const choices = modelChoices({ providers: {
       gateway: { type: "responses", baseUrl: "http://localhost:1234/v1", apiKey: "test",
         model: [
-          { name: "A", id: "a", contextWindow: 10000, outputToken: 1000 },
-          { name: "B", id: "b", contextWindow: 10000, outputToken: 1000 },
+          { id: "a", contextWindow: 10000, outputToken: 1000 },
+          { id: "b", contextWindow: 10000, outputToken: 1000 },
         ] },
     } });
     const selection = new ModelSelection(choices, {}, home);
@@ -88,7 +90,7 @@ it("sends none explicitly and omits effort for default", async () => {
   try {
     const choices = modelChoices({ providers: {
       gateway: { type: "openai-completion", baseUrl: fake.url, apiKey: "test",
-        model: { name: "A", id: "a", contextWindow: 10000, outputToken: 1000 } },
+        model: { id: "a", contextWindow: 10000, outputToken: 1000 } },
     } });
     const selection = new ModelSelection(choices, {}, home);
     selection.setEffort("none");

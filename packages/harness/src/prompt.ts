@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import type { Tool } from "./types.js";
 
 export interface PromptContext {
@@ -11,6 +13,12 @@ export interface PromptContext {
  * stable facts - nothing per-turn, nothing with a timestamp in it.
  */
 export function buildSystemPrompt({ root, tools }: PromptContext): string {
+  let projectInstructions = "";
+  try {
+    projectInstructions = readFileSync(path.join(root, "AGENTS.md"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const toolList = tools
     .map((tool) => `- ${tool.name}: ${tool.description.split(".")[0]}.`)
     .join("\n");
@@ -48,5 +56,5 @@ ${toolList}
 - When you change files, say what changed and where, as \`path:line\` when a
   specific line matters.
 - If tests fail or you skipped a step, say so plainly. Never claim something
-  works when you have not checked.`;
+  works when you have not checked.${projectInstructions.trim() ? `\n\n# Project instructions (AGENTS.md)\n${projectInstructions}` : ""}`;
 }

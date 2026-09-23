@@ -187,6 +187,30 @@ describe("openai-compatible provider", () => {
   const provider = () =>
     new OpenAIProvider({ model: "fake-model", baseURL: fake.url, apiKey: "test" });
 
+  it("loads only the project root AGENTS.md when the agent starts", async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), "susan-instructions-"));
+    const project = path.join(parent, "project");
+    try {
+      await fs.mkdir(project);
+      await fs.writeFile(path.join(parent, "AGENTS.md"), "parent instructions");
+      await fs.writeFile(path.join(project, "AGENTS.md"), "project instructions");
+      const agent = new Agent({ root: project, provider: provider() });
+      await fs.writeFile(path.join(project, "AGENTS.md"), "changed instructions");
+
+      fake.log.length = 0;
+      await collect(agent, "hello");
+      assert.match(fake.log[0].system, /# Project instructions \(AGENTS\.md\)\nproject instructions/);
+      assert.doesNotMatch(fake.log[0].system, /parent instructions|changed instructions/);
+
+      await fs.rm(path.join(project, "AGENTS.md"));
+      fake.log.length = 0;
+      await collect(new Agent({ root: project, provider: provider() }), "hello");
+      assert.doesNotMatch(fake.log[0].system, /# Project instructions|parent instructions/);
+    } finally {
+      await fs.rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("assembles a tool call streamed in fragments", async () => {
     const run = await collect(makeAgent(provider()), "what is in this directory");
     assert.equal(run.done, "end_turn");

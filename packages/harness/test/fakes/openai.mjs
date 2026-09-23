@@ -30,6 +30,7 @@ export function startFakeOpenAI() {
     req.on("end", () => {
       const payload = JSON.parse(body);
       log.push({
+        system: payload.messages.find((m) => m.role === "system")?.content,
         roles: payload.messages.map((m) =>
           m.role === "assistant" && m.tool_calls
             ? `assistant+tool_calls(${m.tool_calls.length})`

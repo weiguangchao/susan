@@ -241,8 +241,11 @@ Things the loop takes seriously:
 ## Tool execution
 
 Susan runs valid tool calls automatically. Tool inputs are still validated, and
-file paths must stay inside the project root. The status bar shows the latest
-measured request usage against the selected model's context window.
+file paths must stay inside the project root. After a prompt is submitted, the
+status bar shows usage estimates while the agent runs. Provider measurements
+replace them as they arrive. The cache hit rate uses all measured requests in
+the current session. When the run finishes, the bar keeps the last measured
+request usage against the selected model's context window.
 
 ## Adding a tool
 

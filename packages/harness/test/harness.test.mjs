@@ -152,6 +152,28 @@ describe("anthropic provider", () => {
     assert.equal(usage.cacheReadTokens, 1800);
     assert.equal(cacheHitRate(usage), 41);
   });
+
+  it("reports measured input usage while a turn is streaming", async () => {
+    const run = await collect(makeAgent(provider()), "what is in this directory");
+    const firstMeasured = run.events.findIndex((event) =>
+      event.type === "usage_progress" && !event.estimated);
+    const firstFinal = run.events.findIndex((event) => event.type === "usage");
+    assert.ok(firstMeasured > 0 && firstMeasured < firstFinal);
+    assert.deepEqual(run.events[firstMeasured].usage, {
+      inputTokens: 2200,
+      outputTokens: 1,
+      cacheReadTokens: 900,
+    });
+    assert.deepEqual(run.events[firstMeasured].measuredTotal, run.events[firstMeasured].usage);
+    const secondTurnStart = run.events.findIndex((event) =>
+      event.type === "turn_start" && event.turn === 2);
+    const secondMeasured = run.events.find((event, index) =>
+      index > secondTurnStart && event.type === "usage_progress" && !event.estimated);
+    assert.equal(secondMeasured.measuredTotal.inputTokens, 4400);
+    assert.equal(secondMeasured.measuredTotal.cacheReadTokens, 1800);
+    assert.ok(run.events.some((event) =>
+      event.type === "usage_progress" && !event.estimated && event.usage.outputTokens === 72));
+  });
 });
 
 describe("openai-compatible provider", () => {

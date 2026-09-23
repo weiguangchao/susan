@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { Message, ModelProvider, ProviderEvent, TurnFinal, TurnRequest, TurnStream } from "../types.js";
+import type { Message, ModelProvider, ProviderEvent, TurnFinal, TurnRequest, TurnStream, Usage } from "../types.js";
 
 export interface ResponsesProviderOptions {
   providerId?: string;
@@ -41,6 +41,14 @@ function parseArguments(raw: string): unknown {
   catch { return raw; }
 }
 
+function toUsage(usage: OpenAI.Responses.Response["usage"]): Usage {
+  return {
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+    cacheReadTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
+  };
+}
+
 class ResponsesTurn implements TurnStream {
   #start: () => Promise<AsyncIterable<OpenAI.Responses.ResponseStreamEvent>>;
   #providerId: string;
@@ -68,6 +76,9 @@ class ResponsesTurn implements TurnStream {
         }
       } else if (event.type === "response.completed" || event.type === "response.incomplete") {
         response = event.response;
+        if (response.usage) {
+          yield { type: "usage_progress", usage: toUsage(response.usage) };
+        }
       } else if (event.type === "response.failed") {
         throw new Error(event.response.error?.message ?? "Responses request failed");
       } else if (event.type === "error") {
@@ -93,11 +104,7 @@ class ResponsesTurn implements TurnStream {
       content,
       raw: { provider: this.#providerId, value: response.output },
       stopReason: hasTools ? "tool_use" : response.status === "incomplete" ? "max_tokens" : "end_turn",
-      usage: {
-        inputTokens: response.usage?.input_tokens ?? 0,
-        outputTokens: response.usage?.output_tokens ?? 0,
-        cacheReadTokens: response.usage?.input_tokens_details?.cached_tokens ?? 0,
-      },
+      usage: toUsage(response.usage),
     };
   }
 

@@ -122,6 +122,7 @@ export type AgentEvent =
   | { type: "text_end"; text: string }
   | { type: "tool_call"; id: string; name: string; summary: string }
   | { type: "tool_pending"; id: string; name: string; summary: string }
+  | { type: "usage_progress"; usage: Usage; measuredTotal: Usage; estimated: boolean }
   | {
       type: "tool_result";
       id: string;
@@ -144,6 +145,7 @@ export type AgentEvent =
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
+  | { type: "usage_progress"; usage: Usage }
   | { type: "tool_use_start"; id: string; name: string };
 
 export interface TurnFinal {

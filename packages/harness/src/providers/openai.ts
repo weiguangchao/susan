@@ -198,7 +198,10 @@ class OpenAITurn implements TurnStream {
       const stream = await this.#start();
 
       for await (const chunk of stream) {
-        if (chunk.usage) usage = chunk.usage;
+        if (chunk.usage) {
+          usage = chunk.usage;
+          yield { type: "usage_progress", usage: toUsage(usage) };
+        }
 
         const choice = chunk.choices[0];
         if (!choice) continue;

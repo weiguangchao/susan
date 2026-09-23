@@ -49,7 +49,7 @@ export function App({ root, provider, mocked, selection }: AppProps) {
       onModelChange: () => {
         if (!selection) return;
         view.agent.setProvider(selection.provider());
-        view.clearContextUsage();
+        view.clearUsageDisplay();
         refreshModel((value) => value + 1);
         void selection.save().catch((error: unknown) =>
           view.pushNotice("error", `could not save model preference: ${(error as Error).message}`));
@@ -110,7 +110,7 @@ export function App({ root, provider, mocked, selection }: AppProps) {
 
       <StatusBar
         root={root}
-        contextUsage={view.contextUsage}
+        usageDisplay={view.usageDisplay}
         contextWindow={selection?.current.model.contextWindow}
         model={selection?.label ?? provider.label}
       />

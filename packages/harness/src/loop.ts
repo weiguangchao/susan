@@ -1,6 +1,7 @@
 import { buildSystemPrompt } from "./prompt.js";
 import { Session, SessionStore } from "./session/index.js";
 import { builtinTools, toolByName } from "./tools/index.js";
+import { estimateTokens } from "./usage.js";
 import type {
   AgentEvent,
   ModelProvider,
@@ -8,6 +9,7 @@ import type {
   ToolResultBlock,
   ToolUseBlock,
   TurnFinal,
+  Usage,
 } from "./types.js";
 
 export interface AgentOptions {
@@ -24,6 +26,15 @@ export interface AgentOptions {
 interface ExecutedTool {
   block: ToolResultBlock;
   event: Extract<AgentEvent, { type: "tool_result" }>;
+}
+
+function withMeasuredTurn(total: Usage, turn: Usage | null): Usage {
+  if (!turn) return total;
+  return {
+    inputTokens: total.inputTokens + turn.inputTokens,
+    outputTokens: total.outputTokens + turn.outputTokens,
+    cacheReadTokens: total.cacheReadTokens + turn.cacheReadTokens,
+  };
 }
 
 /**
@@ -108,12 +119,24 @@ export class Agent {
         let streamedText = "";
 
         try {
-          const stream = this.#provider.stream({
+          const request = {
             system: this.#system,
             messages: this.session.snapshot(),
             tools: this.tools,
             signal: controller.signal,
-          });
+          };
+          const estimatedUsage = {
+            inputTokens: estimateTokens({
+              system: request.system,
+              messages: request.messages,
+              tools: request.tools,
+            }),
+            outputTokens: 0,
+            cacheReadTokens: 0,
+          };
+          yield { type: "usage_progress", usage: estimatedUsage,
+            measuredTotal: this.session.usage, estimated: true };
+          const stream = this.#provider.stream(request);
 
           for await (const event of stream) {
             switch (event.type) {
@@ -123,6 +146,10 @@ export class Agent {
                 break;
               case "thinking_delta":
                 yield { type: "thinking_delta", text: event.text };
+                break;
+              case "usage_progress":
+                yield { type: "usage_progress", usage: event.usage,
+                  measuredTotal: withMeasuredTurn(this.session.usage, event.usage), estimated: false };
                 break;
               case "tool_use_start":
                 yield {

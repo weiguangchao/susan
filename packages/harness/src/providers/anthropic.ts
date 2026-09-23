@@ -138,7 +138,18 @@ class AnthropicTurn implements TurnStream {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<ProviderEvent> {
+    let liveUsage: Usage | null = null;
     for await (const event of this.#stream) {
+      if (event.type === "message_start") {
+        liveUsage = toUsage(event.message.usage);
+        yield { type: "usage_progress", usage: liveUsage };
+        continue;
+      }
+      if (event.type === "message_delta" && liveUsage) {
+        liveUsage = { ...liveUsage, outputTokens: event.usage.output_tokens };
+        yield { type: "usage_progress", usage: liveUsage };
+        continue;
+      }
       if (event.type === "content_block_start") {
         if (event.content_block.type === "tool_use") {
           yield {

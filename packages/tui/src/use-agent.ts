@@ -3,9 +3,9 @@ import {
   Agent,
   resolveSusanHome,
   type ModelProvider,
-  type Usage,
 } from "@susan/harness";
 import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
+import type { UsageDisplay } from "./usage-display.js";
 
 export interface UseAgentOptions {
   root: string;
@@ -22,11 +22,11 @@ export interface AgentView {
   streamingText: string;
   thinkingText: string;
   busy: boolean;
-  contextUsage: Usage | null;
+  usageDisplay: UsageDisplay | null;
   send(input: string): void;
   interrupt(): void;
   reset(): void;
-  clearContextUsage(): void;
+  clearUsageDisplay(): void;
   pushNotice(level: "info" | "warn" | "error", text: string): void;
 }
 
@@ -43,7 +43,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
   const [streamingText, setStreamingText] = useState("");
   const [thinkingText, setThinkingText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [contextUsage, setContextUsage] = useState<Usage | null>(null);
+  const [usageDisplay, setUsageDisplay] = useState<UsageDisplay | null>(null);
 
   const liveRef = useRef<LogItem[]>([]);
   const streamRef = useRef("");
@@ -98,7 +98,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
       if (agent.busy) return;
 
       setBusy(true);
-      setContextUsage(null);
+      setUsageDisplay({ usage: null, measuredTotal: agent.session.usage });
       applyStream("");
       setThinkingText("");
       liveRef.current = [
@@ -164,11 +164,14 @@ export function useAgent(options: UseAgentOptions): AgentView {
                   status: event.ok ? "done" : "error",
                   display: event.display,
                 });
-                setContextUsage(null);
+                break;
+
+              case "usage_progress":
+                setUsageDisplay({ usage: event.usage, measuredTotal: event.measuredTotal });
                 break;
 
               case "usage":
-                setContextUsage(event.usage);
+                setUsageDisplay({ usage: event.usage, measuredTotal: event.total });
                 break;
 
               case "notice":
@@ -256,10 +259,10 @@ export function useAgent(options: UseAgentOptions): AgentView {
     setLive([]);
     setStreamingText("");
     setThinkingText("");
-    setContextUsage(null);
+    setUsageDisplay(null);
   }, [agent, pushNotice]);
 
-  const clearContextUsage = useCallback(() => setContextUsage(null), []);
+  const clearUsageDisplay = useCallback(() => setUsageDisplay(null), []);
 
   return {
     agent,
@@ -268,11 +271,11 @@ export function useAgent(options: UseAgentOptions): AgentView {
     streamingText,
     thinkingText,
     busy,
-    contextUsage,
+    usageDisplay,
     send,
     interrupt,
     reset,
-    clearContextUsage,
+    clearUsageDisplay,
     pushNotice,
   };
 }

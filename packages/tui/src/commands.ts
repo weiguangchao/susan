@@ -1,10 +1,8 @@
-import type { Agent, PermissionMode } from "@susan/harness";
+import type { Agent } from "@susan/harness";
 import type { ModelSelection } from "./model-selection.js";
 
 export interface CommandContext {
   agent: Agent;
-  mode: PermissionMode;
-  setMode(mode: PermissionMode): void;
   reset(): void;
   exit(): void;
   notice(level: "info" | "warn" | "error", text: string): void;
@@ -17,7 +15,6 @@ const HELP = [
   "commands",
   "  /help            show this",
   "  /tools           list the tools the agent can call",
-  "  /mode <m>        permission mode: ask | auto | readonly",
   "  /model [id]      list or select configured models",
   "  /reasoning [m]  list or select reasoning levels",
   "  /cost            token usage for this session",
@@ -27,7 +24,6 @@ const HELP = [
   "keys",
   "  enter            send        esc     interrupt the current run",
   "  up / down        input history           ctrl+c  quit",
-  "  y / a / n        answer a permission prompt",
 ].join("\n");
 
 /** Returns true when the input was a command (handled here, not sent to the model). */
@@ -47,29 +43,11 @@ export function runCommand(input: string, ctx: CommandContext): boolean {
         "info",
         [
           "tools",
-          ...ctx.agent.tools.map(
-            (tool) =>
-              `  ${tool.name.padEnd(6)} ${tool.risk === "safe" ? "  " : "! "}${tool.description.split(".")[0]}.`,
-          ),
-          "",
-          "  ! marks tools that need your approval in ask mode.",
+          ...ctx.agent.tools.map((tool) =>
+            `  ${tool.name.padEnd(6)} ${tool.description.split(".")[0]}.`),
         ].join("\n"),
       );
       return true;
-
-    case "mode": {
-      if (arg === "ask" || arg === "auto" || arg === "readonly") {
-        ctx.setMode(arg);
-        ctx.agent.permissions.setMode(arg);
-        ctx.notice("info", `permission mode: ${arg}`);
-      } else {
-        ctx.notice(
-          "warn",
-          `current mode: ${ctx.mode}. Usage: /mode ask | auto | readonly`,
-        );
-      }
-      return true;
-    }
 
     case "model": {
       if (!ctx.selection) {

@@ -3,10 +3,6 @@ import {
   Agent,
   resolveSusanHome,
   type ModelProvider,
-  type PermissionDecision,
-  type PermissionHandler,
-  type PermissionMode,
-  type PermissionRequest,
   type Usage,
 } from "@susan/harness";
 import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
@@ -14,7 +10,6 @@ import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
 export interface UseAgentOptions {
   root: string;
   provider: ModelProvider;
-  permissionMode: PermissionMode;
 }
 
 export interface AgentView {
@@ -28,9 +23,7 @@ export interface AgentView {
   busy: boolean;
   status: string;
   usage: Usage;
-  permission: PermissionRequest | null;
   send(input: string): void;
-  answerPermission(decision: PermissionDecision): void;
   interrupt(): void;
   reset(): void;
   pushNotice(level: "info" | "warn" | "error", text: string): void;
@@ -57,14 +50,9 @@ export function useAgent(options: UseAgentOptions): AgentView {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [usage, setUsage] = useState<Usage>(EMPTY_USAGE);
-  const [permission, setPermission] = useState<PermissionRequest | null>(null);
 
   const liveRef = useRef<LogItem[]>([]);
   const streamRef = useRef("");
-  const resolvePermission = useRef<((d: PermissionDecision) => void) | null>(
-    null,
-  );
-  const pendingRequest = useRef<PermissionRequest | null>(null);
 
   const applyLive = useCallback((fn: (items: LogItem[]) => LogItem[]) => {
     liveRef.current = fn(liveRef.current);
@@ -76,23 +64,12 @@ export function useAgent(options: UseAgentOptions): AgentView {
     setStreamingText(text);
   }, []);
 
-  const permissionHandler = useRef<PermissionHandler>((request) => {
-    return new Promise<PermissionDecision>((resolve) => {
-      resolvePermission.current = resolve;
-      pendingRequest.current = request;
-      setPermission(request);
-      setStatus(`waiting for approval: ${request.toolName}`);
-    });
-  });
-
   const [agent] = useState(
     () =>
       new Agent({
         root: options.root,
         provider: options.provider,
-        permissionMode: options.permissionMode,
         sessionHome: resolveSusanHome(),
-        onPermissionRequest: (request) => permissionHandler.current(request),
       }),
   );
 
@@ -250,7 +227,6 @@ export function useAgent(options: UseAgentOptions): AgentView {
           setLive([]);
           setStreamingText("");
           setThinkingText("");
-          setPermission(null);
           setBusy(false);
           setStatus("");
         }
@@ -259,26 +235,9 @@ export function useAgent(options: UseAgentOptions): AgentView {
     [agent, appendLive, applyLive, applyStream, updateTool],
   );
 
-  const answerPermission = useCallback((decision: PermissionDecision) => {
-    const resolve = resolvePermission.current;
-    const request = pendingRequest.current;
-    resolvePermission.current = null;
-    pendingRequest.current = null;
-    setPermission(null);
-    // The next event may be a while away (the tool is about to run), so move
-    // the status off "waiting for approval" right now.
-    setStatus(
-      decision === "deny"
-        ? "denied"
-        : `${request?.toolName ?? "tool"}: ${request?.summary ?? "running"}`,
-    );
-    resolve?.(decision);
-  }, []);
-
   const interrupt = useCallback(() => {
-    if (resolvePermission.current) answerPermission("deny");
     agent.abort();
-  }, [agent, answerPermission]);
+  }, [agent]);
 
   const reset = useCallback(() => {
     if (agent.busy) {
@@ -304,9 +263,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
     busy,
     status,
     usage,
-    permission,
     send,
-    answerPermission,
     interrupt,
     reset,
     pushNotice,

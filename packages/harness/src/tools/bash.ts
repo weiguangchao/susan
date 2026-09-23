@@ -9,8 +9,7 @@ const MAX_OUTPUT_CHARS = 30_000;
 
 /**
  * A short, deliberately narrow list of commands that are catastrophic and never
- * intentional from an agent. The real protection is the permission gate - this
- * only stops the handful of cases where a confirmation prompt arrives too late.
+ * intentional from an agent. This check runs even when tools execute automatically.
  */
 const REFUSED = [
   { pattern: /\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*f?\s+\/(\s|$)/, why: "recursive delete of /" },

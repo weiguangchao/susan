@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
-import type { ModelProvider, PermissionMode } from "@susan/harness";
+import type { ModelProvider } from "@susan/harness";
 import { Banner } from "./components/Banner.js";
 import { Composer } from "./components/Composer.js";
 import { LogEntry, LogList } from "./components/LogView.js";
-import { PermissionPrompt } from "./components/PermissionPrompt.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { runCommand } from "./commands.js";
 import { ModelSelection } from "./model-selection.js";
@@ -15,18 +14,16 @@ import { useAgent } from "./use-agent.js";
 export interface AppProps {
   root: string;
   provider: ModelProvider;
-  mode: PermissionMode;
   mocked: boolean;
   selection: ModelSelection | null;
 }
 
 type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
 
-export function App({ root, provider, mode: initialMode, mocked, selection }: AppProps) {
+export function App({ root, provider, mocked, selection }: AppProps) {
   const { exit } = useApp();
-  const [mode, setMode] = useState<PermissionMode>(initialMode);
   const [, refreshModel] = useState(0);
-  const view = useAgent({ root, provider, permissionMode: initialMode });
+  const view = useAgent({ root, provider });
 
   // The banner scrolls with the transcript instead of being re-painted every
   // frame, so it has to live inside <Static> as the first entry.
@@ -39,14 +36,11 @@ export function App({ root, provider, mode: initialMode, mocked, selection }: Ap
     (_input, key) => {
       if (key.escape && view.busy) view.interrupt();
     },
-    { isActive: view.permission === null },
   );
 
   const handleSubmit = (value: string) => {
     const handled = runCommand(value, {
       agent: view.agent,
-      mode,
-      setMode,
       reset: view.reset,
       exit,
       notice: view.pushNotice,
@@ -72,7 +66,6 @@ export function App({ root, provider, mode: initialMode, mocked, selection }: Ap
               key="banner"
               root={root}
               model={selection?.label ?? provider.label}
-              mode={mode}
               mocked={mocked}
             />
           ) : (
@@ -98,15 +91,8 @@ export function App({ root, provider, mode: initialMode, mocked, selection }: Ap
         </Box>
       ) : null}
 
-      {view.permission ? (
-        <PermissionPrompt
-          request={view.permission}
-          onAnswer={view.answerPermission}
-        />
-      ) : null}
-
       <Composer
-        isActive={view.permission === null}
+        isActive
         placeholder={
           view.busy ? "working - esc to interrupt" : "ask susan to do something"
         }
@@ -117,7 +103,6 @@ export function App({ root, provider, mode: initialMode, mocked, selection }: Ap
         busy={view.busy}
         status={view.status}
         usage={view.usage}
-        mode={mode}
         model={selection?.label}
       />
     </Box>

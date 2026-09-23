@@ -2,13 +2,11 @@ import {
   Agent,
   resolveSusanHome,
   type ModelProvider,
-  type PermissionMode,
 } from "@susan/harness";
 
 export interface HeadlessOptions {
   root: string;
   provider: ModelProvider;
-  mode: PermissionMode;
   prompt: string;
 }
 
@@ -20,16 +18,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const agent = new Agent({
     root: options.root,
     provider: options.provider,
-    permissionMode: options.mode,
     sessionHome: resolveSusanHome(),
-    onPermissionRequest: async (request) => {
-      // There is nobody to ask in headless mode: --mode auto is the way to
-      // opt in to unattended writes and commands.
-      process.stdout.write(
-        `[denied] ${request.toolName}: ${request.summary} (re-run with --mode auto to allow)\n`,
-      );
-      return "deny";
-    },
   });
 
   let failed = false;

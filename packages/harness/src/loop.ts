@@ -1,12 +1,9 @@
 import { buildSystemPrompt } from "./prompt.js";
-import { PermissionGate } from "./permissions.js";
 import { Session, SessionStore } from "./session/index.js";
 import { builtinTools, toolByName } from "./tools/index.js";
 import type {
   AgentEvent,
   ModelProvider,
-  PermissionHandler,
-  PermissionMode,
   Tool,
   ToolResultBlock,
   ToolUseBlock,
@@ -18,9 +15,6 @@ export interface AgentOptions {
   root: string;
   provider: ModelProvider;
   tools?: Tool[];
-  permissionMode?: PermissionMode;
-  /** Called when a write/exec tool needs the user's approval. */
-  onPermissionRequest: PermissionHandler;
   /** Safety valve against a runaway loop. */
   maxTurns?: number;
   /** Persist conversation messages under this Susan home directory. */
@@ -37,13 +31,12 @@ interface ExecutedTool {
  *
  * One `run()` is one user request: it drives model turns until the model stops
  * asking for tools, and emits a flat event stream the UI renders as it goes.
- * The loop owns conversation state, the permission gate and tool dispatch; it
+ * The loop owns conversation state and tool dispatch; it
  * knows nothing about how the model is reached (that is the provider) or how
  * any of it looks (that is the TUI).
  */
 export class Agent {
   readonly session = new Session();
-  readonly permissions: PermissionGate;
   readonly tools: Tool[];
   readonly root: string;
 
@@ -63,10 +56,6 @@ export class Agent {
     if (this.#sessionHome) {
       this.#store = new SessionStore(this.#sessionHome, this.root);
     }
-    this.permissions = new PermissionGate(
-      options.permissionMode ?? "ask",
-      options.onPermissionRequest,
-    );
     this.#system = buildSystemPrompt({ root: this.root, tools: this.tools });
   }
 
@@ -246,8 +235,7 @@ export class Agent {
   }
 
   /**
-   * Parse, gate, then run. Approval is sequential (the UI can only ask one
-   * question at a time); the approved calls then run concurrently.
+   * Parse, then run valid tool calls concurrently.
    */
   async *#executeTools(
     toolUses: ToolUseBlock[],
@@ -278,19 +266,6 @@ export class Agent {
 
       const summary = tool.summarize(input);
       yield { type: "tool_call", id: use.id, name: use.name, summary };
-
-      const verdict = await this.permissions.check(tool, {
-        toolUseId: use.id,
-        toolName: tool.name,
-        risk: tool.risk,
-        summary,
-        input,
-      });
-
-      if (!verdict.allowed) {
-        settled.push(errorResult(use, verdict.reason ?? "denied", "denied"));
-        continue;
-      }
 
       pending.push(async () => {
         try {

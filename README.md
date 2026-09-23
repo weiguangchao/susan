@@ -4,7 +4,7 @@ A code agent in your terminal. TypeScript monorepo, two packages:
 
 | Package | What lives there |
 |---|---|
-| `@susan/harness` | The harness: agent loop, tools, permission gate, conversation state, model providers (Anthropic, OpenAI-compatible, mock). No UI code. |
+| `@susan/harness` | The harness: agent loop, tools, conversation state, model providers (Anthropic, OpenAI-compatible, mock). No UI code. |
 | `@susan/tui` | The terminal UI: Ink components, key handling, slash commands. No model or tool logic. |
 
 The seam between them is an event stream. `agent.run(input)` is an async
@@ -19,7 +19,7 @@ pnpm start                  # or: node packages/tui/dist/cli.js
 ```
 
 With no credentials at all susan falls back to a scripted mock provider - the
-loop, the tools and the approval prompts are all real, only the model is
+loop and tools are real, only the model is
 canned.
 
 ### Options
@@ -28,7 +28,6 @@ canned.
 susan [options]
 
   --cwd <dir>        project root the agent may touch (default: current dir)
-  --mode <mode>      ask | auto | readonly           (default: ask)
   --provider <p>     anthropic | openai | mock       (default: whichever key is set)
   --model <id>       model id
   --base-url <url>   OpenAI-compatible endpoint (implies --provider openai)
@@ -39,7 +38,7 @@ susan [options]
 Headless mode is handy for scripting and for watching the raw event stream:
 
 ```bash
-node packages/tui/dist/cli.js --prompt "what does the harness package do?" --mode auto
+node packages/tui/dist/cli.js --prompt "what does the harness package do?"
 ```
 
 ## Providers
@@ -151,7 +150,7 @@ What they pin down:
 | Batching | every tool result for a turn lands in one user message (Anthropic) / one `tool` message per call (OpenAI) |
 | Stop reasons | `refusal` and truncated `max_tokens` never run the tool; `pause_turn` resumes |
 | Bad input | unparseable tool arguments become an error result, not a wrong call |
-| Permissions | readonly refuses, denial is fed back to the model, approval runs the tool |
+| Tool execution | Valid tool calls run automatically |
 | Invariant | every `tool_use` has a matching `tool_result`, whatever went wrong |
 | Sandbox | `../` and absolute paths rejected; interrupt kills the whole process tree |
 
@@ -160,9 +159,7 @@ What they pin down:
 ```
 enter        send                 esc      interrupt the run
 up / down    input history        ctrl+c   quit
-y / a / n    answer a permission prompt
-
-/help  /tools  /mode <m>  /cost  /clear  /exit
+/help  /tools  /cost  /clear  /exit
 ```
 
 ## Saved sessions
@@ -187,8 +184,7 @@ loaded into the UI on startup.
 | `edit` | write | Exact string replacement, unique match required |
 | `bash` | exec | Run a shell command from the project root |
 
-Safe tools run unattended. `write` and `exec` tools go through the permission
-gate first.
+All tools run automatically after their inputs pass validation.
 
 ## How the loop works
 
@@ -210,8 +206,7 @@ user input
 │     tool_use  → ▼                            │
 │   for each tool_use:                         │
 │     parse input (zod)   ─ bad → error result │
-│     permission gate     ─ deny → error result│
-│     run (approved ones in parallel)          │
+│     run valid calls in parallel              │
 │   append every result in ONE user message    │
 │   loop                                       │
 └──────────────────────────────────────────────┘
@@ -219,7 +214,7 @@ user input
 
 Things the loop takes seriously:
 
-- **Every `tool_use` gets a `tool_result`.** Parse failures, denials and
+- **Every `tool_use` gets a `tool_result`.** Parse failures and
   crashes all come back as error results rather than vanishing - a missing
   result makes the next request malformed.
 - **Model output is untrusted.** Tool inputs are validated with Zod before they
@@ -232,16 +227,10 @@ Things the loop takes seriously:
 - **Results are batched.** All results for one turn go back in a single user
   message, which is what keeps the model making parallel calls.
 
-## Permission modes
+## Tool execution
 
-| Mode | Behaviour |
-|---|---|
-| `ask` | Every write/exec call prompts. `a` adds that tool to a session allowlist. |
-| `auto` | Everything runs unattended. |
-| `readonly` | Write and exec tools are refused, and the model is told why. |
-
-Denials are not silent: the model receives the reason as the tool result and
-is told not to retry the same call.
+Susan runs valid tool calls automatically. The status bar displays `auto mode`.
+Tool inputs are still validated, and file paths must stay inside the project root.
 
 ## Adding a tool
 
@@ -278,7 +267,6 @@ not shuffle between turns.
 packages/harness/src/
   loop.ts              the agent loop
   session.ts           conversation state + token totals
-  permissions.ts       the approval gate
   prompt.ts            system prompt
   paths.ts             project-root confinement
   types.ts             the shared vocabulary
@@ -295,5 +283,5 @@ packages/tui/src/
   use-agent.ts         harness events → React state
   commands.ts          slash commands
   headless.ts          --prompt mode
-  components/          Banner Composer LogView PermissionPrompt StatusBar
+  components/          Banner Composer LogView StatusBar
 ```

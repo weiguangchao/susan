@@ -9,8 +9,7 @@ import type {
 } from "../types.js";
 
 /**
- * A scripted provider that drives the real loop - real tool execution, real
- * permission prompts, real rendering - without an API key. It is for seeing the
+ * A scripted provider that drives the real loop and tools without an API key. It is for seeing the
  * harness work end to end, not for pretending to be a model.
  */
 
@@ -72,8 +71,8 @@ function planTurn(request: TurnRequest): Plan {
       text:
         "Here is what the tool returned:\n\n" +
         summary +
-        "\n\n(This is the mock provider - the loop, the tools and the permission " +
-        "gate above are all real. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or pass " +
+        "\n\n(This is the mock provider - the loop and tools above are real. " +
+        "Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or pass " +
         "--base-url, and restart to use a real model.)",
     };
   }
@@ -83,13 +82,13 @@ function planTurn(request: TurnRequest): Plan {
   if (/(write|create|新建|创建|写)/.test(prompt) && available.has("write")) {
     return {
       thinking: "The user wants a file created, so I will use the write tool.",
-      text: "I'll create a small file so you can see the approval prompt.",
+      text: "I'll create a small file with the write tool.",
       toolUse: {
         name: "write",
         input: {
           path: "susan-demo.txt",
           content:
-            "Written by susan's mock provider.\nThe write went through the permission gate first.\n",
+            "Written by susan's mock provider.\nThe write ran automatically.\n",
         },
       },
     };
@@ -113,15 +112,15 @@ function planTurn(request: TurnRequest): Plan {
 
   if (/(bash|run|test|build|运行|执行|构建)/.test(prompt) && available.has("bash")) {
     return {
-      thinking: "This needs a shell command, which is an exec-risk tool.",
-      text: "Running a shell command - this one needs your approval.",
+      thinking: "This needs a shell command.",
+      text: "Running a shell command.",
       toolUse: { name: "bash", input: { command: "node --version && pwd" } },
     };
   }
 
   if (/(read|读|看看|打开)/.test(prompt) && available.has("read")) {
     return {
-      thinking: "Reading a file is safe and needs no approval.",
+      thinking: "Reading the project manifest will answer this.",
       text: "Reading the project manifest.",
       toolUse: { name: "read", input: { path: "package.json" } },
     };

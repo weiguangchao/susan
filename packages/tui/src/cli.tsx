@@ -9,7 +9,6 @@ import {
   OpenAIProvider,
   resolveSusanHome,
   type ModelProvider,
-  type PermissionMode,
 } from "@susan/harness";
 import { App } from "./App.js";
 import { runHeadless } from "./headless.js";
@@ -17,7 +16,6 @@ import { ModelSelection } from "./model-selection.js";
 
 interface Options {
   root: string;
-  mode: PermissionMode;
   model?: string;
   provider?: string;
   baseUrl?: string;
@@ -33,7 +31,6 @@ usage
 
 options
   --cwd <dir>        project root the agent may touch (default: current dir)
-  --mode <mode>      ask | auto | readonly   (default: ask)
   --provider <p>     configured provider name; without config: anthropic | openai | mock
   --model <id>       model id
   --base-url <url>   custom endpoint; implies --provider openai unless
@@ -66,7 +63,6 @@ examples
 function parseArgs(argv: string[]): Options {
   const options: Options = {
     root: process.cwd(),
-    mode: "ask",
     help: false,
   };
 
@@ -76,15 +72,6 @@ function parseArgs(argv: string[]): Options {
     switch (arg) {
       case "--cwd":
         if (value) options.root = path.resolve(value);
-        i++;
-        break;
-      case "--mode":
-        if (value === "ask" || value === "auto" || value === "readonly") {
-          options.mode = value;
-        } else {
-          console.error(`susan: invalid --mode ${value ?? ""}`);
-          process.exit(2);
-        }
         i++;
         break;
       case "--model":
@@ -200,7 +187,6 @@ async function main(): Promise<void> {
     const code = await runHeadless({
       root: options.root,
       provider,
-      mode: options.mode,
       prompt: options.prompt,
     });
     process.exit(code);
@@ -217,7 +203,6 @@ async function main(): Promise<void> {
     <App
       root={options.root}
       provider={provider}
-      mode={options.mode}
       mocked={mocked}
       selection={selection}
     />,

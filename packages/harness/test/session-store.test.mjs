@@ -38,7 +38,6 @@ describe("session persistence", () => {
       const agent = new Agent({
         root: home,
         provider,
-        onPermissionRequest: async () => "deny",
         sessionHome: home,
       });
       await run(agent, "first");
@@ -81,7 +80,6 @@ describe("session persistence", () => {
       const agent = new Agent({
         root: home,
         provider: new MockProvider(),
-        onPermissionRequest: async () => "deny",
         sessionHome: home,
       });
       await run(agent, "hello");

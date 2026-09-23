@@ -7,7 +7,6 @@ export interface StatusBarProps {
   busy: boolean;
   status: string;
   usage: Usage;
-  mode: string;
   model?: string;
 }
 
@@ -16,7 +15,7 @@ function compact(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-export function StatusBar({ busy, status, usage, mode, model }: StatusBarProps) {
+export function StatusBar({ busy, status, usage, model }: StatusBarProps) {
   return (
     <Box paddingX={1} justifyContent="space-between">
       <Box>
@@ -27,7 +26,7 @@ export function StatusBar({ busy, status, usage, mode, model }: StatusBarProps) 
           </>
         ) : (
           <Text color={theme.muted}>
-            {mode} mode{model ? ` · ${model}` : ""} · enter to send · esc to interrupt
+            auto mode{model ? ` · ${model}` : ""} · enter to send · esc to interrupt
           </Text>
         )}
       </Box>

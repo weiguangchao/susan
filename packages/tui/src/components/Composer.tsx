@@ -9,9 +9,7 @@ export interface ComposerProps {
 }
 
 /**
- * A single-line editor. Written by hand rather than pulled in as a dependency
- * so the key handling stays predictable next to the permission prompt, which
- * competes for the same keystrokes.
+ * A single-line editor with predictable key handling for input and history.
  */
 export function Composer({ isActive, placeholder, onSubmit }: ComposerProps) {
   const [value, setValue] = useState("");

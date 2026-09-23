@@ -1,7 +1,6 @@
 export * from "./types.js";
 export { Agent, type AgentOptions } from "./loop.js";
 export { Session, SessionStore, resolveSusanHome } from "./session/index.js";
-export { PermissionGate, type PermissionVerdict } from "./permissions.js";
 export { buildSystemPrompt } from "./prompt.js";
 export { displayPath, resolveInRoot } from "./paths.js";
 export {

@@ -44,8 +44,7 @@ after(async () => { await new Promise((resolve) => server.close(resolve)); });
 it("sends Responses function calls and results with configured reasoning", async () => {
   const provider = new ResponsesProvider({ model: "test-model", baseURL: url,
     apiKey: "test", maxTokens: 500, reasoningEffort: "high" });
-  const agent = new Agent({ root: process.cwd(), provider, permissionMode: "auto",
-    onPermissionRequest: async () => "allow" });
+  const agent = new Agent({ root: process.cwd(), provider });
   const events = [];
   for await (const event of agent.run("list files")) events.push(event);
   assert.equal(events.find((event) => event.type === "done")?.reason, "end_turn");
@@ -67,7 +66,7 @@ it("loads confg.json through the CLI and sends its model settings", async () => 
     } }));
     const beforeCount = requests.length;
     const { stdout } = await execFileAsync(process.execPath,
-      [path.resolve("packages/tui/dist/cli.js"), "--prompt", "list files", "--mode", "auto"],
+      [path.resolve("packages/tui/dist/cli.js"), "--prompt", "list files"],
       { env: { ...process.env, SUSAN_HOME: home }, cwd: process.cwd() });
     assert.match(stdout, /Done\./);
     assert.equal(requests[beforeCount].payload.model, "configured-model");

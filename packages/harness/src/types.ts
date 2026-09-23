@@ -65,7 +65,7 @@ export type Message = UserMessage | AssistantMessage;
 // Tools
 // ---------------------------------------------------------------------------
 
-/** How much damage a tool can do. Drives the permission gate. */
+/** Tool impact classification, available to clients inspecting the tool list. */
 export type ToolRisk = "safe" | "write" | "exec";
 
 export interface ToolContext {
@@ -90,35 +90,10 @@ export interface Tool<Input = unknown> {
   risk: ToolRisk;
   /** Validates and narrows the model's raw input; throws on bad input. */
   parse(raw: unknown): Input;
-  /** One-line rendering of a call, shown in the log and permission prompt. */
+  /** One-line rendering of a call, shown in the log. */
   summarize(input: Input): string;
   run(input: Input, ctx: ToolContext): Promise<ToolResult>;
 }
-
-// ---------------------------------------------------------------------------
-// Permissions
-// ---------------------------------------------------------------------------
-
-/**
- * ask      - every write/exec tool needs confirmation
- * auto     - everything runs unattended
- * readonly - write/exec tools are refused outright
- */
-export type PermissionMode = "ask" | "auto" | "readonly";
-
-export interface PermissionRequest {
-  toolUseId: string;
-  toolName: string;
-  risk: ToolRisk;
-  summary: string;
-  input: unknown;
-}
-
-export type PermissionDecision = "allow" | "allow_always" | "deny";
-
-export type PermissionHandler = (
-  request: PermissionRequest,
-) => Promise<PermissionDecision>;
 
 // ---------------------------------------------------------------------------
 // Events emitted by the agent loop

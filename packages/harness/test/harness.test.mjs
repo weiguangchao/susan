@@ -43,8 +43,8 @@ after(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-function makeAgent(provider, mode = "auto", onPermissionRequest = async () => "allow") {
-  return new Agent({ root, provider, permissionMode: mode, onPermissionRequest });
+function makeAgent(provider) {
+  return new Agent({ root, provider });
 }
 
 describe("anthropic provider", () => {
@@ -194,37 +194,18 @@ describe("openai-compatible provider", () => {
   });
 });
 
-describe("permission gate", () => {
-  it("refuses write tools in readonly mode and tells the model why", async () => {
-    const agent = makeAgent(new MockProvider(), "readonly");
-    const run = await collect(agent, "create a file");
-    assert.equal(run.tools[0].ok, false);
-    const lastUser = agent.session.messages.at(-2);
-    const result = lastUser.content.find((b) => b.type === "tool_result");
-    assert.match(result.content, /read-only mode/);
-    await assert.rejects(fs.stat(path.join(root, "susan-demo.txt")));
-  });
-
-  it("feeds a denial back as a tool result instead of dropping it", async () => {
-    const agent = makeAgent(new MockProvider(), "ask", async () => "deny");
-    const run = await collect(agent, "create a file");
-    assert.equal(run.tools[0].ok, false);
-    const lastUser = agent.session.messages.at(-2);
-    const result = lastUser.content.find((b) => b.type === "tool_result");
-    assert.match(result.content, /declined/);
-  });
-
-  it("runs the tool once approved", async () => {
-    const agent = makeAgent(new MockProvider(), "ask", async () => "allow");
+describe("automatic tool execution", () => {
+  it("runs write tools by default", async () => {
+    const agent = makeAgent(new MockProvider());
     const run = await collect(agent, "create a file");
     assert.ok(run.tools[0].ok);
     const written = await fs.readFile(path.join(root, "susan-demo.txt"), "utf8");
-    assert.match(written, /permission gate/);
+    assert.match(written, /ran automatically/);
     await fs.rm(path.join(root, "susan-demo.txt"));
   });
 
   it("keeps a tool_result for every tool_use, whatever happened", async () => {
-    const agent = makeAgent(new MockProvider(), "readonly");
+    const agent = makeAgent(new MockProvider());
     await collect(agent, "run a command");
     for (const message of agent.session.messages) {
       if (message.role !== "assistant") continue;

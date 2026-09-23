@@ -4,6 +4,8 @@ import {
   type ModelChoice, type ModelPreferences, type ModelProvider,
 } from "@susan/harness";
 
+const LAST_USED_MODEL = "lastUsedModel";
+
 export class ModelSelection {
   readonly choices: ModelChoice[];
   readonly #preferences: ModelPreferences;
@@ -16,7 +18,11 @@ export class ModelSelection {
     this.choices = choices;
     this.#preferences = preferences;
     this.#home = home;
-    this.#effort = this.#selectEffort(choices[0]!);
+    const lastUsed = preferences[LAST_USED_MODEL];
+    const savedIndex = choices.findIndex((choice) =>
+      `${choice.providerName}/${choice.model.id}` === lastUsed);
+    this.#index = savedIndex < 0 ? 0 : savedIndex;
+    this.#effort = this.#selectEffort(this.current);
   }
 
   get current(): ModelChoice { return this.choices[this.#index]!; }
@@ -56,6 +62,11 @@ export class ModelSelection {
     const snapshot = { ...this.#preferences };
     this.#saving = this.#saving.catch(() => {}).then(() => saveModelPreferences(snapshot, this.#home));
     return this.#saving;
+  }
+
+  recordUse(): Promise<void> {
+    this.#preferences[LAST_USED_MODEL] = this.key;
+    return this.save();
   }
 
   provider(): ModelProvider {

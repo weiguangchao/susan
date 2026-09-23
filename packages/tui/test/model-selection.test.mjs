@@ -52,6 +52,36 @@ it("remembers each model's reasoning level when switching and after restart", as
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+it("restores only the last model used for a session", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "susan-last-model-"));
+  try {
+    const choices = modelChoices({ providers: {
+      gateway: { type: "responses", baseUrl: "http://localhost:1234/v1", apiKey: "test",
+        model: [
+          { name: "A", id: "a", contextWindow: 10000, outputToken: 1000 },
+          { name: "B", id: "b", contextWindow: 10000, outputToken: 1000 },
+        ] },
+    } });
+    const selection = new ModelSelection(choices, {}, home);
+    selection.select("gateway/b");
+    await selection.save();
+    assert.equal(new ModelSelection(choices, await loadModelPreferences(home), home).key, "gateway/a");
+
+    await selection.recordUse();
+    assert.equal((await loadModelPreferences(home)).lastUsedModel, "gateway/b");
+    const restored = new ModelSelection(choices, await loadModelPreferences(home), home);
+    assert.equal(restored.key, "gateway/b");
+    restored.select("gateway/a");
+    await restored.save();
+    assert.equal(new ModelSelection(choices, await loadModelPreferences(home), home).key, "gateway/b");
+
+    await restored.recordUse();
+    assert.equal(new ModelSelection(choices, await loadModelPreferences(home), home).key, "gateway/a");
+    assert.equal(new ModelSelection(choices.slice(0, 1), await loadModelPreferences(home), home).key, "gateway/a");
+    assert.equal(new ModelSelection(choices.slice(1), await loadModelPreferences(home), home).key, "gateway/b");
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 it("sends none explicitly and omits effort for default", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "susan-effort-"));
   const fake = await startFakeOpenAI();

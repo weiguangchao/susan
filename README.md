@@ -93,6 +93,9 @@ choose. Susan saves each provider/model's selected level in
 `model-state.json` under Susan Home and restores it on the next switch or run.
 Until a level is selected, Susan omits the effort field and lets the provider
 choose its default.
+After a TUI conversation starts, Susan also saves its model in `model-state.json`
+and selects that model on the next launch. Selecting a model without sending a
+message does not change the next launch's default.
 When there is no configuration file, the CLI and environment behavior below
 still applies.
 

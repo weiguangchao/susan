@@ -23,7 +23,7 @@ type StaticEntry = { kind: "banner"; id: "banner" } | LogItem;
 export function App({ root, provider, mocked, selection }: AppProps) {
   const { exit } = useApp();
   const [, refreshModel] = useState(0);
-  const view = useAgent({ root, provider });
+  const view = useAgent({ root, provider, onSessionStarted: () => selection?.recordUse() ?? Promise.resolve() });
 
   // The banner scrolls with the transcript instead of being re-painted every
   // frame, so it has to live inside <Static> as the first entry.

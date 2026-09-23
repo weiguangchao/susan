@@ -10,6 +10,7 @@ import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
 export interface UseAgentOptions {
   root: string;
   provider: ModelProvider;
+  onSessionStarted?: () => Promise<void>;
 }
 
 export interface AgentView {
@@ -116,6 +117,20 @@ export function useAgent(options: UseAgentOptions): AgentView {
         try {
           for await (const event of agent.run(input)) {
             switch (event.type) {
+              case "turn_start":
+                if (event.turn === 1) {
+                  try { await options.onSessionStarted?.(); }
+                  catch (error) {
+                    appendLive({
+                      kind: "notice",
+                      id: nextItemId("notice"),
+                      level: "error",
+                      text: `could not save last used model: ${(error as Error).message}`,
+                    });
+                  }
+                }
+                break;
+
               case "text_delta":
                 applyStream(streamRef.current + event.text);
                 setStatus("responding");
@@ -232,7 +247,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
         }
       })();
     },
-    [agent, appendLive, applyLive, applyStream, updateTool],
+    [agent, appendLive, applyLive, applyStream, options.onSessionStarted, updateTool],
   );
 
   const interrupt = useCallback(() => {

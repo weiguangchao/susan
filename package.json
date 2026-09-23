@@ -9,8 +9,8 @@
     "build": "tsc --build",
     "typecheck": "tsc --build --force",
     "clean": "tsc --build --clean",
-    "start": "pnpm --filter @susan/tui start",
-    "dev": "pnpm build && pnpm --filter @susan/tui start",
+    "start": "SUSAN_HOME=\"${SUSAN_HOME:-$(pwd)/../.susan}\" pnpm --filter @susan/tui start",
+    "dev": "pnpm build && SUSAN_HOME=\"${SUSAN_HOME:-$(pwd)/../.susan}\" pnpm --filter @susan/tui start",
     "test": "pnpm build && node --test \"packages/harness/test/*.test.mjs\""
   },
   "engines": {

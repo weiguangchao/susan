@@ -119,6 +119,17 @@ y / a / n    answer a permission prompt
 /help  /tools  /mode <m>  /cost  /clear  /exit
 ```
 
+## Saved sessions
+
+Susan saves each conversation as JSONL under `SUSAN_HOME/session/YYYY/MM/`.
+`SUSAN_HOME` defaults to `~/.susan`. The repository's `pnpm start` and
+`pnpm dev` scripts set it to `.susan` in the repository's parent directory.
+Filenames start with local date and time and end with a random number.
+The first line records the session and project root; following lines record
+user messages, assistant messages, tool results, and per-turn token usage.
+`/clear` starts a new file on the next message. Saved sessions are not yet
+loaded into the UI on startup.
+
 ## Tools
 
 | Tool | Risk | What it does |

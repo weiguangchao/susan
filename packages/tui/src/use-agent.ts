@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import {
   Agent,
+  resolveSusanHome,
   type ModelProvider,
   type PermissionDecision,
   type PermissionHandler,
@@ -90,6 +91,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
         root: options.root,
         provider: options.provider,
         permissionMode: options.permissionMode,
+        sessionHome: resolveSusanHome(),
         onPermissionRequest: (request) => permissionHandler.current(request),
       }),
   );
@@ -279,7 +281,11 @@ export function useAgent(options: UseAgentOptions): AgentView {
   }, [agent, answerPermission]);
 
   const reset = useCallback(() => {
-    agent.session.clear();
+    if (agent.busy) {
+      pushNotice("warn", "wait for the current run before clearing the session");
+      return;
+    }
+    agent.clearSession();
     liveRef.current = [];
     streamRef.current = "";
     setHistory([]);
@@ -287,7 +293,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
     setStreamingText("");
     setThinkingText("");
     setUsage(EMPTY_USAGE);
-  }, [agent]);
+  }, [agent, pushNotice]);
 
   return {
     agent,

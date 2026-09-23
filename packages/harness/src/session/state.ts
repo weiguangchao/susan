@@ -5,7 +5,7 @@ import type {
   ProviderRaw,
   ToolResultBlock,
   Usage,
-} from "./types.js";
+} from "../types.js";
 
 const EMPTY_USAGE: Usage = {
   inputTokens: 0,

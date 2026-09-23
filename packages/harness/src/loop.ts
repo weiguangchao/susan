@@ -1,6 +1,6 @@
 import { buildSystemPrompt } from "./prompt.js";
 import { PermissionGate } from "./permissions.js";
-import { Session } from "./session.js";
+import { Session, SessionStore } from "./session/index.js";
 import { builtinTools, toolByName } from "./tools/index.js";
 import type {
   AgentEvent,
@@ -23,6 +23,8 @@ export interface AgentOptions {
   onPermissionRequest: PermissionHandler;
   /** Safety valve against a runaway loop. */
   maxTurns?: number;
+  /** Persist conversation messages under this Susan home directory. */
+  sessionHome?: string;
 }
 
 interface ExecutedTool {
@@ -49,12 +51,18 @@ export class Agent {
   #maxTurns: number;
   #system: string;
   #abort: AbortController | null = null;
+  #sessionHome?: string;
+  #store?: SessionStore;
 
   constructor(options: AgentOptions) {
     this.root = options.root;
     this.#provider = options.provider;
     this.tools = options.tools ?? builtinTools;
     this.#maxTurns = options.maxTurns ?? 40;
+    this.#sessionHome = options.sessionHome;
+    if (this.#sessionHome) {
+      this.#store = new SessionStore(this.#sessionHome, this.root);
+    }
     this.permissions = new PermissionGate(
       options.permissionMode ?? "ask",
       options.onPermissionRequest,
@@ -80,6 +88,14 @@ export class Agent {
     this.#abort?.abort();
   }
 
+  clearSession(): void {
+    if (this.busy) throw new Error("cannot clear a running session");
+    this.session.clear();
+    if (this.#sessionHome) {
+      this.#store = new SessionStore(this.#sessionHome, this.root);
+    }
+  }
+
   async *run(input: string): AsyncGenerator<AgentEvent> {
     if (this.busy) {
       yield { type: "notice", level: "warn", message: "already running" };
@@ -88,9 +104,14 @@ export class Agent {
 
     const controller = new AbortController();
     this.#abort = controller;
-    this.session.pushUserText(input);
 
     try {
+      const userMessage = {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: input }],
+      };
+      await this.#store?.append(userMessage);
+      this.session.pushUserText(input);
       for (let turn = 1; turn <= this.#maxTurns; turn++) {
         yield { type: "turn_start", turn };
 
@@ -145,6 +166,10 @@ export class Agent {
           return;
         }
 
+        await this.#store?.append(
+          { role: "assistant", content: final.content, raw: final.raw },
+          final.usage,
+        );
         this.session.addUsage(final.usage);
         this.session.pushAssistant(final.content, final.raw);
         yield { type: "usage", usage: final.usage, total: this.session.usage };
@@ -201,7 +226,9 @@ export class Agent {
           return;
         }
 
-        this.session.pushToolResults(executed.map((item) => item.block));
+        const results = executed.map((item) => item.block);
+        await this.#store?.append({ role: "user", content: results });
+        this.session.pushToolResults(results);
         for (const item of executed) {
           yield item.event;
         }

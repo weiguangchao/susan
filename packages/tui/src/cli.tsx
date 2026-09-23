@@ -52,6 +52,7 @@ environment
   OPENAI_BASE_URL     default endpoint for the openai provider
   SUSAN_MODEL         default model id for anthropic
   SUSAN_OPENAI_MODEL  default model id for openai
+  SUSAN_HOME          session storage directory (default: ~/.susan)
 
 examples
   susan                                        # pick from the environment

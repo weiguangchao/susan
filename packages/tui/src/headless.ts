@@ -1,5 +1,6 @@
 import {
   Agent,
+  resolveSusanHome,
   type ModelProvider,
   type PermissionMode,
 } from "@susan/harness";
@@ -20,6 +21,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     root: options.root,
     provider: options.provider,
     permissionMode: options.mode,
+    sessionHome: resolveSusanHome(),
     onPermissionRequest: async (request) => {
       // There is nobody to ask in headless mode: --mode auto is the way to
       // opt in to unattended writes and commands.

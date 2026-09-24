@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ModelProvider } from "@susan/harness";
 import { Banner, bannerRows } from "./components/Banner.js";
@@ -22,7 +22,7 @@ export interface AppProps {
   inputHistory: InputHistory;
 }
 
-type SpacerEntry = { kind: "spacer"; id: string; rows: number; afterHistory: number };
+type SpacerEntry = { kind: "spacer"; id: "spacer"; rows: number };
 type StaticEntry = { kind: "banner"; id: "banner" } | SpacerEntry | LogItem;
 const footerRows = 5; // Composer: 3, StatusBar: 2.
 
@@ -32,45 +32,27 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
   const terminalFocused = useTerminalFocus();
   const [, refreshModel] = useState(0);
   const view = useAgent({ root, provider, onSessionStarted: () => selection?.recordUse() ?? Promise.resolve() });
-  const historyCount = useRef(view.history.length);
-  historyCount.current = view.history.length;
-  const previousRows = useRef(stdout.rows ?? 24);
-  const resizeId = useRef(0);
-  const [resizeSpacers, setResizeSpacers] = useState<SpacerEntry[]>([]);
+  const [resizeVersion, setResizeVersion] = useState(0);
   const modelLabel = selection?.label ?? provider.label;
   // Print the initial gap once. Static preserves it in scrollback as output grows.
   const spacerRows = Math.max(0,
     (stdout.rows ?? 24) - bannerRows(root, modelLabel, mocked, stdout.columns ?? 80) - footerRows);
 
   useEffect(() => {
-    const onResize = () => {
-      const rows = stdout.rows ?? previousRows.current;
-      const added = rows - previousRows.current;
-      previousRows.current = rows;
-      if (added > 0) setResizeSpacers((items) => [...items, {
-        kind: "spacer", id: `resize-${++resizeId.current}`,
-        rows: added, afterHistory: historyCount.current,
-      }]);
-    };
+    const onResize = () => setResizeVersion((version) => version + 1);
     stdout.on("resize", onResize);
     return () => { stdout.off("resize", onResize); };
   }, [stdout]);
 
   // The banner scrolls with the transcript instead of being re-painted every
   // frame, so it has to live inside <Static> as the first entry.
-  const staticEntries: StaticEntry[] = useMemo(
-    () => {
-      const entries: StaticEntry[] = [
-        { kind: "banner", id: "banner" },
-        { kind: "spacer", id: "spacer", rows: spacerRows, afterHistory: 0 },
-      ];
-      for (let index = 0; index <= view.history.length; index++) {
-        entries.push(...resizeSpacers.filter((item) => item.afterHistory === index));
-        if (index < view.history.length) entries.push(view.history[index]!);
-      }
-      return entries;
-    },
-    [view.history, resizeSpacers, spacerRows],
+  const staticEntries = useMemo<StaticEntry[]>(
+    () => [
+      { kind: "banner", id: "banner" },
+      { kind: "spacer", id: "spacer", rows: spacerRows },
+      ...view.history,
+    ],
+    [view.history, spacerRows],
   );
 
   useInput(
@@ -103,7 +85,7 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
 
   return (
     <Box flexDirection="column">
-      <Static items={staticEntries}>
+      <Static key={resizeVersion} items={staticEntries}>
         {(entry) =>
           entry.kind === "banner" ? (
             <Banner

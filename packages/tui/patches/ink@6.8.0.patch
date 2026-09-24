@@ -149,7 +149,28 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          this.cursorPosition = undefined;
          this.throttledLog = unthrottled
              ? this.log
-@@ -231,6 +233,26 @@ export default class Ink {
+@@ -205,12 +207,14 @@ export default class Ink {
+     resized = () => {
+         const currentWidth = this.getTerminalWidth();
+-        if (currentWidth < this.lastTerminalWidth) {
+-            // We clear the screen when decreasing terminal width to prevent duplicate overlapping re-renders.
+-            this.log.clear();
+-            this.lastOutput = '';
+-            this.lastOutputToRender = '';
+-        }
++        // Static content is re-rendered by the app at the new terminal width.
++        // Drop the old, already-wrapped output before that render arrives.
++        this.log.clear();
++        this.fullStaticOutput = '';
++        this.options.stdout.write(ansiEscapes.clearTerminal);
++        this.lastOutput = '';
++        this.lastOutputToRender = '';
++        this.lastOutputHeight = 0;
+         this.calculateLayout();
+         this.onRender();
+         this.lastTerminalWidth = currentWidth;
+     };
+@@ -231,6 +235,26 @@ export default class Ink {
          this.cursorPosition = position;
          this.log.setCursorPosition(position);
      };
@@ -176,7 +197,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
      restoreLastOutput = () => {
          // Clear() resets log-update's cursor state, so replay the latest cursor intent
          // before restoring output after external stdout/stderr writes.
-@@ -247,6 +269,7 @@ export default class Ink {
+@@ -247,6 +271,7 @@ export default class Ink {
          if (this.isUnmounted) {
              return;
          }
@@ -184,7 +205,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          const startTime = performance.now();
          const { output, outputHeight, staticOutput } = render(this.rootNode, this.isScreenReaderEnabled);
          this.options.onRender?.({ renderTime: performance.now() - startTime });
-@@ -319,22 +342,33 @@ export default class Ink {
+@@ -319,22 +344,33 @@ export default class Ink {
          // Only apply when writing to a real TTY — piped output always gets trailing newlines.
 -        const isFullscreen = this.options.stdout.isTTY && outputHeight >= this.options.stdout.rows;
 +        const staticHeight = this.fullStaticOutput ? this.fullStaticOutput.split('\n').length - 1 : 0;
@@ -222,7 +243,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          if (hasStaticOutput) {
              const sync = shouldSynchronize(this.options.stdout);
              if (sync) {
-@@ -349,15 +382,15 @@ export default class Ink {
+@@ -349,15 +384,15 @@ export default class Ink {
          }
          else if (output !== this.lastOutput || this.log.isCursorDirty()) {
              // ThrottledLog manages its own bsu/esu at actual write time

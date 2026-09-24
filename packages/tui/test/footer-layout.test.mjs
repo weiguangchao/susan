@@ -49,18 +49,28 @@ for (const { rows, columns, mocked } of [
       assert.equal(staticOutput.split("\n").length - 1 + footer.split("\n").length, rows);
       assert.equal(footer.endsWith("\n"), false, "bottom row must not scroll away");
       if (columns === 80 && rows === 24 && mocked) {
+        const beforeShrink = frames.length;
         stdout.rows = 20; stdout.emit("resize");
         await new Promise((resolve) => setTimeout(resolve, 30));
+        const shrinkOutput = frames.slice(beforeShrink).join("");
+        assert.match(shrinkOutput, /\x1b\[2J/, "resize must clear the old input box");
+        assert.match(shrinkOutput, /ask susan to do something/, "resize must redraw the input box");
         const after = frames.length;
         stdout.rows = 28; stdout.emit("resize");
         const deadline = Date.now() + 1000;
-        while (!frames.slice(after).includes("\n".repeat(8))) {
-          assert.ok(Date.now() < deadline, "expanded terminal was not padded");
+        while (!frames.slice(after).some((frame) => frame.includes("▌ susan"))) {
+          assert.ok(Date.now() < deadline, "expanded terminal history was not redrawn");
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
-        const resizeFooter = frames.slice(after).find((frame) => frame.includes("ask susan to do something"));
+        const resizeFooter = frames.slice(after).filter((frame) => frame.includes("ask susan to do something")).at(-1);
         assert.ok(resizeFooter?.includes("/tmp/project"));
         assert.equal(resizeFooter.endsWith("\n"), false);
+        assert.match(frames.slice(after).join(""), /\x1b\[2J/, "expansion must clear the old input box");
+        const beforeSameSize = frames.length;
+        stdout.emit("resize");
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.match(frames.slice(beforeSameSize).join(""), /\x1b\[2J/,
+          "a resize event must clear stale input even when dimensions do not change");
       }
     } finally {
       app.unmount();

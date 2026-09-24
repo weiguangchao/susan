@@ -65,6 +65,8 @@ test("reasoning streams in full, then stays in the transcript as its own block",
     // old sliding tail would have cut it off.
     const streaming = await waitForFrame(session.frames, /Thinking · \d/);
     assert.match(streaming, new RegExp(OPENING.replace(/\./g, "\\.")));
+    assert.ok(streaming.replace(/\s/g, "").includes(FILLER.replace(/\s/g, "")),
+      "the active frame keeps the whole reasoning stream");
     assert.match(streaming, /Working · \d/);
 
     gates.firstBlock.release();

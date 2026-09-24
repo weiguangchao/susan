@@ -35,7 +35,7 @@ export { MockProvider } from "./providers/mock.js";
 export { ResponsesProvider, type ResponsesProviderOptions } from "./providers/responses.js";
 export {
   DEFAULT_REASONING_EFFORT, reasoningChoices, modelChoices,
-  loadModelConfig, loadModelPreferences, saveModelPreferences,
+  loadModelConfig, loadModelPreferences, saveModelPreferences, createProvider,
   DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKEN, discoverModels, fetchProviderModels, modelFromListing,
   type ModelChoice, type ModelConfig, type ProviderConfig, type ProviderType,
   type SusanConfig, type ModelPreferences,

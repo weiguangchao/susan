@@ -1,6 +1,5 @@
 import {
-  AnthropicProvider, OpenAIProvider, ResponsesProvider,
-  saveModelPreferences,
+  createProvider, saveModelPreferences,
   type ModelChoice, type ModelPreferences, type ModelProvider,
 } from "@susan/harness";
 
@@ -69,32 +68,7 @@ export class ModelSelection {
   }
 
   provider(): ModelProvider {
-    const { provider, model, efforts } = this.current;
-    const effort = this.#effort ? efforts[this.#effort] : undefined;
-    const providerId = `${provider.type}:${this.key}`;
-    switch (provider.type) {
-      case "anthropic":
-        return new AnthropicProvider({
-          providerId,
-          model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
-          maxTokens: model.outputToken,
-          ...(effort ? { effort: effort as "low" | "medium" | "high" | "xhigh" | "max" } : {}),
-        });
-      case "responses":
-        return new ResponsesProvider({
-          providerId,
-          model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
-          maxTokens: model.outputToken,
-          ...(effort ? { reasoningEffort: effort } : {}),
-        });
-      case "openai-completion":
-        return new OpenAIProvider({
-          providerId,
-          model: model.id, baseURL: provider.baseUrl, apiKey: provider.apiKey,
-          maxTokens: model.outputToken,
-          ...(effort ? { reasoningEffort: effort } : {}),
-        });
-    }
+    return createProvider(this.current, this.#effort);
   }
 
   #selectEffort(choice: ModelChoice): string | undefined {

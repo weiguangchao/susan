@@ -8,4 +8,5 @@ export { modelChoices, loadModelConfig } from "./config.js";
 export {
   DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKEN, discoverModels, fetchProviderModels, modelFromListing,
 } from "./discovery.js";
+export { createProvider } from "./provider.js";
 export { loadModelPreferences, saveModelPreferences, type ModelPreferences } from "./preferences.js";

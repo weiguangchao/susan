@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import type { ModelConfig, ProviderConfig } from "./model-config.js";
+import type { ModelConfig, ProviderConfig } from "./schema.js";
 
 /** Used when the models endpoint does not report a model's limits. */
 export const DEFAULT_CONTEXT_WINDOW = 128_000;

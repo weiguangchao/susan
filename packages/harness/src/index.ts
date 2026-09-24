@@ -35,9 +35,7 @@ export { ResponsesProvider, type ResponsesProviderOptions } from "./providers/re
 export {
   DEFAULT_REASONING_EFFORT, reasoningChoices, modelChoices,
   loadModelConfig, loadModelPreferences, saveModelPreferences,
+  DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKEN, discoverModels, fetchProviderModels, modelFromListing,
   type ModelChoice, type ModelConfig, type ProviderConfig, type ProviderType,
   type SusanConfig, type ModelPreferences,
-} from "./model-config.js";
-export {
-  DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKEN, discoverModels, fetchProviderModels, modelFromListing,
-} from "./model-discovery.js";
+} from "./model/index.js";

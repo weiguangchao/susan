@@ -301,6 +301,7 @@ packages/harness/src/
   prompt.ts            system prompt
   paths.ts             project-root confinement
   types.ts             the shared vocabulary
+  model/               model config, model discovery, reasoning levels, model preferences
   tools/               read write edit ls grep bash
   providers/           anthropic.ts, openai.ts, mock.ts
 

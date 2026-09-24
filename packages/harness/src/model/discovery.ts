@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { writeFileAtomic } from "../atomic-write.js";
 import type { ModelConfig, ProviderConfig } from "./schema.js";
 
 /** Used when the models endpoint does not report a model's limits. */
@@ -61,16 +61,8 @@ async function readCache(file: string): Promise<ModelCache> {
   }
 }
 
-async function writeCache(file: string, cache: ModelCache): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temp = `${file}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temp, JSON.stringify(cache, null, 2) + "\n", { mode: 0o600 });
-    await rename(temp, file);
-  } catch (error) {
-    await rm(temp, { force: true });
-    throw error;
-  }
+function writeCache(file: string, cache: ModelCache): Promise<void> {
+  return writeFileAtomic(file, JSON.stringify(cache, null, 2) + "\n");
 }
 
 /**

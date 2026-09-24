@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "../atomic-write.js";
 import { resolveSusanHome } from "../session/store.js";
 
 export type ModelPreferences = Record<string, string>;
@@ -17,14 +17,5 @@ export async function loadModelPreferences(home = resolveSusanHome()): Promise<M
 }
 
 export async function saveModelPreferences(preferences: ModelPreferences, home = resolveSusanHome()): Promise<void> {
-  await mkdir(home, { recursive: true, mode: 0o700 });
-  const file = path.join(home, "model-state.json");
-  const temp = `${file}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temp, JSON.stringify(preferences, null, 2) + "\n", { mode: 0o600 });
-    await rename(temp, file);
-  } catch (error) {
-    await rm(temp, { force: true });
-    throw error;
-  }
+  await writeFileAtomic(path.join(home, "model-state.json"), JSON.stringify(preferences, null, 2) + "\n");
 }

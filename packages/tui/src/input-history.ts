@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@susan/harness";
 
 const LIMIT = 100;
 
@@ -41,16 +41,7 @@ export class InputHistory {
     return this.#saving;
   }
 
-  async #save(entries: string[]): Promise<void> {
-    await mkdir(this.#home, { recursive: true, mode: 0o700 });
-    const file = path.join(this.#home, "input-history.json");
-    const temp = `${file}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temp, JSON.stringify(entries) + "\n", { mode: 0o600 });
-      await rename(temp, file);
-    } catch (error) {
-      await rm(temp, { force: true });
-      throw error;
-    }
+  #save(entries: string[]): Promise<void> {
+    return writeFileAtomic(path.join(this.#home, "input-history.json"), JSON.stringify(entries) + "\n");
   }
 }

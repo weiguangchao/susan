@@ -99,15 +99,18 @@ export function useAgent(options: UseAgentOptions): AgentView {
     [applyLive],
   );
 
-  /** Move the open reasoning block, if any, into the run with its timer stopped. */
-  const commitReasoning = useCallback(() => {
+  /**
+   * Move the open reasoning block, if any, into the run with its timer stopped.
+   * `text` is the harness's whole block; without it, what streamed so far.
+   */
+  const commitReasoning = useCallback((text?: string) => {
     const open = reasoningRef.current;
     if (!open) return;
     applyReasoning(null);
     appendLive({
       kind: "reasoning",
       id: nextItemId("reasoning"),
-      text: open.text,
+      text: text ?? open.text,
       ms: Date.now() - open.startedAt,
     });
   }, [appendLive, applyReasoning]);
@@ -168,7 +171,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
               }
 
               case "thinking_end":
-                commitReasoning();
+                commitReasoning(event.text);
                 break;
 
               case "text_end":

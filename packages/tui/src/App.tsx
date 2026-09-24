@@ -3,14 +3,16 @@ import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { ModelProvider } from "@susan/harness";
 import { Banner, bannerRows } from "./components/Banner.js";
 import { Composer } from "./components/Composer.js";
-import { LogEntry, LogList } from "./components/LogView.js";
+import { Elapsed } from "./components/Elapsed.js";
+import { LogEntry, LogList, ReasoningBlock } from "./components/LogView.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { Spinner } from "./components/Spinner.js";
+import { TimedLabel } from "./components/TimedLabel.js";
 import { runCommand } from "./commands.js";
 import { InputHistory } from "./input-history.js";
 import { ModelSelection } from "./model-selection.js";
 import type { LogItem } from "./session-state.js";
-import { glyphs, theme } from "./theme.js";
+import { theme } from "./theme.js";
 import { useAgent } from "./use-agent.js";
 import { useTerminalFocus } from "./use-terminal-focus.js";
 
@@ -104,13 +106,11 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
 
       <LogList items={view.live} />
 
-      {view.thinkingText ? (
-        <Box marginBottom={1}>
-          <Text color={theme.thinking}>{glyphs.thinking} </Text>
-          <Text color={theme.thinking} dimColor>
-            {view.thinkingText}
-          </Text>
-        </Box>
+      {view.reasoning ? (
+        <ReasoningBlock
+          text={view.reasoning.text}
+          duration={<Elapsed since={view.reasoning.startedAt} />}
+        />
       ) : null}
 
       {view.streamingText ? (
@@ -119,10 +119,12 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
         </Box>
       ) : null}
 
-      {view.busy ? (
+      {view.busy && view.runStartedAt !== null ? (
         <Box paddingX={1}>
-          <Spinner color={theme.thinking} />
-          <Text color={theme.thinking}> working</Text>
+          <TimedLabel duration={<Elapsed since={view.runStartedAt} />}>
+            <Spinner color={theme.thinking} />
+            <Text color={theme.thinking}> Working</Text>
+          </TimedLabel>
         </Box>
       ) : null}
 

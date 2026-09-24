@@ -139,6 +139,7 @@ class AnthropicTurn implements TurnStream {
 
   async *[Symbol.asyncIterator](): AsyncIterator<ProviderEvent> {
     let liveUsage: Usage | null = null;
+    const thinkingBlocks = new Set<number>();
     for await (const event of this.#stream) {
       if (event.type === "message_start") {
         liveUsage = toUsage(event.message.usage);
@@ -157,7 +158,13 @@ class AnthropicTurn implements TurnStream {
             id: event.content_block.id,
             name: event.content_block.name,
           };
+        } else if (event.content_block.type === "thinking") {
+          thinkingBlocks.add(event.index);
         }
+        continue;
+      }
+      if (event.type === "content_block_stop") {
+        if (thinkingBlocks.delete(event.index)) yield { type: "thinking_end" };
         continue;
       }
       if (event.type === "content_block_delta") {

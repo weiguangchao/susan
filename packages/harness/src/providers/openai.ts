@@ -191,6 +191,7 @@ class OpenAITurn implements TurnStream {
     const calls = new Map<number, ToolAccumulator>();
     const announced = new Set<number>();
     let text = "";
+    let reasoningOpen = false;
     let finishReason: string | null = null;
     let usage: OpenAI.Completions.CompletionUsage | undefined;
 
@@ -210,18 +211,26 @@ class OpenAITurn implements TurnStream {
         const delta = choice.delta;
         if (!delta) continue;
 
-        if (delta.content) {
-          text += delta.content;
-          yield { type: "text_delta", text: delta.content };
-        }
-
         // Not part of the OpenAI schema, but the reasoning-model endpoints
         // (DeepSeek and friends) put their visible reasoning here.
         const reasoning = (delta as { reasoning_content?: unknown; reasoning?: unknown })
           .reasoning_content ??
           (delta as { reasoning?: unknown }).reasoning;
         if (typeof reasoning === "string" && reasoning) {
+          reasoningOpen = true;
           yield { type: "thinking_delta", text: reasoning };
+        }
+
+        // The wire format has no reasoning boundary: the block ends when the
+        // answer or a tool call starts.
+        if (reasoningOpen && (delta.content || delta.tool_calls?.length)) {
+          reasoningOpen = false;
+          yield { type: "thinking_end" };
+        }
+
+        if (delta.content) {
+          text += delta.content;
+          yield { type: "text_delta", text: delta.content };
         }
 
         for (const call of delta.tool_calls ?? []) {
@@ -244,6 +253,7 @@ class OpenAITurn implements TurnStream {
       this.#reject(error);
       throw error;
     }
+    if (reasoningOpen) yield { type: "thinking_end" };
 
     const ordered = [...calls.entries()].sort((a, b) => a[0] - b[0]);
 

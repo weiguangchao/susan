@@ -148,6 +148,7 @@ class MockTurn implements TurnStream {
         await sleep(12);
         yield { type: "thinking_delta", text: chunk };
       }
+      yield { type: "thinking_end" };
     }
     for (const chunk of chunks(this.#plan.text)) {
       await sleep(14);

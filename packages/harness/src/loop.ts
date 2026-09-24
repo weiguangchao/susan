@@ -117,6 +117,7 @@ export class Agent {
 
         let final: TurnFinal;
         let streamedText = "";
+        let streamedThinking = "";
 
         try {
           const request = {
@@ -145,7 +146,14 @@ export class Agent {
                 yield { type: "text_delta", text: event.text };
                 break;
               case "thinking_delta":
+                streamedThinking += event.text;
                 yield { type: "thinking_delta", text: event.text };
+                break;
+              case "thinking_end":
+                if (streamedThinking) {
+                  yield { type: "thinking_end", text: streamedThinking };
+                  streamedThinking = "";
+                }
                 break;
               case "usage_progress":
                 yield { type: "usage_progress", usage: event.usage,
@@ -162,6 +170,10 @@ export class Agent {
             }
           }
 
+          // A truncated or misbehaving stream must not leave a block open.
+          if (streamedThinking) {
+            yield { type: "thinking_end", text: streamedThinking };
+          }
           final = await stream.final();
         } catch (error) {
           if (controller.signal.aborted) {

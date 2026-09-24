@@ -69,6 +69,8 @@ class ResponsesTurn implements TurnStream {
         yield { type: "text_delta", text: event.delta };
       } else if (event.type === "response.reasoning_summary_text.delta") {
         yield { type: "thinking_delta", text: event.delta };
+      } else if (event.type === "response.reasoning_summary_text.done") {
+        yield { type: "thinking_end" };
       } else if (event.type === "response.output_item.added" || event.type === "response.output_item.done") {
         if (event.item.type === "function_call" && event.item.name && !announced.has(event.item.call_id)) {
           announced.add(event.item.call_id);

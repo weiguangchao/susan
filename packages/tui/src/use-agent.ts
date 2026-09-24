@@ -7,6 +7,13 @@ import {
 import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
 import type { UsageDisplay } from "./usage-display.js";
 
+/** The reasoning block still streaming. */
+export interface ReasoningState {
+  /** The full block so far, never truncated. */
+  text: string;
+  startedAt: number;
+}
+
 export interface UseAgentOptions {
   root: string;
   provider: ModelProvider;
@@ -20,8 +27,10 @@ export interface AgentView {
   /** The run in flight, still mutating. */
   live: LogItem[];
   streamingText: string;
-  thinkingText: string;
+  reasoning: ReasoningState | null;
   busy: boolean;
+  /** When the run in flight was sent, for the working row's timer. */
+  runStartedAt: number | null;
   usageDisplay: UsageDisplay | null;
   send(input: string): void;
   interrupt(): void;
@@ -41,12 +50,14 @@ export function useAgent(options: UseAgentOptions): AgentView {
   const [history, setHistory] = useState<LogItem[]>([]);
   const [live, setLive] = useState<LogItem[]>([]);
   const [streamingText, setStreamingText] = useState("");
-  const [thinkingText, setThinkingText] = useState("");
+  const [reasoning, setReasoning] = useState<ReasoningState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [usageDisplay, setUsageDisplay] = useState<UsageDisplay | null>(null);
 
   const liveRef = useRef<LogItem[]>([]);
   const streamRef = useRef("");
+  const reasoningRef = useRef<ReasoningState | null>(null);
 
   const applyLive = useCallback((fn: (items: LogItem[]) => LogItem[]) => {
     liveRef.current = fn(liveRef.current);
@@ -56,6 +67,11 @@ export function useAgent(options: UseAgentOptions): AgentView {
   const applyStream = useCallback((text: string) => {
     streamRef.current = text;
     setStreamingText(text);
+  }, []);
+
+  const applyReasoning = useCallback((value: ReasoningState | null) => {
+    reasoningRef.current = value;
+    setReasoning(value);
   }, []);
 
   const [agent] = useState(
@@ -83,6 +99,19 @@ export function useAgent(options: UseAgentOptions): AgentView {
     [applyLive],
   );
 
+  /** Move the open reasoning block, if any, into the run with its timer stopped. */
+  const commitReasoning = useCallback(() => {
+    const open = reasoningRef.current;
+    if (!open) return;
+    applyReasoning(null);
+    appendLive({
+      kind: "reasoning",
+      id: nextItemId("reasoning"),
+      text: open.text,
+      ms: Date.now() - open.startedAt,
+    });
+  }, [appendLive, applyReasoning]);
+
   const pushNotice = useCallback(
     (level: "info" | "warn" | "error", text: string) => {
       setHistory((items) => [
@@ -98,9 +127,10 @@ export function useAgent(options: UseAgentOptions): AgentView {
       if (agent.busy) return;
 
       setBusy(true);
+      setRunStartedAt(Date.now());
       setUsageDisplay({ usage: null, measuredTotal: agent.session.usage });
       applyStream("");
-      setThinkingText("");
+      applyReasoning(null);
       liveRef.current = [
         { kind: "user", id: nextItemId("user"), text: input },
       ];
@@ -128,13 +158,21 @@ export function useAgent(options: UseAgentOptions): AgentView {
                 applyStream(streamRef.current + event.text);
                 break;
 
-              case "thinking_delta":
-                setThinkingText((text) => (text + event.text).slice(-400));
+              case "thinking_delta": {
+                const open = reasoningRef.current;
+                applyReasoning({
+                  text: (open?.text ?? "") + event.text,
+                  startedAt: open?.startedAt ?? Date.now(),
+                });
+                break;
+              }
+
+              case "thinking_end":
+                commitReasoning();
                 break;
 
               case "text_end":
                 applyStream("");
-                setThinkingText("");
                 appendLive({
                   kind: "assistant",
                   id: nextItemId("assistant"),
@@ -184,6 +222,8 @@ export function useAgent(options: UseAgentOptions): AgentView {
                 break;
 
               case "done":
+                // An interrupted block keeps the thought that was in progress.
+                commitReasoning();
                 if (event.reason !== "end_turn") {
                   // Whatever was mid-flight never finished - freeze those rows
                   // instead of leaving a spinner running forever.
@@ -211,6 +251,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
             }
           }
         } catch (error) {
+          commitReasoning();
           appendLive({
             kind: "notice",
             id: nextItemId("notice"),
@@ -235,12 +276,14 @@ export function useAgent(options: UseAgentOptions): AgentView {
           setHistory((prev) => [...prev, ...finished]);
           setLive([]);
           setStreamingText("");
-          setThinkingText("");
+          applyReasoning(null);
           setBusy(false);
+          setRunStartedAt(null);
         }
       })();
     },
-    [agent, appendLive, applyLive, applyStream, options.onSessionStarted, updateTool],
+    [agent, appendLive, applyLive, applyReasoning, applyStream, commitReasoning,
+      options.onSessionStarted, updateTool],
   );
 
   const interrupt = useCallback(() => {
@@ -258,9 +301,9 @@ export function useAgent(options: UseAgentOptions): AgentView {
     setHistory([]);
     setLive([]);
     setStreamingText("");
-    setThinkingText("");
+    applyReasoning(null);
     setUsageDisplay(null);
-  }, [agent, pushNotice]);
+  }, [agent, applyReasoning, pushNotice]);
 
   const clearUsageDisplay = useCallback(() => setUsageDisplay(null), []);
 
@@ -269,8 +312,9 @@ export function useAgent(options: UseAgentOptions): AgentView {
     history,
     live,
     streamingText,
-    thinkingText,
+    reasoning,
     busy,
+    runStartedAt,
     usageDisplay,
     send,
     interrupt,

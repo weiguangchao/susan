@@ -28,7 +28,15 @@ export interface NoticeItem {
   text: string;
 }
 
-export type LogItem = UserItem | AssistantItem | ToolItem | NoticeItem;
+export interface ReasoningItem {
+  kind: "reasoning";
+  id: string;
+  text: string;
+  /** Wall-clock duration of the block, measured in the TUI. */
+  ms: number;
+}
+
+export type LogItem = UserItem | AssistantItem | ReasoningItem | ToolItem | NoticeItem;
 
 let seq = 0;
 export const nextItemId = (prefix: string): string => `${prefix}-${++seq}`;

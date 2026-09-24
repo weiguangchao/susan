@@ -118,6 +118,7 @@ export type StopReason =
 export type AgentEvent =
   | { type: "turn_start"; turn: number }
   | { type: "thinking_delta"; text: string }
+  | { type: "thinking_end"; text: string }
   | { type: "text_delta"; text: string }
   | { type: "text_end"; text: string }
   | { type: "tool_call"; id: string; name: string; summary: string }
@@ -145,6 +146,8 @@ export type AgentEvent =
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
+  /** The reasoning block in progress is complete; the next delta starts a new one. */
+  | { type: "thinking_end" }
   | { type: "usage_progress"; usage: Usage }
   | { type: "tool_use_start"; id: string; name: string };
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Tool, ToolContext, ToolResult, ToolRisk } from "../types.js";
+import type { Tool, ToolContext, ToolResult, ToolRisk, ToolPreview } from "../types.js";
 
 export interface ToolSpec<S extends z.ZodTypeAny> {
   name: string;
@@ -39,16 +39,19 @@ export function defineTool<S extends z.ZodTypeAny>(
   };
 }
 
-export function ok(content: string, display: string): ToolResult {
-  return { ok: true, content, display };
+export function ok(content: string, display: string, preview?: ToolPreview): ToolResult {
+  return { ok: true, content, display, ...(preview ? { preview } : {}) };
 }
 
 export function fail(message: string): ToolResult {
   return { ok: false, content: `Error: ${message}`, display: message };
 }
 
+export const MAX_RESULT_CHARS = 30_000;
+export const RESULT_CAP_NOTICE = `… [tool output truncated at ${MAX_RESULT_CHARS} characters]`;
+
 /** Keeps a tool result from blowing up the context window. */
-export function truncate(text: string, maxChars = 30_000): string {
+export function truncate(text: string, maxChars = MAX_RESULT_CHARS): string {
   if (text.length <= maxChars) return text;
   const kept = text.slice(0, maxChars);
   return `${kept}\n\n... [truncated ${text.length - maxChars} characters]`;

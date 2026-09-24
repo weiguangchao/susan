@@ -3,6 +3,8 @@ import { z } from "zod";
 import { displayPath, resolveInRoot } from "../paths.js";
 import { defineTool, fail, ok } from "./define.js";
 
+import { preview, PREVIEW_LINES } from "./preview.js";
+
 export const editTool = defineTool({
   name: "edit",
   description:
@@ -83,11 +85,20 @@ export const editTool = defineTool({
       return fail(`could not write ${input.path}: ${(error as Error).message}`);
     }
 
+    let changedOffset = 0;
+    while (changedOffset < original.length && changedOffset < updated.length &&
+      original[changedOffset] === updated[changedOffset]) changedOffset++;
+    const changedLine = updated.slice(0, changedOffset).split("\n").length;
+    const lines = updated.split("\n");
+    const start = Math.max(0, Math.min(changedLine - 3, lines.length - PREVIEW_LINES));
+    const resultPreview = updated === "" ? preview("(file is empty)") :
+      preview(lines.slice(start).join("\n"), { firstLine: start + 1, totalLines: lines.length });
     const rel = displayPath(ctx.root, target);
     const replaced = input.replace_all ? occurrences : 1;
     return ok(
       `Replaced ${replaced} occurrence${replaced === 1 ? "" : "s"} in ${rel}.`,
       `${replaced} replacement${replaced === 1 ? "" : "s"}`,
+      resultPreview,
     );
   },
 });

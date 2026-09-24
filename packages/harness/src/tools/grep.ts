@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { displayPath, isIgnored, resolveInRoot } from "../paths.js";
-import { defineTool, fail, ok, truncate } from "./define.js";
+import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
+
+import { preview } from "./preview.js";
 
 const MAX_MATCHES = 200;
 const MAX_FILE_BYTES = 2_000_000;
@@ -144,6 +146,10 @@ export const grepTool = defineTool({
     return ok(
       truncate(body + capped),
       `${matches.length} matches in ${files} file${files === 1 ? "" : "s"}`,
+      preview(matches.map(m => `${m.file}: ${m.text}`).join("\n"), {
+        sourceCapped: Boolean(capped) || body.length > MAX_RESULT_CHARS,
+        capNotice: capped.trim() || RESULT_CAP_NOTICE,
+      }),
     );
   },
 });

@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
 import { resolveInRoot } from "../paths.js";
-import { defineTool, fail, ok, truncate } from "./define.js";
+import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
+
+import { preview } from "./preview.js";
 
 const MAX_LINES = 2000;
 
@@ -85,6 +87,14 @@ export const readTool = defineTool({
         ? `\n\n... [${allLines.length - start - slice.length} more lines]`
         : "";
 
-    return ok(truncate(body + more), `${slice.length} lines`);
+    return {
+      ...ok(truncate(body + more), `${slice.length} lines`),
+      summary: `${input.path}:L${start + 1}-${start + slice.length}`,
+      preview: preview(slice.join("\n"), {
+        firstLine: start + 1,
+        sourceCapped: (body + more).length > MAX_RESULT_CHARS,
+        capNotice: RESULT_CAP_NOTICE,
+      }),
+    };
   },
 });

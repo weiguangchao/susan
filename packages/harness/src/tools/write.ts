@@ -4,6 +4,8 @@ import { z } from "zod";
 import { displayPath, resolveInRoot } from "../paths.js";
 import { defineTool, fail, ok } from "./define.js";
 
+import { preview } from "./preview.js";
+
 export const writeTool = defineTool({
   name: "write",
   description:
@@ -55,6 +57,7 @@ export const writeTool = defineTool({
     return ok(
       `${existed ? "Overwrote" : "Created"} ${rel} (${lines} lines, ${input.content.length} bytes).`,
       `${existed ? "overwrote" : "created"}, ${lines} lines`,
+      input.content === "" ? preview("(file is empty)") : preview(input.content, { firstLine: 1 }),
     );
   },
 });

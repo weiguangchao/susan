@@ -1,3 +1,5 @@
+import type { ToolPreview } from "@susan/harness";
+
 /** What the transcript is made of. The renderer draws only these. */
 
 export interface UserItem {
@@ -17,8 +19,8 @@ export interface ToolItem {
   id: string;
   name: string;
   summary: string;
-  status: "pending" | "running" | "done" | "error" | "denied";
-  display?: string;
+  status: "done" | "error";
+  preview: ToolPreview;
 }
 
 export interface NoticeItem {

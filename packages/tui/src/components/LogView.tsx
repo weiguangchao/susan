@@ -3,40 +3,33 @@ import { Box, Text } from "ink";
 import { formatDuration } from "../duration.js";
 import type { LogItem, ToolItem } from "../session-state.js";
 import { glyphs, theme } from "../theme.js";
-import { Spinner } from "./Spinner.js";
 import { TimedLabel } from "./TimedLabel.js";
 
-const statusColor: Record<ToolItem["status"], string> = {
-  pending: theme.muted,
-  running: theme.accent,
-  done: theme.success,
-  error: theme.error,
-  denied: theme.warn,
-};
-
 function ToolRow({ item }: { item: ToolItem }) {
-  const color = statusColor[item.status];
+  const { preview } = item;
+  const failed = item.status === "error";
+  const width = Math.max(...preview.lines.map(line => String(line.lineNumber ?? "").length));
+  const hidden = preview.totalLines - preview.lines.length;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box>
-        {item.status === "running" || item.status === "pending" ? (
-          <Spinner color={color} />
-        ) : (
-          <Text color={color}>
-            {item.status === "done" ? glyphs.ok : glyphs.fail}
-          </Text>
-        )}
-        <Text color={theme.text} bold>
-          {" "}
-          {item.name}
-        </Text>
-        <Text color={theme.muted}> {item.summary}</Text>
-      </Box>
-      {item.display ? (
-        <Box paddingLeft={2}>
-          <Text color={theme.muted}>└ {item.display}</Text>
+      <Text wrap="wrap">
+        <Text color={theme.text} bold>{item.name}</Text>
+        <Text color={theme.muted}>{item.summary ? ` ${item.summary}` : ""} </Text>
+        <Text color={failed ? theme.error : theme.success}>{failed ? glyphs.fail : glyphs.ok}</Text>
+      </Text>
+      {preview.lines.map((line, index) => (
+        <Box key={index}>
+          {!failed && line.lineNumber !== undefined ? (
+            <Box flexShrink={0}><Text color={theme.muted}>{String(line.lineNumber).padStart(width)} </Text></Box>
+          ) : null}
+          <Box flexGrow={1} flexBasis={0} minWidth={0}>
+            <Text wrap="wrap" color={failed ? theme.error : theme.muted}>{line.text}</Text>
+          </Box>
         </Box>
-      ) : null}
+      ))}
+      {hidden > 0 ? <Text color={failed ? theme.error : theme.muted}>… {hidden}L · Total {preview.totalLines}L</Text> : null}
+      {preview.sourceCapped ? <Text color={failed ? theme.error : theme.muted}>{preview.capNotice ?? "… [source output capped]"}</Text> : null}
+      {preview.linesClipped ? <Text color={failed ? theme.error : theme.muted}>… [long preview lines clipped]</Text> : null}
     </Box>
   );
 }

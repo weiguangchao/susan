@@ -74,12 +74,24 @@ export interface ToolContext {
   signal: AbortSignal;
 }
 
+/** UI-only output. Never persisted or sent to the model. */
+export interface ToolPreview {
+  lines: { text: string; lineNumber?: number }[];
+  /** Logical lines represented, or retained lines when the source was capped. */
+  totalLines: number;
+  sourceCapped: boolean;
+  capNotice?: string;
+  linesClipped?: boolean;
+}
+
 export interface ToolResult {
   ok: boolean;
   /** Text handed back to the model as the tool_result content. */
   content: string;
   /** One-line summary for the UI, e.g. "read 42 lines". */
   display: string;
+  preview?: ToolPreview;
+  summary?: string;
 }
 
 export interface Tool<Input = unknown> {
@@ -130,6 +142,8 @@ export type AgentEvent =
       name: string;
       ok: boolean;
       display: string;
+      preview: ToolPreview;
+      summary?: string;
     }
   | { type: "usage"; usage: Usage; total: Usage }
   | { type: "turn_end"; turn: number; stopReason: StopReason }

@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { displayPath, isIgnored, resolveInRoot } from "../paths.js";
-import { defineTool, fail, ok, truncate } from "./define.js";
+import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
+
+import { preview } from "./preview.js";
 
 const MAX_ENTRIES = 400;
 
@@ -115,6 +117,10 @@ export const lsTool = defineTool({
     return ok(
       truncate(body + capped),
       `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`,
+      preview(body, {
+        sourceCapped: Boolean(capped) || body.length > MAX_RESULT_CHARS,
+        capNotice: capped.trim() || RESULT_CAP_NOTICE,
+      }),
     );
   },
 });

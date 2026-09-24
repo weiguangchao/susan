@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import { defineTool, fail, ok, truncate } from "./define.js";
+import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { preview } from "./preview.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
-const MAX_OUTPUT_CHARS = 30_000;
+const MAX_OUTPUT_CHARS = MAX_RESULT_CHARS;
 
 /**
  * A short, deliberately narrow list of commands that are catastrophic and never
@@ -48,14 +49,25 @@ function runCommand(
     let stderr = "";
     let settled = false;
     let timedOut = false;
+    let outputDropped = false;
 
     const finish = (result: ToolResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       ctx.signal.removeEventListener("abort", onAbort);
-      resolve(result);
+      resolve({
+        ...result,
+        preview: result.preview ?? commandPreview(result.content),
+      });
     };
+
+    const commandPreview = (text: string) => preview(text, {
+      sourceCapped: outputDropped || text.length > MAX_OUTPUT_CHARS,
+      capNotice: outputDropped
+        ? "… [command capture capped; Total counts retained lines]"
+        : RESULT_CAP_NOTICE,
+    });
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -67,9 +79,11 @@ function runCommand(
 
     child.stdout.on("data", (chunk: Buffer) => {
       if (stdout.length < MAX_OUTPUT_CHARS * 2) stdout += chunk.toString("utf8");
+      else outputDropped = true;
     });
     child.stderr.on("data", (chunk: Buffer) => {
       if (stderr.length < MAX_OUTPUT_CHARS * 2) stderr += chunk.toString("utf8");
+      else outputDropped = true;
     });
 
     child.on("error", (error) => {
@@ -79,9 +93,10 @@ function runCommand(
     child.on("close", (code) => {
       if (timedOut) {
         finish(
-          fail(
-            `command timed out after ${timeoutMs}ms and was killed\n${truncate(stdout + stderr, MAX_OUTPUT_CHARS)}`,
-          ),
+          {
+            ...fail(`command timed out after ${timeoutMs}ms and was killed\n${truncate(stdout + stderr, MAX_OUTPUT_CHARS)}`),
+            preview: commandPreview(`Error: command timed out after ${timeoutMs}ms and was killed\n${stdout + stderr}`),
+          },
         );
         return;
       }
@@ -102,6 +117,7 @@ function runCommand(
           ok(
             truncate(body, MAX_OUTPUT_CHARS),
             lines > 0 ? `exit 0, ${lines} lines of output` : "exit 0",
+            commandPreview(body),
           ),
         );
       } else {
@@ -109,6 +125,7 @@ function runCommand(
           ok: false,
           content: truncate(`Exit code ${exit}.\n${body}`, MAX_OUTPUT_CHARS),
           display: `exit ${exit}`,
+          preview: commandPreview(`Exit code ${exit}.\n${body}`),
         });
       }
     });

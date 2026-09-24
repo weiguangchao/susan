@@ -1,3 +1,4 @@
+import { preview } from "./tools/preview.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { Session, SessionStore } from "./session/index.js";
 import { builtinTools, toolByName } from "./tools/index.js";
@@ -322,6 +323,8 @@ export class Agent {
               name: use.name,
               ok: result.ok,
               display: result.display,
+              summary: result.summary ?? summary,
+              preview: result.preview ?? preview(result.content),
             },
           };
         } catch (error) {
@@ -364,6 +367,7 @@ function errorResult(
       name: use.name,
       ok: false,
       display,
+      preview: preview(content),
     },
   };
 }

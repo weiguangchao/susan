@@ -4,7 +4,7 @@ import {
   resolveSusanHome,
   type ModelProvider,
 } from "@susan/harness";
-import { type LogItem, nextItemId, type ToolItem } from "./session-state.js";
+import { type LogItem, nextItemId } from "./session-state.js";
 import type { UsageDisplay } from "./usage-display.js";
 
 /** The reasoning block still streaming. */
@@ -83,17 +83,6 @@ export function useAgent(options: UseAgentOptions): AgentView {
       }),
   );
 
-  const updateTool = useCallback(
-    (id: string, patch: Partial<ToolItem>) => {
-      applyLive((items) =>
-        items.map((item) =>
-          item.kind === "tool" && item.id === id ? { ...item, ...patch } : item,
-        ),
-      );
-    },
-    [applyLive],
-  );
-
   const appendLive = useCallback(
     (item: LogItem) => applyLive((items) => [...items, item]),
     [applyLive],
@@ -139,6 +128,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
       ];
       setLive(liveRef.current);
 
+      const calls = new Map<string, { name: string; summary: string }>();
       void (async () => {
         try {
           for await (const event of agent.run(input)) {
@@ -184,27 +174,21 @@ export function useAgent(options: UseAgentOptions): AgentView {
                 break;
 
               case "tool_pending":
-                appendLive({
-                  kind: "tool",
-                  id: event.id,
-                  name: event.name,
-                  summary: event.summary,
-                  status: "pending",
-                });
+                calls.set(event.id, { name: event.name, summary: "" });
                 break;
 
               case "tool_call":
-                updateTool(event.id, {
-                  summary: event.summary,
-                  status: "running",
-                });
+                calls.set(event.id, { name: event.name, summary: event.summary });
                 break;
 
               case "tool_result":
-                updateTool(event.id, {
+                appendLive({
+                  kind: "tool", id: event.id, name: event.name,
+                  summary: event.summary ?? calls.get(event.id)?.summary ?? "",
                   status: event.ok ? "done" : "error",
-                  display: event.display,
+                  preview: event.preview,
                 });
+                calls.delete(event.id);
                 break;
 
               case "usage_progress":
@@ -227,18 +211,6 @@ export function useAgent(options: UseAgentOptions): AgentView {
               case "done":
                 // An interrupted block keeps the thought that was in progress.
                 commitReasoning();
-                if (event.reason !== "end_turn") {
-                  // Whatever was mid-flight never finished - freeze those rows
-                  // instead of leaving a spinner running forever.
-                  applyLive((items) =>
-                    items.map((item) =>
-                      item.kind === "tool" &&
-                      (item.status === "pending" || item.status === "running")
-                        ? { ...item, status: "denied", display: "not finished" }
-                        : item,
-                    ),
-                  );
-                }
                 if (event.reason === "aborted") {
                   appendLive({
                     kind: "notice",
@@ -262,6 +234,12 @@ export function useAgent(options: UseAgentOptions): AgentView {
             text: (error as Error).message,
           });
         } finally {
+          for (const [id, call] of calls) {
+            appendLive({
+              kind: "tool", id, ...call, status: "error",
+              preview: { lines: [{ text: "not finished" }], totalLines: 1, sourceCapped: false },
+            });
+          }
           // Commit the finished run: it never changes again, so Ink can print
           // it once and let it scroll away.
           const tail: LogItem[] = streamRef.current
@@ -286,7 +264,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
       })();
     },
     [agent, appendLive, applyLive, applyReasoning, applyStream, commitReasoning,
-      options.onSessionStarted, updateTool],
+      options.onSessionStarted],
   );
 
   const interrupt = useCallback(() => {

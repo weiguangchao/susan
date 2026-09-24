@@ -38,3 +38,6 @@ export {
   type ModelChoice, type ModelConfig, type ProviderConfig, type ProviderType,
   type SusanConfig, type ModelPreferences,
 } from "./model-config.js";
+export {
+  DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_TOKEN, discoverModels, fetchProviderModels, modelFromListing,
+} from "./model-discovery.js";

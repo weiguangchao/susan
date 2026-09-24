@@ -53,7 +53,8 @@ environment
   SUSAN_MODEL         default model id for anthropic
   SUSAN_OPENAI_MODEL  default model id for openai
   SUSAN_HOME          session storage directory (default: ~/.susan)
-                      also contains confg.json and model-state.json
+                      also contains confg.json, model-state.json and
+                      models.json (models fetched from providers)
 
 examples
   susan                                        # pick from the environment

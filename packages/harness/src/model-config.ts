@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { discoverModels } from "./model-discovery.js";
 import { resolveSusanHome } from "./session/store.js";
 
 export const DEFAULT_REASONING_EFFORT = {
@@ -24,7 +25,7 @@ const providerSchema = z.object({
   baseUrl: z.string().url(),
   type: z.enum(["openai-completion", "responses", "anthropic"]),
   apiKey: z.string(),
-  model: z.union([modelSchema, z.array(modelSchema).min(1)]),
+  model: z.union([modelSchema, z.array(modelSchema).min(1)]).optional(),
 });
 
 const configSchema = z.object({
@@ -54,10 +55,12 @@ export function reasoningChoices(type: ProviderType, overrides?: Record<string, 
   return defaults;
 }
 
-export function modelChoices(config: SusanConfig): ModelChoice[] {
+/** `discovered` supplies the models of providers that do not configure `model`. */
+export function modelChoices(config: SusanConfig, discovered: Record<string, ModelConfig[]> = {}): ModelChoice[] {
   const choices: ModelChoice[] = [];
   for (const [providerName, provider] of Object.entries(config.providers)) {
-    const models = Array.isArray(provider.model) ? provider.model : [provider.model];
+    const models = provider.model === undefined ? discovered[providerName] ?? []
+      : Array.isArray(provider.model) ? provider.model : [provider.model];
     for (const model of models) {
       if (model.outputToken > model.contextWindow) throw new Error(`${providerName}/${model.id}: outputToken exceeds contextWindow`);
       if (choices.some((item) => item.providerName === providerName && item.model.id === model.id)) {
@@ -84,7 +87,9 @@ export async function loadModelConfig(home = resolveSusanHome()): Promise<ModelC
     catch { throw new Error(`invalid JSON in ${file}`); }
     const parsed = configSchema.safeParse(value);
     if (!parsed.success) throw new Error(`invalid ${file}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
-    return modelChoices(parsed.data);
+    const unlisted = Object.fromEntries(Object.entries(parsed.data.providers)
+      .filter(([, provider]) => provider.model === undefined));
+    return modelChoices(parsed.data, await discoverModels(unlisted, home));
   }
   return null;
 }

@@ -69,7 +69,20 @@ Put `confg.json` in Susan Home (`SUSAN_HOME`, or `~/.susan` when unset).
 ```
 
 `type` is `openai-completion`, `responses`, or `anthropic`. `model` accepts one
-model object or an array. `outputToken` limits each model request;
+model object or an array.
+
+`model` is optional. When a provider leaves it out, Susan fetches the
+provider's model list at startup: `GET {baseUrl}/models` for the OpenAI types,
+and `GET {baseUrl}/v1/models` for `anthropic`, as the Anthropic SDK does. Susan
+saves the list to `models.json` in Susan Home, and `/model` lists these models.
+If the fetch fails, Susan uses the saved list, provided the provider's `baseUrl`
+and `type` have not changed since it was saved. If there is no saved list,
+Susan stops with an error. Susan reads each model's limits from the listing
+when the endpoint reports them (`max_input_tokens`/`max_tokens` from Anthropic;
+`context_length`, `max_model_len`, or `max_completion_tokens` from gateways
+such as OpenRouter and vLLM). Missing limits default to a 128000 token
+`contextWindow` and an 8192 token `outputToken`. To set other limits, list the
+model in `model`. `outputToken` limits each model request;
 `contextWindow` records the model's capacity for configuration validation.
 `reasoningEffort` is optional. Each type has built-in levels; setting a level
 to `null` hides it from selection. In the example, `/reasoning` will not show

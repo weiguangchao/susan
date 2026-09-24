@@ -17,19 +17,21 @@ function ToolRow({ item }: { item: ToolItem }) {
         <Text color={theme.muted}>{item.summary ? ` ${item.summary}` : ""} </Text>
         <Text color={failed ? theme.error : theme.success}>{failed ? glyphs.fail : glyphs.ok}</Text>
       </Text>
-      {preview.lines.map((line, index) => (
-        <Box key={index}>
-          {!failed && line.lineNumber !== undefined ? (
-            <Box flexShrink={0}><Text color={theme.muted}>{String(line.lineNumber).padStart(width)} </Text></Box>
-          ) : null}
-          <Box flexGrow={1} flexBasis={0} minWidth={0}>
-            <Text wrap="wrap" color={failed ? theme.error : theme.muted}>{line.text}</Text>
+      <Box flexDirection="column" marginLeft={4}>
+        {preview.lines.map((line, index) => (
+          <Box key={index}>
+            {!failed && line.lineNumber !== undefined ? (
+              <Box flexShrink={0}><Text color={theme.muted}>{String(line.lineNumber).padStart(width)} </Text></Box>
+            ) : null}
+            <Box flexGrow={1} flexBasis={0} minWidth={0}>
+              <Text wrap="wrap" color={failed ? theme.error : theme.muted}>{line.text}</Text>
+            </Box>
           </Box>
-        </Box>
-      ))}
-      {hidden > 0 ? <Text color={failed ? theme.error : theme.muted}>… {hidden}L · Total {preview.totalLines}L</Text> : null}
-      {preview.sourceCapped ? <Text color={failed ? theme.error : theme.muted}>{preview.capNotice ?? "… [source output capped]"}</Text> : null}
-      {preview.linesClipped ? <Text color={failed ? theme.error : theme.muted}>… [long preview lines clipped]</Text> : null}
+        ))}
+        {hidden > 0 ? <Text color={failed ? theme.error : theme.muted}>… {hidden}L · Total {preview.totalLines}L</Text> : null}
+        {preview.sourceCapped ? <Text color={failed ? theme.error : theme.muted}>{preview.capNotice ?? "… [source output capped]"}</Text> : null}
+        {preview.linesClipped ? <Text color={failed ? theme.error : theme.muted}>… [long preview lines clipped]</Text> : null}
+      </Box>
     </Box>
   );
 }

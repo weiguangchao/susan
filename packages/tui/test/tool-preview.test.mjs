@@ -46,8 +46,7 @@ test("partial read appears only when complete, keeps source numbers and canonica
     provider.pending.release();
     const complete = await waitForFrame(app.frames, /Finished\./);
     assert.match(complete, /read sample.txt:L3-9 ✔/);
-    assert.match(complete, /3 three\n\s*4 four\n\s*5 five\n\s*6 six\n\s*7 seven/);
-    assert.match(complete, /… 2L · Total 7L/);
+    assert.match(complete, /read sample.txt:L3-9 ✔\n    3 three\n    4 four\n    5 five\n    6 six\n    7 seven\n    … 2L · Total 7L/);
     assert.doesNotMatch(complete, /8 eight/);
     const results = provider.requests[1].messages.at(-1).content;
     assert.deepEqual(results, [{ type: "tool_result", toolUseId: "read1", isError: false,
@@ -70,8 +69,8 @@ test("write and edit preview the captured file contents across consecutive turns
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /write created.txt.*✔\n1 alpha\n2 beta\n3 gamma\n4 delta\n5 epsilon\n… 3L · Total 8L/);
-    assert.match(frame, /edit created.txt ✔\n4 delta\n5 epsilon\n6 changed\n7 inserted\n8 eta\n… 4L · Total 9L/);
+    assert.match(frame, /write created.txt.*✔\n    1 alpha\n    2 beta\n    3 gamma\n    4 delta\n    5 epsilon\n    … 3L · Total 8L/);
+    assert.match(frame, /edit created.txt ✔\n    4 delta\n    5 epsilon\n    6 changed\n    7 inserted\n    8 eta\n    … 4L · Total 9L/);
     assert.equal(provider.requests[1].messages.at(-1).content[0].content, "Created created.txt (8 lines, 45 bytes).");
     assert.equal(provider.requests[2].messages.at(-1).content[0].content, "Replaced 1 occurrence in created.txt.");
     assert.ok(frame.indexOf("write created.txt") < frame.indexOf("edit created.txt"));
@@ -94,9 +93,9 @@ test("batched ls, grep and bash keep call order and compact unnumbered output", 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /✔\nout-one\nout-two\n\[stderr\]\nerr-one/);
-    assert.match(frame, /ls files ✔\nfiles\/a.txt \(15 bytes\)/);
-    assert.match(frame, /grep \/match\/ in files ✔\nfiles\/a.txt: match A\nfiles\/a.txt: match B/);
+    assert.match(frame, /✔\n    out-one\n    out-two\n    \[stderr\]\n    err-one/);
+    assert.match(frame, /ls files ✔\n    files\/a.txt \(15 bytes\)/);
+    assert.match(frame, /grep \/match\/ in files ✔\n    files\/a.txt: match A\n    files\/a.txt: match B/);
     assert.doesNotMatch(frame, /Total/);
     assert.ok(frame.indexOf("bash sleep") < frame.indexOf("ls files"));
     assert.ok(frame.indexOf("ls files") < frame.indexOf("grep /match/"));
@@ -131,15 +130,15 @@ test("empty outcomes and rejected file calls remain readable without gutters or 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /read empty.txt ✔\n\(file is empty\)/);
-    assert.match(frame, /write new.txt \(0 lines\) ✔\n\(file is empty\)/);
-    assert.match(frame, /edit erase.txt ✔\n\(file is empty\)/);
-    assert.match(frame, /ls empty ✔\n\(empty directory\)/);
-    assert.match(frame, /grep \/absent\/ in empty ✔\nNo matches/);
-    assert.match(frame, /bash true ✔\n\(no output\)/);
-    assert.match(frame, /read missing.txt ✖\nError: file not found: missing.txt/);
+    assert.match(frame, /read empty.txt ✔\n    \(file is empty\)/);
+    assert.match(frame, /write new.txt \(0 lines\) ✔\n    \(file is empty\)/);
+    assert.match(frame, /edit erase.txt ✔\n    \(file is empty\)/);
+    assert.match(frame, /ls empty ✔\n    \(empty directory\)/);
+    assert.match(frame, /grep \/absent\/ in empty ✔\n    No matches/);
+    assert.match(frame, /bash true ✔\n    \(no output\)/);
+    assert.match(frame, /read missing.txt ✖\n    Error: file not found: missing.txt/);
     assert.match(frame, /invalid input for write/);
-    assert.match(frame, /unknown ✖\nunknown tool: unknown/);
+    assert.match(frame, /unknown ✖\n    unknown tool: unknown/);
     assert.doesNotMatch(frame, /Total|\n\s*\d+ /);
   } finally {
     provider.pending.release(); provider.answer.release(); await app.stop();
@@ -160,7 +159,7 @@ test("a running command stays invisible until interruption freezes a failure in 
     assert.doesNotMatch(app.frames.at(-1), /bash|touch started|preparing/);
     app.stdin.write("\x1b");
     const frame = await waitForFrame(app.frames, /ask susan to do something/);
-    assert.match(frame, /bash touch started; sleep 30 ✖\nnot finished/);
+    assert.match(frame, /bash touch started; sleep 30 ✖\n    not finished/);
     assert.match(frame, /interrupted/);
     assert.doesNotMatch(frame, /Working|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
   } finally {
@@ -174,7 +173,7 @@ test("capped command output counts retained logical lines and preserves its cap 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /✔\n1\n2\n3\n4\n5\n… 9995L · Total 10000L/);
+    assert.match(frame, /✔\n    1\n    2\n    3\n    4\n    5\n    … 9995L · Total 10000L\n    … \[tool output truncated at 30000 characters\]/);
     assert.match(frame, /tool output truncated at 30000 characters/);
     assert.match(provider.requests[1].messages.at(-1).content[0].content, /truncated \d+ characters/);
   } finally {
@@ -222,7 +221,7 @@ test("capped search displays the tool cap separately from its five match preview
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
     assert.equal((frame.match(/many.txt: needle/g) ?? []).length, 5);
-    assert.match(frame, /… 195L · Total 200L\n... \[capped at 200 matches\]/);
+    assert.match(frame, /    … 195L · Total 200L\n    ... \[capped at 200 matches\]/);
     assert.doesNotMatch(frame, /Total 210L|many.txt:1:/);
     assert.match(provider.requests[1].messages.at(-1).content[0].content, /many.txt:200: needle/);
   } finally {
@@ -240,7 +239,7 @@ test("edit preview centers on the actual change inside a contextual replacement"
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /edit context.txt ✔\n 9 i\n10 j\n11 new\n12 k\n13 l/);
+    assert.match(frame, /edit context.txt ✔\n     9 i\n    10 j\n    11 new\n    12 k\n    13 l/);
     assert.match(frame, /… 10L · Total 15L/);
   } finally {
     provider.pending.release(); provider.answer.release(); await app.stop();

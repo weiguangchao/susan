@@ -72,15 +72,18 @@ Put `confg.json` in Susan Home (`SUSAN_HOME`, or `~/.susan` when unset).
 model object or an array.
 
 `model` is optional. When a provider leaves it out, Susan fetches the
-provider's model list at startup: `GET {baseUrl}/models` for the OpenAI types,
-and `GET {baseUrl}/v1/models` for `anthropic`, as the Anthropic SDK does. Susan
-saves the list to `models.json` in Susan Home, and `/model` lists these models.
-If the fetch fails, Susan uses the saved list, provided the provider's `baseUrl`
-and `type` have not changed since it was saved. If there is no saved list,
-Susan stops with an error. Susan reads each model's limits from the listing
-when the endpoint reports them (`max_input_tokens`/`max_tokens` from Anthropic;
-`context_length`, `max_model_len`, or `max_completion_tokens` from gateways
-such as OpenRouter and vLLM). Missing limits default to a 128000 token
+provider's model list at startup: `GET {baseUrl}/models?client_version=99.0.0`
+for the OpenAI types, and `GET {baseUrl}/v1/models` for `anthropic`, as the
+Anthropic SDK does. Codex-compatible gateways answer `client_version` with a
+`models` catalog; other servers ignore it and return the usual `data` list.
+Susan saves the lists to `models-cache.json` in Susan Home, keyed by provider
+name, and `/model` lists these models. If the fetch fails, Susan uses the saved
+list for that provider. If there is no saved list, Susan stops with an error.
+Susan reads each model's limits from the listing when the endpoint reports them
+(`max_input_tokens`/`max_tokens` from Anthropic; `context_window`, falling back
+to `max_context_window`, from Codex catalogs; `context_length`,
+`max_model_len`, or `max_completion_tokens` from gateways such as OpenRouter
+and vLLM). Missing limits default to a 128000 token
 `contextWindow` and an 8192 token `outputToken`. To set other limits, list the
 model in `model`. `outputToken` limits each model request;
 `contextWindow` records the model's capacity for configuration validation.
@@ -97,6 +100,13 @@ to `null` hides it from selection. In the example, `/reasoning` will not show
 These are API-level choices, not a guarantee that every model accepts every
 level. Check the model's supported levels and hide unsupported choices with
 `reasoningEffort` entries set to `null`.
+
+`reasoningLevels` is optional. It lists the levels a model supports, such as
+`["low", "high", "ultra"]`, and replaces the type's built-in levels;
+`reasoningEffort` then applies to that list. An empty list means the model takes
+no level, so `/reasoning` offers only `default`. When a Codex catalog reports a
+model's `supported_reasoning_levels`, Susan saves them as `reasoningLevels` in
+`models-cache.json`.
 
 Use `/model` to list configured models and `/model my-gateway/coder-model-id`
 to switch. Use `/reasoning` to list visible levels, with `default` first. Use

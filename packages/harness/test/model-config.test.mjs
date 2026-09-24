@@ -17,6 +17,13 @@ it("offers the OpenAI API effort values for both endpoints", () => {
   assert.deepEqual(Object.keys(reasoningChoices("responses")), levels);
 });
 
+it("replaces the built-in levels with the model's reasoning levels", () => {
+  assert.deepEqual(reasoningChoices("responses", { low: null }, ["low", "high", "ultra"]),
+    { high: "high", ultra: "ultra" });
+  assert.throws(() => reasoningChoices("responses", { max: "max" }, ["high"]), /unsupported reasoning level max/);
+  assert.deepEqual(reasoningChoices("responses", undefined, []), {});
+});
+
 it("loads configured providers and hides reasoning levels set to null", async () => {
   await writeFile(path.join(home, "confg.json"), JSON.stringify({ providers: {
     gateway: {

@@ -4,6 +4,8 @@ export const modelSchema = z.object({
   id: z.string().min(1),
   contextWindow: z.number().int().positive(),
   outputToken: z.number().int().positive(),
+  /** Levels the model supports; replaces the provider type's built-in levels. */
+  reasoningLevels: z.array(z.string().min(1)).optional(),
   reasoningEffort: z.record(z.string(), z.string().nullable()).optional(),
 });
 

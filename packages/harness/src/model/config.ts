@@ -16,7 +16,7 @@ export function modelChoices(config: SusanConfig, discovered: Record<string, Mod
       if (choices.some((item) => item.providerName === providerName && item.model.id === model.id)) {
         throw new Error(`duplicate model ${providerName}/${model.id}`);
       }
-      choices.push({ providerName, provider, model, efforts: reasoningChoices(provider.type, model.reasoningEffort) });
+      choices.push({ providerName, provider, model, efforts: reasoningChoices(provider.type, model.reasoningEffort, model.reasoningLevels) });
     }
   }
   if (!choices.length) throw new Error("config must contain at least one model");

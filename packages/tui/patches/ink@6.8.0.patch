@@ -21,7 +21,7 @@ index e121e4a836f4ce800ec3cdc4075b38e50100e45a..cfdcb13ee2ce997fc9d0e5eb629a5140
      var displayName: string;
  }
 diff --git a/build/components/App.js b/build/components/App.js
-index c80a9bfe2cca435b949819bbfb82963f8c14b5f8..d6a7dff5141263ba1b628b188417122a8a3cf5d8 100644
+index c80a9bfe2cca435b949819bbfb82963f8c14b5f8..c11830a38a2e7d2ad8e857ec5ab460086427ca60 100644
 --- a/build/components/App.js
 +++ b/build/components/App.js
 @@ -16,7 +16,7 @@ const escape = '\u001B';
@@ -62,7 +62,7 @@ index 80d4ab985d372ea3c28bf5a6ddac323b28d49a36..77839562455917e84fe4c299fcf7245f
  declare const CursorContext: import("react").Context<Props>;
  export default CursorContext;
 diff --git a/build/components/CursorContext.js b/build/components/CursorContext.js
-index 9f6efa3dcb74eb9317f0b870ce676b82d68c33b6..2ba2bc3bd5757a00855fe44751507d0b19bc69dd 100644
+index 9f6efa3dcb74eb9317f0b870ce676b82d68c33b6..aaa87c413eb5d19a7076c997e66954c72cfda9ed 100644
 --- a/build/components/CursorContext.js
 +++ b/build/components/CursorContext.js
 @@ -2,6 +2,7 @@ import { createContext } from 'react';
@@ -85,7 +85,7 @@ index fc2a8a2a5c70787fe365365fe3cacbacd5adf89f..4c878150d9ac852200597a8a5a18c059
  };
  export default useCursor;
 diff --git a/build/hooks/use-cursor.js b/build/hooks/use-cursor.js
-index e3bb1f9f5dede91dd38a00ba13d84fb22836e82f..c8e6cb67c7d90a5992beb877351228a55555ba40 100644
+index e3bb1f9f5dede91dd38a00ba13d84fb22836e82f..c0c7f1216410d02fa7114f75579b93377bbd672d 100644
 --- a/build/hooks/use-cursor.js
 +++ b/build/hooks/use-cursor.js
 @@ -10,20 +10,26 @@ Pass `undefined` to hide the cursor.
@@ -116,6 +116,7 @@ index e3bb1f9f5dede91dd38a00ba13d84fb22836e82f..c8e6cb67c7d90a5992beb877351228a5
  };
  export default useCursor;
  //# sourceMappingURL=use-cursor.js.map
+\ No newline at end of file
 diff --git a/build/ink.d.ts b/build/ink.d.ts
 index 5e3eb90fdc38d26f489be61c79858eb9ee5c4061..b0dcff2ea526d07341d64abab9e7c0b25ab8e1a0 100644
 --- a/build/ink.d.ts
@@ -130,10 +131,18 @@ index 5e3eb90fdc38d26f489be61c79858eb9ee5c4061..b0dcff2ea526d07341d64abab9e7c0b2
      calculateLayout: () => void;
      onRender: () => void;
 diff --git a/build/ink.js b/build/ink.js
-index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856edef3d8a8 100644
+index 30019a073d38ed05dca08f6221af187c429a536b..5634527f7b389b306571cf1d761ce80bc7bc2f60 100644
 --- a/build/ink.js
 +++ b/build/ink.js
-@@ -88,6 +88,7 @@ export default class Ink {
+@@ -16,6 +16,7 @@ import render from './renderer.js';
+ import * as dom from './dom.js';
+ import logUpdate from './log-update.js';
+ import { bsu, esu, shouldSynchronize } from './write-synchronized.js';
++import { renderViewport, commitViewport } from './scrollback-renderer.js';
+ import instances from './instances.js';
+ import App from './components/App.js';
+ import { accessibilityContext as AccessibilityContext } from './components/AccessibilityContext.js';
+@@ -88,6 +89,7 @@ export default class Ink {
      options;
      log;
      cursorPosition;
@@ -141,7 +150,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
      throttledLog;
      isScreenReaderEnabled;
      // Ignore last render after unmounting a tree to prevent empty output before exit
-@@ -141,6 +142,7 @@ export default class Ink {
+@@ -141,6 +143,7 @@ export default class Ink {
          this.log = logUpdate.create(options.stdout, {
              incremental: options.incrementalRendering,
          });
@@ -149,7 +158,18 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          this.cursorPosition = undefined;
          this.throttledLog = unthrottled
              ? this.log
-@@ -205,12 +207,14 @@ export default class Ink {
+@@ -171,6 +174,9 @@ export default class Ink {
+         // This variable is used only in debug mode to store full static output
+         // so that it's rerendered every time, not just new static parts, like in non-debug mode
+         this.fullStaticOutput = '';
++        this.viewportLines = undefined;
++        this.viewportStart = undefined;
++        this.frozenLiveRows = 0;
+         // Use ConcurrentRoot for concurrent mode, LegacyRoot for legacy mode
+         const rootTag = options.concurrent ? ConcurrentRoot : LegacyRoot;
+         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+@@ -203,12 +209,17 @@ export default class Ink {
+     };
      resized = () => {
          const currentWidth = this.getTerminalWidth();
 -        if (currentWidth < this.lastTerminalWidth) {
@@ -162,6 +182,9 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
 +        // Drop the old, already-wrapped output before that render arrives.
 +        this.log.clear();
 +        this.fullStaticOutput = '';
++        this.viewportLines = undefined;
++        this.viewportStart = undefined;
++        this.frozenLiveRows = 0;
 +        this.options.stdout.write(ansiEscapes.clearTerminal);
 +        this.lastOutput = '';
 +        this.lastOutputToRender = '';
@@ -169,8 +192,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          this.calculateLayout();
          this.onRender();
          this.lastTerminalWidth = currentWidth;
-     };
-@@ -231,6 +235,26 @@ export default class Ink {
+@@ -231,6 +242,26 @@ export default class Ink {
          this.cursorPosition = position;
          this.log.setCursorPosition(position);
      };
@@ -197,7 +219,7 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
      restoreLastOutput = () => {
          // Clear() resets log-update's cursor state, so replay the latest cursor intent
          // before restoring output after external stdout/stderr writes.
-@@ -247,6 +271,7 @@ export default class Ink {
+@@ -247,6 +278,7 @@ export default class Ink {
          if (this.isUnmounted) {
              return;
          }
@@ -205,45 +227,81 @@ index 30019a073d38ed05dca08f6221af187c429a536b..a197929a176e05b076cd66d9d4da856e
          const startTime = performance.now();
          const { output, outputHeight, staticOutput } = render(this.rootNode, this.isScreenReaderEnabled);
          this.options.onRender?.({ renderTime: performance.now() - startTime });
-@@ -319,22 +344,33 @@ export default class Ink {
+@@ -312,29 +344,62 @@ export default class Ink {
+             }
+             return;
+         }
++        const previousStaticHeight = this.fullStaticOutput
++            ? this.fullStaticOutput.split('\n').length - 1 : 0;
+         if (hasStaticOutput) {
+             this.fullStaticOutput += staticOutput;
+         }
+         // Detect fullscreen: output fills or exceeds terminal height.
          // Only apply when writing to a real TTY — piped output always gets trailing newlines.
 -        const isFullscreen = this.options.stdout.isTTY && outputHeight >= this.options.stdout.rows;
 +        const staticHeight = this.fullStaticOutput ? this.fullStaticOutput.split('\n').length - 1 : 0;
 +        const isFullscreen = this.options.stdout.isTTY && staticHeight + outputHeight >= this.options.stdout.rows;
          const outputToRender = isFullscreen ? output : output + '\n';
 -        if (this.lastOutputHeight >= this.options.stdout.rows) {
-+        // A focus/style update keeps the same layout. Repainting it through
-+        // log-update avoids clearing and reprinting a full terminal screen.
-+        if (this.lastOutputHeight >= this.options.stdout.rows &&
-+            (hasStaticOutput || outputHeight !== this.lastOutputHeight)) {
++        if (hasStaticOutput && (this.viewportLines || this.lastOutputHeight >= this.options.stdout.rows)) {
              const sync = shouldSynchronize(this.options.stdout);
-             if (sync) {
-                 this.options.stdout.write(bsu);
-             }
-             this.options.stdout.write(ansiEscapes.clearTerminal + this.fullStaticOutput + output);
+-            if (sync) {
+-                this.options.stdout.write(bsu);
+-            }
+-            this.options.stdout.write(ansiEscapes.clearTerminal + this.fullStaticOutput + output);
++            if (sync) this.options.stdout.write(bsu);
++            this.options.stdout.write(commitViewport(staticOutput, output,
++                this.options.stdout.rows, previousStaticHeight, this.lastOutputHeight,
++                this.frozenLiveRows));
++            this.log.setCursorPosition(this.cursorPosition);
++            this.log.sync(output);
++            if (sync) this.options.stdout.write(esu);
++            this.viewportLines = undefined;
++            this.viewportStart = undefined;
++            this.frozenLiveRows = 0;
              this.lastOutput = output;
 -            this.lastOutputToRender = outputToRender;
 +            this.lastOutputToRender = output;
++            this.lastOutputHeight = outputHeight;
++            return;
++        }
++        if (!hasStaticOutput && (outputHeight >= this.options.stdout.rows ||
++            this.lastOutputHeight >= this.options.stdout.rows || this.viewportLines)) {
++            const previousStart = this.viewportStart ?? Math.max(0,
++                previousStaticHeight + this.lastOutputHeight - this.options.stdout.rows);
++            const frame = renderViewport(this.fullStaticOutput, output,
++                this.options.stdout.rows, this.viewportLines, this.cursorPosition,
++                staticHeight, previousStart);
++            const sync = shouldSynchronize(this.options.stdout);
++            if (sync) this.options.stdout.write(bsu);
++            this.options.stdout.write(frame.sequence);
++            this.log.setCursorPosition(frame.cursorPosition);
++            this.log.sync(frame.visibleOutput);
++            if (sync) this.options.stdout.write(esu);
++            this.viewportLines = frame.lines;
++            this.viewportStart = frame.start;
++            this.frozenLiveRows += frame.evictedLiveRows;
++            this.lastOutput = output;
++            this.lastOutputToRender = frame.visibleOutput;
              this.lastOutputHeight = outputHeight;
 -            this.log.sync(outputToRender);
-+            // clearTerminal wrote `output` without a trailing newline. Keep
-+            // log-update's cursor origin in sync with the actual terminal.
-+            this.log.sync(output);
-             if (sync) {
-                 this.options.stdout.write(esu);
-             }
+-            if (sync) {
+-                this.options.stdout.write(esu);
+-            }
              return;
          }
++        this.viewportLines = undefined;
++        this.viewportStart = undefined;
          // To ensure static output is cleanly rendered before main output, clear main output first
 +        // A cursor-only update must keep the exact bytes last written. In
-+        // particular, the fullscreen clear above writes no final newline.
++        // particular, a viewport write has no final newline.
 +        const outputForLog = !hasStaticOutput && output === this.lastOutput && this.lastOutputToRender
 +            ? this.lastOutputToRender
 +            : outputToRender;
          if (hasStaticOutput) {
              const sync = shouldSynchronize(this.options.stdout);
              if (sync) {
-@@ -349,15 +384,15 @@ export default class Ink {
+@@ -349,15 +414,15 @@ export default class Ink {
          }
          else if (output !== this.lastOutput || this.log.isCursorDirty()) {
              // ThrottledLog manages its own bsu/esu at actual write time
@@ -275,7 +333,7 @@ index a7393554c2cbaa57edb1a604c1829773a3f77328..29e7063f86695d303ac1928915d9848d
      willRender: (str: string) => boolean;
      (str: string): boolean;
 diff --git a/build/log-update.js b/build/log-update.js
-index 73e297d0185fa4861c33eaa11761d1418588f0c9..409c82b81b22b5c1b812bd867f5131cef16f4539 100644
+index 73e297d0185fa4861c33eaa11761d1418588f0c9..4efd9ff34b448e863b198151298e687d6c4fd88f 100644
 --- a/build/log-update.js
 +++ b/build/log-update.js
 @@ -12,7 +12,8 @@ const createStandard = (stream, { showCursor = false } = {}) => {
@@ -348,6 +406,7 @@ index 73e297d0185fa4861c33eaa11761d1418588f0c9..409c82b81b22b5c1b812bd867f5131ce
      render.willRender = (str) => hasChanges(str, getActiveCursor());
      return render;
 diff --git a/build/renderer.js b/build/renderer.js
+index bf232469cfbd949f7d0717b4084623e1dbc21f1d..1a4b905b214d5fd5501f1c786bca495445b83d7f 100644
 --- a/build/renderer.js
 +++ b/build/renderer.js
 @@ -1,3 +1,4 @@
@@ -355,7 +414,7 @@ diff --git a/build/renderer.js b/build/renderer.js
  import renderNodeToOutput, { renderNodeToScreenReaderOutput, } from './render-node-to-output.js';
  import Output from './output.js';
  const renderer = (node, isScreenReaderEnabled) => {
-@@ -28,9 +29,13 @@
+@@ -28,9 +29,13 @@ const renderer = (node, isScreenReaderEnabled) => {
          });
          let staticOutput;
          if (node.staticNode?.yogaNode) {
@@ -370,3 +429,74 @@ diff --git a/build/renderer.js b/build/renderer.js
              });
              renderNodeToOutput(node.staticNode, staticOutput, {
                  skipStaticElements: false,
+diff --git a/build/scrollback-renderer.js b/build/scrollback-renderer.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..61ec120a65bccb2a8755de3c333b2177a21f2542
+--- /dev/null
++++ b/build/scrollback-renderer.js
+@@ -0,0 +1,65 @@
++// Repaint only the terminal viewport. Old transcript rows in native scrollback
++// must never be cleared or replayed during streaming updates.
++export function renderViewport(staticOutput, output, rows, previous, cursorPosition, staticHeight, previousStart) {
++    const dynamicLines = output.split('\n');
++    const totalLines = staticHeight + dynamicLines.length;
++    const start = Math.max(0, totalLines - rows);
++    const scrollRows = Math.max(0, start - previousStart);
++    let staticTail = '';
++    const neededStaticRows = Math.max(0, rows + scrollRows - dynamicLines.length);
++    if (neededStaticRows > 0) {
++        let cut = staticOutput.length;
++        for (let count = 0; count <= neededStaticRows; count++) {
++            cut = staticOutput.lastIndexOf('\n', cut - 1);
++            if (cut < 0) break;
++        }
++        staticTail = staticOutput.slice(cut + 1);
++    }
++    const all = (staticTail + output).split('\n');
++    const base = totalLines - all.length;
++    const lines = all.slice(-rows);
++    while (lines.length < rows) lines.unshift('');
++    const writes = [];
++    let painted = previous;
++    const paint = (next) => {
++        for (let row = 0; row < rows; row++) {
++            if (next[row] !== painted?.[row]) {
++                writes.push(`\x1b[${row + 1};1H\x1b[2K${next[row] ?? ''}`);
++            }
++        }
++        painted = next;
++    };
++    for (let step = 1; step <= scrollRows; step++) {
++        writes.push(`\x1b[${rows};1H\n`);
++        painted = painted ? [...painted.slice(1), ''] : undefined;
++        const intermediateStart = previousStart + step - base;
++        const intermediate = all.slice(intermediateStart, intermediateStart + rows);
++        while (intermediate.length < rows) intermediate.push('');
++        paint(intermediate);
++    }
++    paint(lines);
++    // log-update's cursor suffix expects the physical cursor on the last row.
++    writes.push(`\x1b[${rows};1H`);
++    const absoluteY = staticHeight + (cursorPosition?.y ?? 0);
++    const localY = absoluteY - start + Math.max(0, rows - totalLines);
++    return {
++        lines,
++        start,
++        evictedLiveRows: Math.max(0, start - Math.max(previousStart, staticHeight)),
++        sequence: writes.join(''),
++        visibleOutput: lines.join('\n'),
++        cursorPosition: cursorPosition && localY >= 0 && localY < rows
++            ? { x: cursorPosition.x, y: localY }
++            : undefined,
++    };
++}
++
++// Replace the old live area with its final Static text. Completed text is
++// appended once, while earlier static rows remain in the native scrollback.
++export function commitViewport(staticOutput, output, rows, staticHeight, liveHeight, frozenLiveRows) {
++    const offset = Math.max(0, staticHeight + liveHeight - rows);
++    const firstLiveRow = Math.max(0, staticHeight - offset);
++    const lines = staticOutput.split('\n');
++    const remaining = lines.slice(Math.min(frozenLiveRows, lines.length - 1)).join('\n');
++    return `\x1b[${firstLiveRow + 1};1H\x1b[0J${remaining}${output}`;
++}

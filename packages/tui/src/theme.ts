@@ -5,7 +5,7 @@ export const theme = {
   user: "#7aa2f7",
   text: "white",
   muted: "gray",
-  thinking: "#9d7cd8",
+  thinking: "white",
   success: "#8ec07c",
   error: "#e06c75",
   warn: "#e5c07b",

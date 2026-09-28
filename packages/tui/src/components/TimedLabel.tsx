@@ -12,7 +12,7 @@ export function TimedLabel({ children, duration }: { children: ReactNode; durati
     <Box>
       <Box flexShrink={0}>{children}</Box>
       <Box flexGrow={1} minWidth={0}>
-        <Text color={theme.thinking} dimColor wrap="truncate-end">
+        <Text color={theme.thinking} wrap="truncate-end">
           {" · "}
           {duration}
         </Text>

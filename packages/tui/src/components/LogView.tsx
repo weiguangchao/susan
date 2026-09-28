@@ -46,7 +46,7 @@ export function ReasoningBlock({ text, duration }: { text: string; duration: Rea
       <TimedLabel duration={duration}>
         <Text color={theme.thinking}>{glyphs.thinking} Thinking</Text>
       </TimedLabel>
-      <Text color={theme.thinking} dimColor italic>
+      <Text color={theme.muted} italic>
         {text}
       </Text>
     </Box>

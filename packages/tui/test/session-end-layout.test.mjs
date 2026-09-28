@@ -49,9 +49,10 @@ test("completed reply remains above the footer on a 24-row terminal", async () =
     await waitFor(() => frames.join("").includes("ask susan to do something", frames.join("").lastIndexOf("Here is what the tool returned")));
 
     const bytes = frames.join("");
-    const clear = bytes.lastIndexOf("\x1b[2J");
-    assert.notEqual(clear, -1, "completed run should repaint the full terminal");
-    const plain = bytes.slice(clear).replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07)/g, "");
+    assert.doesNotMatch(bytes, /\x1b\[3J/, "completing a run must preserve scrollback");
+    const commit = bytes.lastIndexOf("\x1b[0J");
+    assert.notEqual(commit, -1, "completed run should replace its live region");
+    const plain = bytes.slice(commit).replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07)/g, "");
     const lines = plain.split("\n");
     const answer = lines.findIndex((line) => line.includes("Here is what the tool returned"));
     const footer = lines.findIndex((line) => line.includes("ask susan to do something"));

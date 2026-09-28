@@ -7,8 +7,11 @@ import { after, before, describe, it } from "node:test";
 import {
   Agent,
   buildSystemPrompt,
+  grepTool,
   loadSkills,
+  lsTool,
   readTool,
+  writeTool,
 } from "../dist/index.js";
 
 let tmp;
@@ -34,6 +37,7 @@ before(async () => {
     'name: code-review\ndescription: "Review \\"since X\\" changes."\nmetadata:\n  author: someone',
   );
   await writeSkill("folded", "name: folded\ndescription: >\n  First line\n  second line.");
+  await writeSkill("renamed", "name: other-name\ndescription: Named by its directory.");
   await writeSkill("manual", "name: manual\ndescription: User only.\ndisable-model-invocation: true");
   await fs.mkdir(path.join(skillsDir, "no-skill-file"));
   await fs.writeFile(path.join(tmp, "secret.txt"), "nope");
@@ -44,58 +48,57 @@ after(async () => {
 });
 
 describe("skills", () => {
-  it("loads model-invocable skills sorted by name", () => {
+  it("loads model-invocable skills sorted and named by directory", () => {
     assert.deepEqual(loadSkills(skillsDir), [
-      {
-        name: "code-review",
-        description: 'Review "since X" changes.',
-        file: path.join(skillsDir, "code-review", "SKILL.md"),
-      },
-      {
-        name: "folded",
-        description: "First line second line.",
-        file: path.join(skillsDir, "folded", "SKILL.md"),
-      },
-      {
-        name: "tdd",
-        description: "Test-driven development.",
-        file: path.join(skillsDir, "tdd", "SKILL.md"),
-      },
+      { name: "code-review", description: 'Review "since X" changes.' },
+      { name: "folded", description: "First line second line." },
+      { name: "renamed", description: "Named by its directory." },
+      { name: "tdd", description: "Test-driven development." },
     ]);
     assert.deepEqual(loadSkills(path.join(tmp, "missing")), []);
   });
 
-  it("puts the skills directory and index in the system prompt", () => {
+  it("puts the skill path pattern and index in the system prompt", () => {
     const system = buildSystemPrompt({
       root,
-      tools: [],
       skills: { dir: skillsDir, list: loadSkills(skillsDir) },
     });
-    assert.match(system, new RegExp(`Skills are loaded from ${skillsDir}\\.`));
-    assert.ok(
-      system.includes(
-        `- tdd: Test-driven development. (file: ${path.join(skillsDir, "tdd", "SKILL.md")})`,
-      ),
-    );
+    assert.ok(system.includes(`lives at ${path.join(skillsDir, "<name>", "SKILL.md")}`));
+    assert.match(system, /^- tdd: Test-driven development\.$/m);
     assert.ok(!system.includes("- manual:"));
-    assert.ok(!buildSystemPrompt({ root, tools: [] }).includes("# Skills"));
+    assert.ok(!buildSystemPrompt({ root }).includes("# Skills"));
   });
 
-  it("lets read open skill files but nothing else outside the root", async () => {
+  it("lets read-only tools open the skills dir but nothing else outside the root", async () => {
     const ctx = { root, readOnlyRoots: [skillsDir], signal: new AbortController().signal };
-    const skill = await readTool.run(
-      readTool.parse({ path: path.join(skillsDir, "manual", "SKILL.md") }),
-      ctx,
-    );
+    const run = (tool, input) => tool.run(tool.parse(input), ctx);
+    const manual = path.join(skillsDir, "manual", "SKILL.md");
+
+    const skill = await run(readTool, { path: manual });
     assert.equal(skill.ok, true);
     assert.match(skill.content, /Body of manual\./);
 
-    const outside = await readTool.run(
-      readTool.parse({ path: path.join(tmp, "secret.txt") }),
-      ctx,
-    );
-    assert.equal(outside.ok, false);
-    assert.match(outside.content, /escapes the project root/);
+    const listed = await run(lsTool, { path: skillsDir });
+    assert.equal(listed.ok, true, listed.content);
+    assert.match(listed.content, new RegExp(`^${path.join(skillsDir, "manual")}/$`, "m"));
+
+    const found = await run(grepTool, { pattern: "Body of manual", path: skillsDir });
+    assert.equal(found.ok, true, found.content);
+    assert.ok(found.content.startsWith(`${manual}:7:`), found.content);
+
+    const written = await run(writeTool, { path: manual, content: "changed" });
+    assert.equal(written.ok, false);
+    assert.match(written.content, /escapes the project root/);
+
+    for (const [tool, input] of [
+      [readTool, { path: path.join(tmp, "secret.txt") }],
+      [lsTool, { path: tmp }],
+      [grepTool, { pattern: "nope", path: tmp }],
+    ]) {
+      const outside = await run(tool, input);
+      assert.equal(outside.ok, false, tool.name);
+      assert.match(outside.content, /escapes the project root/);
+    }
   });
 
   it("wires skillsDir through the agent", async () => {

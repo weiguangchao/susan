@@ -65,7 +65,10 @@ export type Message = UserMessage | AssistantMessage;
 // Tools
 // ---------------------------------------------------------------------------
 
-/** Tool impact classification, available to clients inspecting the tool list. */
+/**
+ * Tool impact classification. The loop runs adjacent `safe` calls in parallel
+ * and every other call alone, in the order the model gave them.
+ */
 export type ToolRisk = "safe" | "write" | "exec";
 
 export interface ToolContext {

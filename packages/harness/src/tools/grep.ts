@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { displayPath, isIgnored, resolveInRoot } from "../paths.js";
+import { displayPath, isIgnored, resolveReadable } from "../paths.js";
 import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
 
 import { preview } from "./preview.js";
@@ -83,7 +83,7 @@ export const grepTool = defineTool({
   name: "grep",
   description:
     "Search file contents with a JavaScript regular expression. Returns " +
-    "`file:line: text` for each match. Use `include` to narrow by glob, e.g. '*.ts'.",
+    "`file:line: text` for each match.",
   risk: "safe",
   schema: z.object({
     pattern: z.string().min(1),
@@ -100,7 +100,9 @@ export const grepTool = defineTool({
       },
       path: {
         type: "string",
-        description: "Directory to search, relative to the project root. Defaults to '.'.",
+        description:
+          "Directory to search, relative to the project root. Skill directories " +
+          "take an absolute path. Defaults to '.'.",
       },
       include: {
         type: "string",
@@ -116,7 +118,7 @@ export const grepTool = defineTool({
   async run(input, ctx) {
     let target: string;
     try {
-      target = resolveInRoot(ctx.root, input.path ?? ".");
+      target = resolveReadable(ctx.root, input.path ?? ".", ctx.readOnlyRoots);
     } catch (error) {
       return fail((error as Error).message);
     }

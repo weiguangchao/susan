@@ -3,10 +3,9 @@ import os from "node:os";
 import path from "node:path";
 
 export interface Skill {
+  /** The skill's directory name, so its file is always `<dir>/<name>/SKILL.md`. */
   name: string;
   description: string;
-  /** Absolute path to the skill's SKILL.md. */
-  file: string;
 }
 
 export function resolveSkillsDir(): string {
@@ -40,11 +39,7 @@ export function loadSkills(dir: string): Skill[] {
     }
     const meta = parseFrontmatter(raw);
     if (meta["disable-model-invocation"] === "true") continue;
-    skills.push({
-      name: meta.name || entry,
-      description: meta.description ?? "",
-      file,
-    });
+    skills.push({ name: entry, description: meta.description ?? "" });
   }
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }

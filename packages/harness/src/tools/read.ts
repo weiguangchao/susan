@@ -11,7 +11,7 @@ export const readTool = defineTool({
   name: "read",
   description:
     "Read a text file from the project. Returns the contents with line numbers. " +
-    "Use `offset`/`limit` for large files. Always read a file before editing it.",
+    "Use `offset`/`limit` for large files.",
   risk: "safe",
   schema: z.object({
     path: z.string().min(1),

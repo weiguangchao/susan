@@ -30,8 +30,12 @@ function isInside(base: string, target: string): boolean {
   return !(rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel));
 }
 
-/** Display form of a path: relative to root, so the UI stays readable. */
+/**
+ * Display form of a path: relative to root so the UI stays readable, absolute
+ * for paths in a read-only root outside it.
+ */
 export function displayPath(root: string, absolute: string): string {
+  if (!isInside(root, absolute)) return absolute;
   const rel = path.relative(root, absolute);
   return rel === "" ? "." : rel;
 }

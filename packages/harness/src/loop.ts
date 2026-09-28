@@ -1,14 +1,13 @@
-import { preview } from "./tools/preview.js";
+import { executeTools } from "./execute-tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { Session, SessionStore } from "./session/index.js";
 import { loadSkills } from "./skills.js";
-import { builtinTools, toolByName } from "./tools/index.js";
+import { builtinTools } from "./tools/index.js";
 import { estimateTokens } from "./usage.js";
 import type {
   AgentEvent,
   ModelProvider,
   Tool,
-  ToolResultBlock,
   ToolUseBlock,
   TurnFinal,
   Usage,
@@ -25,11 +24,6 @@ export interface AgentOptions {
   sessionHome?: string;
   /** Load skills from this directory into the system prompt; read may open it. */
   skillsDir?: string;
-}
-
-interface ExecutedTool {
-  block: ToolResultBlock;
-  event: Extract<AgentEvent, { type: "tool_result" }>;
 }
 
 function withMeasuredTurn(total: Usage, turn: Usage | null): Usage {
@@ -76,7 +70,6 @@ export class Agent {
     this.#readOnlyRoots = skillsDir ? [skillsDir] : [];
     this.#system = buildSystemPrompt({
       root: this.root,
-      tools: this.tools,
       skills: skillsDir ? { dir: skillsDir, list: loadSkills(skillsDir) } : undefined,
     });
   }
@@ -255,10 +248,11 @@ export class Agent {
           return;
         }
 
-        const executed: ExecutedTool[] = yield* this.#executeTools(
-          toolUses,
-          controller.signal,
-        );
+        const executed = yield* executeTools(toolUses, this.tools, {
+          root: this.root,
+          readOnlyRoots: this.#readOnlyRoots,
+          signal: controller.signal,
+        });
 
         if (controller.signal.aborted) {
           yield { type: "done", reason: "aborted" };
@@ -283,105 +277,4 @@ export class Agent {
       this.#abort = null;
     }
   }
-
-  /**
-   * Parse, then run valid tool calls concurrently.
-   */
-  async *#executeTools(
-    toolUses: ToolUseBlock[],
-    signal: AbortSignal,
-  ): AsyncGenerator<AgentEvent, ExecutedTool[]> {
-    const pending: Array<() => Promise<ExecutedTool>> = [];
-    const settled: ExecutedTool[] = [];
-
-    for (const use of toolUses) {
-      const tool = toolByName(this.tools, use.name);
-      if (!tool) {
-        settled.push(
-          errorResult(use, `unknown tool: ${use.name}`, "unknown tool"),
-        );
-        continue;
-      }
-
-      // The model's input is untrusted - validate before it reaches the tool.
-      let input: unknown;
-      try {
-        input = tool.parse(use.input);
-      } catch (error) {
-        const message = (error as Error).message;
-        yield { type: "tool_call", id: use.id, name: use.name, summary: message };
-        settled.push(errorResult(use, message, "invalid input"));
-        continue;
-      }
-
-      const summary = tool.summarize(input);
-      yield { type: "tool_call", id: use.id, name: use.name, summary };
-
-      pending.push(async () => {
-        try {
-          const result = await tool.run(input, {
-            root: this.root,
-            readOnlyRoots: this.#readOnlyRoots,
-            signal,
-          });
-          return {
-            block: {
-              type: "tool_result",
-              toolUseId: use.id,
-              content: result.content,
-              isError: !result.ok,
-            },
-            event: {
-              type: "tool_result",
-              id: use.id,
-              name: use.name,
-              ok: result.ok,
-              display: result.display,
-              summary: result.summary ?? summary,
-              preview: result.preview ?? preview(result.content),
-            },
-          };
-        } catch (error) {
-          // A tool throwing is a bug, but the loop must still answer every
-          // tool_use block or the next request is malformed.
-          const message = (error as Error).message;
-          return errorResult(use, `tool crashed: ${message}`, "crashed");
-        }
-      });
-    }
-
-    const ran = await Promise.all(pending.map((task) => task()));
-    const byId = new Map<string, ExecutedTool>();
-    for (const item of [...settled, ...ran]) {
-      byId.set(item.block.toolUseId, item);
-    }
-
-    // Results must line up with the tool_use blocks that asked for them.
-    return toolUses
-      .map((use) => byId.get(use.id))
-      .filter((item): item is ExecutedTool => item !== undefined);
-  }
-}
-
-function errorResult(
-  use: ToolUseBlock,
-  content: string,
-  display: string,
-): ExecutedTool {
-  return {
-    block: {
-      type: "tool_result",
-      toolUseId: use.id,
-      content,
-      isError: true,
-    },
-    event: {
-      type: "tool_result",
-      id: use.id,
-      name: use.name,
-      ok: false,
-      display,
-      preview: preview(content),
-    },
-  };
 }

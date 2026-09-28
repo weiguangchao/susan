@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { displayPath, isIgnored, resolveInRoot } from "../paths.js";
+import { displayPath, isIgnored, resolveReadable } from "../paths.js";
 import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
 
 import { preview } from "./preview.js";
@@ -70,7 +70,9 @@ export const lsTool = defineTool({
     properties: {
       path: {
         type: "string",
-        description: "Directory to list, relative to the project root. Defaults to '.'.",
+        description:
+          "Directory to list, relative to the project root. Skill directories take " +
+          "an absolute path. Defaults to '.'.",
       },
       depth: {
         type: "number",
@@ -85,7 +87,7 @@ export const lsTool = defineTool({
   async run(input, ctx) {
     let target: string;
     try {
-      target = resolveInRoot(ctx.root, input.path ?? ".");
+      target = resolveReadable(ctx.root, input.path ?? ".", ctx.readOnlyRoots);
     } catch (error) {
       return fail((error as Error).message);
     }

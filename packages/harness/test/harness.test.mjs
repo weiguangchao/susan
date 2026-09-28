@@ -272,6 +272,47 @@ describe("automatic tool execution", () => {
       assert.equal(results.length, uses.length);
     }
   });
+
+  /** Asks for `calls` ([id, name, input]) in one turn, then answers "done". */
+  function oneTurnOf(calls) {
+    let turns = 0;
+    return {
+      id: "scripted", label: "scripted",
+      stream() {
+        const first = ++turns === 1;
+        const content = first
+          ? calls.map(([id, name, input]) => ({ type: "tool_use", id, name, input }))
+          : [{ type: "text", text: "done" }];
+        return {
+          async *[Symbol.asyncIterator]() {},
+          final: async () => ({ content, stopReason: first ? "tool_use" : "end_turn",
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 } }),
+        };
+      },
+    };
+  }
+
+  it("lands both edits when one turn edits the same file twice", async () => {
+    await fs.writeFile(path.join(root, "twice.txt"), "alpha\nbeta\n");
+    const run = await collect(makeAgent(oneTurnOf([
+      ["a", "edit", { path: "twice.txt", old_string: "alpha", new_string: "ALPHA" }],
+      ["b", "edit", { path: "twice.txt", old_string: "beta", new_string: "BETA" }],
+    ])), "edit twice");
+    assert.deepEqual(run.tools.map((t) => [t.id, t.ok]), [["a", true], ["b", true]]);
+    assert.equal(await fs.readFile(path.join(root, "twice.txt"), "utf8"), "ALPHA\nBETA\n");
+  });
+
+  it("lets a read see an edit made earlier in the same turn", async () => {
+    await fs.writeFile(path.join(root, "seen.txt"), "before\n");
+    const agent = makeAgent(oneTurnOf([
+      ["e", "edit", { path: "seen.txt", old_string: "before", new_string: "after" }],
+      ["r", "read", { path: "seen.txt" }],
+    ]));
+    await collect(agent, "edit then read");
+    const [, read] = agent.session.messages[2].content;
+    assert.equal(read.toolUseId, "r");
+    assert.match(read.content, /after/);
+  });
 });
 
 describe("tool sandbox", () => {

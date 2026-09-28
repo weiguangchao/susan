@@ -1,6 +1,7 @@
 import {
   Agent,
   cacheHitRate,
+  resolveSkillsDir,
   resolveSusanHome,
   type ModelProvider,
 } from "@susan/harness";
@@ -20,6 +21,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     root: options.root,
     provider: options.provider,
     sessionHome: resolveSusanHome(),
+    skillsDir: resolveSkillsDir(),
   });
 
   let failed = false;

@@ -71,6 +71,8 @@ export type ToolRisk = "safe" | "write" | "exec";
 export interface ToolContext {
   /** Directory the agent was launched in; every path is resolved against it. */
   root: string;
+  /** Directories outside the root that read-only tools may also open. */
+  readOnlyRoots?: readonly string[];
   signal: AbortSignal;
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import {
   Agent,
+  resolveSkillsDir,
   resolveSusanHome,
   type ModelProvider,
 } from "@susan/harness";
@@ -80,6 +81,7 @@ export function useAgent(options: UseAgentOptions): AgentView {
         root: options.root,
         provider: options.provider,
         sessionHome: resolveSusanHome(),
+        skillsDir: resolveSkillsDir(),
       }),
   );
 

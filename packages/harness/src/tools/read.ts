@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
-import { resolveInRoot } from "../paths.js";
+import { resolveReadable } from "../paths.js";
 import { defineTool, fail, ok, truncate, MAX_RESULT_CHARS, RESULT_CAP_NOTICE } from "./define.js";
 
 import { preview } from "./preview.js";
@@ -23,7 +23,8 @@ export const readTool = defineTool({
     properties: {
       path: {
         type: "string",
-        description: "File path, relative to the project root.",
+        description:
+          "File path, relative to the project root. Skill files take an absolute path.",
       },
       offset: {
         type: "number",
@@ -44,7 +45,7 @@ export const readTool = defineTool({
   async run(input, ctx) {
     let target: string;
     try {
-      target = resolveInRoot(ctx.root, input.path);
+      target = resolveReadable(ctx.root, input.path, ctx.readOnlyRoots);
     } catch (error) {
       return fail((error as Error).message);
     }

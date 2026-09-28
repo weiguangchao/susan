@@ -1,18 +1,20 @@
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { Skill } from "./skills.js";
 import type { Tool } from "./types.js";
 
 export interface PromptContext {
   root: string;
   tools: Tool[];
+  skills?: { dir: string; list: Skill[] };
 }
 
 /**
  * The system prompt is the cacheable prefix of every request, so it holds only
  * stable facts - nothing per-turn, nothing with a timestamp in it.
  */
-export function buildSystemPrompt({ root, tools }: PromptContext): string {
+export function buildSystemPrompt({ root, tools, skills }: PromptContext): string {
   let projectInstructions = "";
   try {
     projectInstructions = readFileSync(path.join(root, "AGENTS.md"), "utf8");
@@ -22,6 +24,9 @@ export function buildSystemPrompt({ root, tools }: PromptContext): string {
   const toolList = tools
     .map((tool) => `- ${tool.name}: ${tool.description.split(".")[0]}.`)
     .join("\n");
+  const skillsBlock = skills?.list.length
+    ? `\n\n${skillsSection(skills.dir, skills.list)}`
+    : "";
 
   return `You are susan, a coding agent running in a terminal UI.
 
@@ -56,5 +61,20 @@ ${toolList}
 - When you change files, say what changed and where, as \`path:line\` when a
   specific line matters.
 - If tests fail or you skipped a step, say so plainly. Never claim something
-  works when you have not checked.${projectInstructions.trim() ? `\n\n# Project instructions (AGENTS.md)\n${projectInstructions}` : ""}`;
+  works when you have not checked.${skillsBlock}${projectInstructions.trim() ? `\n\n# Project instructions (AGENTS.md)\n${projectInstructions}` : ""}`;
+}
+
+function skillsSection(dir: string, list: Skill[]): string {
+  const entries = list
+    .map((skill) => `- ${skill.name}: ${skill.description} (file: ${skill.file})`)
+    .join("\n");
+  return `# Skills
+Skills are loaded from ${dir}. A skill is a directory with a SKILL.md that holds
+instructions for one kind of task. When a request matches a skill below, read
+its SKILL.md with the read tool before acting, then follow it. If the user names
+a skill that is not listed, read ${path.join(dir, "<name>", "SKILL.md")}.
+Relative paths inside a skill resolve against its directory. Skill files are
+read-only; pass their absolute path to read.
+
+${entries}`;
 }

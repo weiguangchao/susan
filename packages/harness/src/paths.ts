@@ -6,13 +6,28 @@ import path from "node:path";
  */
 export function resolveInRoot(root: string, candidate: string): string {
   const target = path.resolve(root, candidate);
-  const rel = path.relative(root, target);
-  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) {
+  if (!isInside(root, target)) {
     throw new Error(
       `path escapes the project root: ${candidate} (root is ${root})`,
     );
   }
   return target;
+}
+
+/** Like resolveInRoot, but also accepts paths inside any read-only root. */
+export function resolveReadable(
+  root: string,
+  candidate: string,
+  readOnlyRoots: readonly string[] = [],
+): string {
+  const target = path.resolve(root, candidate);
+  if (readOnlyRoots.some((extra) => isInside(extra, target))) return target;
+  return resolveInRoot(root, candidate);
+}
+
+function isInside(base: string, target: string): boolean {
+  const rel = path.relative(base, target);
+  return !(rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel));
 }
 
 /** Display form of a path: relative to root, so the UI stays readable. */

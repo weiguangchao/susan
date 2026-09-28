@@ -3,7 +3,8 @@ export { cacheHitRate } from "./usage.js";
 export { Agent, type AgentOptions } from "./loop.js";
 export { Session, SessionStore, resolveSusanHome } from "./session/index.js";
 export { buildSystemPrompt } from "./prompt.js";
-export { displayPath, resolveInRoot } from "./paths.js";
+export { loadSkills, resolveSkillsDir, type Skill } from "./skills.js";
+export { displayPath, resolveInRoot, resolveReadable } from "./paths.js";
 export { writeFileAtomic } from "./atomic-write.js";
 export {
   builtinTools,

@@ -1,6 +1,7 @@
 import { preview } from "./tools/preview.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { Session, SessionStore } from "./session/index.js";
+import { loadSkills } from "./skills.js";
 import { builtinTools, toolByName } from "./tools/index.js";
 import { estimateTokens } from "./usage.js";
 import type {
@@ -22,6 +23,8 @@ export interface AgentOptions {
   maxTurns?: number;
   /** Persist conversation messages under this Susan home directory. */
   sessionHome?: string;
+  /** Load skills from this directory into the system prompt; read may open it. */
+  skillsDir?: string;
 }
 
 interface ExecutedTool {
@@ -58,6 +61,7 @@ export class Agent {
   #abort: AbortController | null = null;
   #sessionHome?: string;
   #store?: SessionStore;
+  #readOnlyRoots: string[];
 
   constructor(options: AgentOptions) {
     this.root = options.root;
@@ -68,7 +72,13 @@ export class Agent {
     if (this.#sessionHome) {
       this.#store = new SessionStore(this.#sessionHome, this.root);
     }
-    this.#system = buildSystemPrompt({ root: this.root, tools: this.tools });
+    const skillsDir = options.skillsDir;
+    this.#readOnlyRoots = skillsDir ? [skillsDir] : [];
+    this.#system = buildSystemPrompt({
+      root: this.root,
+      tools: this.tools,
+      skills: skillsDir ? { dir: skillsDir, list: loadSkills(skillsDir) } : undefined,
+    });
   }
 
   get provider(): ModelProvider {
@@ -309,7 +319,11 @@ export class Agent {
 
       pending.push(async () => {
         try {
-          const result = await tool.run(input, { root: this.root, signal });
+          const result = await tool.run(input, {
+            root: this.root,
+            readOnlyRoots: this.#readOnlyRoots,
+            signal,
+          });
           return {
             block: {
               type: "tool_result",

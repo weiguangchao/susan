@@ -27,6 +27,9 @@ export interface AppProps {
 type SpacerEntry = { kind: "spacer"; id: "spacer"; rows: number };
 type StaticEntry = { kind: "banner"; id: "banner" } | SpacerEntry | LogItem;
 const footerRows = 5; // Composer: 3, StatusBar: 2.
+// Static is absolutely positioned and would otherwise shrink to its content,
+// so rows would neither wrap at the terminal edge nor fill it.
+const staticStyle = { width: "100%" } as const;
 
 export function App({ root, provider, mocked, selection, inputHistory }: AppProps) {
   const { exit } = useApp();
@@ -87,7 +90,7 @@ export function App({ root, provider, mocked, selection, inputHistory }: AppProp
 
   return (
     <Box flexDirection="column">
-      <Static key={resizeVersion} items={staticEntries}>
+      <Static key={resizeVersion} items={staticEntries} style={staticStyle}>
         {(entry) =>
           entry.kind === "banner" ? (
             <Banner

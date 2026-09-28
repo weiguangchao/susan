@@ -40,7 +40,8 @@ export async function startApp(provider, prompt, { columns = 100, ready = /ask s
     write(chunk, _encoding, callback) {
       const frame = String(chunk);
       output.push(frame);
-      if (frame.includes("test-model")) frames.push(frame);
+      // Every App frame draws the composer prompt; other writes are bare escapes.
+      if (frame.includes("❯")) frames.push(frame);
       callback();
     },
   });
@@ -64,7 +65,7 @@ export async function startApp(provider, prompt, { columns = 100, ready = /ask s
 
   await waitForFrame(frames, ready);
   stdin.write(prompt);
-  await waitForFrame(frames, new RegExp(`› ${prompt}`));
+  await waitForFrame(frames, new RegExp(`❯ ${prompt}`));
   // Ink swaps in the composer's input handler in an effect that can land after
   // the frame, so the first enter may reach a handler that still sees an empty
   // box. Enter on an empty box is ignored, so pressing it again is safe.

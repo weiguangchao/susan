@@ -2,7 +2,7 @@
 export const theme = {
   accent: "#d97757",
   accentDim: "#8a4f38",
-  user: "#7aa2f7",
+  userBackground: "#373737",
   text: "white",
   muted: "gray",
   thinking: "white",
@@ -13,11 +13,10 @@ export const theme = {
 } as const;
 
 export const glyphs = {
-  prompt: "›",
+  prompt: "❯",
   bullet: "⏺",
   pending: "◌",
-  ok: "✔",
-  fail: "✖",
+  toolStatus: "●",
   thinking: "✳",
 } as const;
 

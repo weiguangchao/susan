@@ -12,11 +12,15 @@ function ToolRow({ item }: { item: ToolItem }) {
   const hidden = preview.totalLines - preview.lines.length;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text wrap="wrap">
-        <Text color={theme.text} bold>{item.name}</Text>
-        <Text color={theme.muted}>{item.summary ? ` ${item.summary}` : ""} </Text>
-        <Text color={failed ? theme.error : theme.success}>{failed ? glyphs.fail : glyphs.ok}</Text>
-      </Text>
+      <Box>
+        <Box flexShrink={0}>
+          <Text color={failed ? theme.error : theme.success}>{glyphs.toolStatus} </Text>
+        </Box>
+        <Text wrap="wrap">
+          <Text color={theme.text} bold>{item.name}</Text>
+          <Text color={theme.muted}>{item.summary ? ` ${item.summary}` : ""}</Text>
+        </Text>
+      </Box>
       <Box flexDirection="column" marginLeft={4}>
         {preview.lines.map((line, index) => (
           <Box key={index}>
@@ -57,11 +61,13 @@ export function LogEntry({ item }: { item: LogItem }) {
   switch (item.kind) {
     case "user":
       return (
-        <Box marginBottom={1}>
-          <Text color={theme.user} bold>
-            {glyphs.prompt}{" "}
-          </Text>
-          <Text color={theme.user}>{item.text}</Text>
+        <Box marginBottom={1} backgroundColor={theme.userBackground}>
+          <Box flexShrink={0}>
+            <Text color={theme.text} bold>
+              {glyphs.prompt}{" "}
+            </Text>
+          </Box>
+          <Text color={theme.text}>{item.text}</Text>
         </Box>
       );
 

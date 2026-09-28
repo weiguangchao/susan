@@ -129,13 +129,16 @@ export function Composer({ isActive, terminalFocused = true, placeholder, initia
   const after = value.slice(cursor + 1);
   const empty = value.length === 0;
 
+  // Rules above and below only, so the prompt glyph lines up with the
+  // submitted prompts in the transcript.
   return (
     <Box
-      borderStyle="round"
-      borderColor={isActive ? theme.accent : theme.border}
-      paddingX={1}
+      borderStyle="single"
+      borderLeft={false}
+      borderRight={false}
+      borderColor={isActive ? theme.text : theme.border}
     >
-      <Text color={isActive ? theme.accent : theme.border}>
+      <Text color={isActive ? theme.text : theme.border}>
         {glyphs.prompt}{" "}
       </Text>
       {empty && !isActive ? (

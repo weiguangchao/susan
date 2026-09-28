@@ -45,15 +45,15 @@ test("partial read appears only when complete, keeps source numbers and canonica
     assert.doesNotMatch(waiting, /preparing|read|sample.txt/);
     provider.pending.release();
     const complete = await waitForFrame(app.frames, /Finished\./);
-    assert.match(complete, /read sample.txt:L3-9 ✔/);
-    assert.match(complete, /read sample.txt:L3-9 ✔\n    3 three\n    4 four\n    5 five\n    6 six\n    7 seven\n    … 2L · Total 7L/);
+    assert.match(complete, /● read sample.txt:L3-9/);
+    assert.match(complete, /● read sample.txt:L3-9\n    3 three\n    4 four\n    5 five\n    6 six\n    7 seven\n    … 2L · Total 7L/);
     assert.doesNotMatch(complete, /8 eight/);
     const results = provider.requests[1].messages.at(-1).content;
     assert.deepEqual(results, [{ type: "tool_result", toolUseId: "read1", isError: false,
       content: "3\tthree\n4\tfour\n5\tfive\n6\tsix\n7\tseven\n8\teight\n9\tnine\n\n... [1 more lines]" }]);
     provider.answer.release();
     const done = await waitForFrame(app.frames, /ask susan to do something/);
-    assert.match(done, /read sample.txt:L3-9 ✔/);
+    assert.match(done, /● read sample.txt:L3-9/);
     assert.doesNotMatch(done, /Working/);
   } finally {
     provider.pending.release(); provider.answer.release(); await app.stop();
@@ -69,8 +69,8 @@ test("write and edit preview the captured file contents across consecutive turns
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /write created.txt.*✔\n    1 alpha\n    2 beta\n    3 gamma\n    4 delta\n    5 epsilon\n    … 3L · Total 8L/);
-    assert.match(frame, /edit created.txt ✔\n    4 delta\n    5 epsilon\n    6 changed\n    7 inserted\n    8 eta\n    … 4L · Total 9L/);
+    assert.match(frame, /● write created.txt.*\n    1 alpha\n    2 beta\n    3 gamma\n    4 delta\n    5 epsilon\n    … 3L · Total 8L/);
+    assert.match(frame, /● edit created.txt\n    4 delta\n    5 epsilon\n    6 changed\n    7 inserted\n    8 eta\n    … 4L · Total 9L/);
     assert.equal(provider.requests[1].messages.at(-1).content[0].content, "Created created.txt (8 lines, 45 bytes).");
     assert.equal(provider.requests[2].messages.at(-1).content[0].content, "Replaced 1 occurrence in created.txt.");
     assert.ok(frame.indexOf("write created.txt") < frame.indexOf("edit created.txt"));
@@ -93,9 +93,9 @@ test("batched ls, grep and bash keep call order and compact unnumbered output", 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /✔\n    out-one\n    out-two\n    \[stderr\]\n    err-one/);
-    assert.match(frame, /ls files ✔\n    files\/a.txt \(15 bytes\)/);
-    assert.match(frame, /grep \/match\/ in files ✔\n    files\/a.txt: match A\n    files\/a.txt: match B/);
+    assert.match(frame, /● bash sleep .*\n    out-one\n    out-two\n    \[stderr\]\n    err-one/);
+    assert.match(frame, /● ls files\n    files\/a.txt \(15 bytes\)/);
+    assert.match(frame, /● grep \/match\/ in files\n    files\/a.txt: match A\n    files\/a.txt: match B/);
     assert.doesNotMatch(frame, /Total/);
     assert.ok(frame.indexOf("bash sleep") < frame.indexOf("ls files"));
     assert.ok(frame.indexOf("ls files") < frame.indexOf("grep /match/"));
@@ -130,15 +130,15 @@ test("empty outcomes and rejected file calls remain readable without gutters or 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /read empty.txt ✔\n    \(file is empty\)/);
-    assert.match(frame, /write new.txt \(0 lines\) ✔\n    \(file is empty\)/);
-    assert.match(frame, /edit erase.txt ✔\n    \(file is empty\)/);
-    assert.match(frame, /ls empty ✔\n    \(empty directory\)/);
-    assert.match(frame, /grep \/absent\/ in empty ✔\n    No matches/);
-    assert.match(frame, /bash true ✔\n    \(no output\)/);
-    assert.match(frame, /read missing.txt ✖\n    Error: file not found: missing.txt/);
+    assert.match(frame, /● read empty.txt\n    \(file is empty\)/);
+    assert.match(frame, /● write new.txt \(0 lines\)\n    \(file is empty\)/);
+    assert.match(frame, /● edit erase.txt\n    \(file is empty\)/);
+    assert.match(frame, /● ls empty\n    \(empty directory\)/);
+    assert.match(frame, /● grep \/absent\/ in empty\n    No matches/);
+    assert.match(frame, /● bash true\n    \(no output\)/);
+    assert.match(frame, /● read missing.txt\n    Error: file not found: missing.txt/);
     assert.match(frame, /invalid input for write/);
-    assert.match(frame, /unknown ✖\n    unknown tool: unknown/);
+    assert.match(frame, /● unknown\n    unknown tool: unknown/);
     assert.doesNotMatch(frame, /Total|\n\s*\d+ /);
   } finally {
     provider.pending.release(); provider.answer.release(); await app.stop();
@@ -159,7 +159,7 @@ test("a running command stays invisible until interruption freezes a failure in 
     assert.doesNotMatch(app.frames.at(-1), /bash|touch started|preparing/);
     app.stdin.write("\x1b");
     const frame = await waitForFrame(app.frames, /ask susan to do something/);
-    assert.match(frame, /bash touch started; sleep 30 ✖\n    not finished/);
+    assert.match(frame, /● bash touch started; sleep 30\n    not finished/);
     assert.match(frame, /interrupted/);
     assert.doesNotMatch(frame, /Working|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
   } finally {
@@ -173,7 +173,7 @@ test("capped command output counts retained logical lines and preserves its cap 
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /✔\n    1\n    2\n    3\n    4\n    5\n    … 9995L · Total 10000L\n    … \[tool output truncated at 30000 characters\]/);
+    assert.match(frame, /● bash printf .*\n    1\n    2\n    3\n    4\n    5\n    … 9995L · Total 10000L\n    … \[tool output truncated at 30000 characters\]/);
     assert.match(frame, /tool output truncated at 30000 characters/);
     assert.match(provider.requests[1].messages.at(-1).content[0].content, /truncated \d+ characters/);
   } finally {
@@ -188,11 +188,11 @@ test("long source lines wrap, stay bounded and reflow with the completed transcr
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /read long.txt:L1-1 ✔/);
+    assert.match(frame, /● read long.txt:L1-1/);
     assert.match(frame, /1 word word/);
     assert.match(frame, /long preview lines clipped/);
     assert.doesNotMatch(frame, /Total/);
-    for (const line of frame.slice(frame.indexOf("› inspect")).split("\n")) assert.ok(line.length <= 40, `overwide row: ${line}`);
+    for (const line of frame.slice(frame.indexOf("❯ inspect")).split("\n")) assert.ok(line.length <= 40, `overwide row: ${line}`);
     assert.ok(frame.length < 5000, "the preview does not retain an entire long source line");
     assert.equal(provider.requests[1].messages.at(-1).content[0].content.length, 5002);
     provider.answer.release();
@@ -200,12 +200,12 @@ test("long source lines wrap, stay bounded and reflow with the completed transcr
     const before = app.output.length;
     app.stdout.columns = 80;
     app.stdout.emit("resize");
-    for (let i = 0; !app.output.slice(before).join("").includes("read long.txt:L1-1 ✔"); i++) {
+    for (let i = 0; !app.output.slice(before).join("").includes("● read long.txt:L1-1"); i++) {
       assert.ok(i < 100); await new Promise(resolve => setTimeout(resolve, 10));
     }
-    const resized = app.output.slice(before).findLast(frame => frame.includes("read long.txt:L1-1 ✔"));
-    assert.match(resized, /read long.txt:L1-1 ✔/);
-    assert.equal(resized.split("read long.txt:L1-1 ✔").length - 1, 1);
+    const resized = app.output.slice(before).findLast(frame => frame.includes("● read long.txt:L1-1"));
+    assert.match(resized, /● read long.txt:L1-1/);
+    assert.equal(resized.split("● read long.txt:L1-1").length - 1, 1);
     assert.match(resized, /ask susan to do something/);
     for (const line of resized.split("\n")) assert.ok(line.length <= 80, JSON.stringify(line));
   } finally {
@@ -239,7 +239,7 @@ test("edit preview centers on the actual change inside a contextual replacement"
   try {
     provider.pending.release();
     const frame = await waitForFrame(app.frames, /Finished\./);
-    assert.match(frame, /edit context.txt ✔\n     9 i\n    10 j\n    11 new\n    12 k\n    13 l/);
+    assert.match(frame, /● edit context.txt\n     9 i\n    10 j\n    11 new\n    12 k\n    13 l/);
     assert.match(frame, /… 10L · Total 15L/);
   } finally {
     provider.pending.release(); provider.answer.release(); await app.stop();

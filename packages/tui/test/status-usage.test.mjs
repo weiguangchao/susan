@@ -90,7 +90,7 @@ test("token usage stays visible while running and cache rate accumulates across 
     assert.doesNotMatch(initial, /cached \(|\b\d+ out\b/);
 
     stdin.write("hello");
-    await waitForFrame(frames, /› hello/);
+    await waitForFrame(frames, /❯ hello/);
     stdin.write("\r");
     await waitForFrame(frames, /working - esc to interrupt/);
     const running = await waitForFrame(frames, /[\d.]+k? \/ — \(—%\)/);
@@ -111,7 +111,7 @@ test("token usage stays visible while running and cache rate accumulates across 
     assert.doesNotMatch(completed, /\b\d+ out\b/);
 
     stdin.write("again");
-    await waitForFrame(frames, /› again/);
+    await waitForFrame(frames, /❯ again/);
     stdin.write("\r");
     const secondCompleted = await waitForFrame(frames, /42 \/ — \(—%\) cached \(25%\)/);
     assert.doesNotMatch(secondCompleted, /~\d/);

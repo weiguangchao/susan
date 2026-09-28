@@ -67,7 +67,7 @@ test("terminal focus changes the cursor fill and restores focus reporting on exi
     stdin.write("\x1b[O");
     const emptyBlurred = await waitForFrame(frames, /\x1b\[\?25h/, after);
     assert.doesNotMatch(emptyBlurred, /▯/);
-    assert.match(emptyBlurred, /\x1b\[5G/);
+    assert.match(emptyBlurred, /\x1b\[3G/);
     assert.ok(frames.includes("\x1b]12;#ffffff\x07"));
     after = frames.length;
     stdin.write("\x1b[I");
@@ -82,7 +82,7 @@ test("terminal focus changes the cursor fill and restores focus reporting on exi
     const blurred = await waitForFrame(frames, /\x1b\[\?25h/, after);
     assert.doesNotMatch(blurred, /▯/);
     assert.doesNotMatch(blurred, /\[O/);
-    assert.match(blurred, /\x1b\[8G/);
+    assert.match(blurred, /\x1b\[6G/);
 
     after = frames.length;
     stdin.write("\x1b[I");
@@ -119,7 +119,7 @@ test("unfocused cursor stays on the input row when streaming fills the terminal"
     await waitForFrame(frames, /line 7/, after);
     await waitForFrame(frames, /\x1b\[\?25h/, after);
     await new Promise((resolve) => setTimeout(resolve, 80));
-    const cursorMoves = [...frames.slice(after).join("").matchAll(/\x1b\[(\d+)A\x1b\[5G\x1b\[\?25h/g)]
+    const cursorMoves = [...frames.slice(after).join("").matchAll(/\x1b\[(\d+)A\x1b\[3G\x1b\[\?25h/g)]
       .map((match) => Number(match[1]));
     assert.ok(cursorMoves.length > 0);
     assert.deepEqual(cursorMoves, cursorMoves.map(() => 2));
@@ -133,7 +133,7 @@ test("unfocused cursor stays on the input row when streaming fills the terminal"
       await waitForFrame(frames, /\x1b\[\?25h/, after);
       const focusOutput = frames.slice(after).join("");
       assert.doesNotMatch(focusOutput, /\n|\x1b\[2J/);
-      assert.match(focusOutput, /\x1b\[2A\x1b\[5G\x1b\[\?25h/);
+      assert.match(focusOutput, /\x1b\[2A\x1b\[3G\x1b\[\?25h/);
     }
 
     after = frames.length;

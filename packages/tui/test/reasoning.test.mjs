@@ -77,7 +77,7 @@ test("reasoning streams in full, then stays in the transcript as its own block",
     const headers = done.match(/✳ Thinking · \d[\d.ms]*/g) ?? [];
     assert.equal(headers.length, 2, "each reasoning block keeps its own header");
     const first = done.indexOf(OPENING);
-    const tool = done.indexOf("ls . ✔");
+    const tool = done.indexOf("● ls .");
     const second = done.indexOf(SECOND);
     const answer = done.lastIndexOf(ANSWER);
     assert.ok(first >= 0 && tool > first, "first block sits above the tool row");
@@ -167,7 +167,7 @@ test("the working row stays on one line on a narrow terminal", async () => {
       };
     },
   };
-  const session = await startApp(provider, "why", { columns: 14, ready: /test-model/ });
+  const session = await startApp(provider, "why", { columns: 14, ready: /❯/ });
   try {
     const running = await waitForFrame(session.frames, /⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏/);
     const row = running.split("\n").find((line) => /Working/.test(line));
